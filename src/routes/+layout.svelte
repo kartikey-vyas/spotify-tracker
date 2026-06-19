@@ -6,9 +6,6 @@
     { href: '/', label: 'overview' },
     { href: '/explore/', label: 'explore' },
     { href: '/activity/', label: 'activity' },
-    { href: '/artists/', label: 'artists' },
-    { href: '/genres/', label: 'genres' },
-    { href: '/tracks/', label: 'tracks' },
     { href: '/about/', label: 'about' }
   ];
 </script>

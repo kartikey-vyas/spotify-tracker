@@ -1,9 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import BarChart from '$lib/components/BarChart.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
-  import TimelineChart from '$lib/components/TimelineChart.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
   import {
     bestAvailableMetric,
@@ -89,6 +87,32 @@
   function timelineDisplayMetric(rows: RankingRow[], selectedMetric: Metric): 'minutes' | 'plays' {
     return selectedMetric === 'plays' || bestAvailableMetric(rows) === 'plays' ? 'plays' : 'minutes';
   }
+
+  function timelineText(days: CalendarDay[], selectedMetric: 'minutes' | 'plays'): string {
+    const maxValue = Math.max(1, ...days.map((day) => dayValue(day, selectedMetric)));
+    return days.map((day) => glyph(dayValue(day, selectedMetric), maxValue)).join(' ');
+  }
+
+  function dayValue(day: CalendarDay, selectedMetric: 'minutes' | 'plays'): number {
+    return selectedMetric === 'plays' ? day.plays : day.minutes;
+  }
+
+  function glyph(value: number, maxValue: number): string {
+    if (value <= 0) return '.';
+    return ['.', '-', '=', '+', '#'][Math.min(4, Math.ceil((value / maxValue) * 4))];
+  }
+
+  function asciiBarRows(rows: RankingRow[], selectedMetric: Metric, limit = 12): string[] {
+    const chartRows = rows.slice(0, limit);
+    const maxValue = Math.max(1, ...chartRows.map((row) => metricValue(row, selectedMetric)));
+
+    return chartRows.map((row, index) => {
+      const value = metricValue(row, selectedMetric);
+      const filled = Math.max(0, Math.round((value / maxValue) * 24));
+      const bar = '#'.repeat(filled).padEnd(24, '-');
+      return `${String(index + 1).padStart(2, '0')} ${row.entity_name} [${bar}] ${formatMetric(value, selectedMetric)}`;
+    });
+  }
 </script>
 
 <section class="page">
@@ -158,7 +182,7 @@
 
       <section class="panel section-gap">
         <h2>Listening over time</h2>
-        <TimelineChart days={timeline} metric={timelineMetric} />
+        <pre class="ascii-list">{timelineText(timeline, timelineMetric)}</pre>
       </section>
     {/if}
 
@@ -169,7 +193,7 @@
       </div>
       <div class="panel">
         <h2>Distribution</h2>
-        <BarChart rows={rankings} {metric} />
+        <pre class="ascii-list">{asciiBarRows(rankings, metric).join('\n')}</pre>
       </div>
     </section>
   {/if}
@@ -183,5 +207,13 @@
 
   .section-gap {
     margin-top: 16px;
+  }
+
+  .ascii-list {
+    margin: 0;
+    overflow-x: auto;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 </style>

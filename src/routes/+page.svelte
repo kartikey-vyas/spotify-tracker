@@ -1,13 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import BarChart from '$lib/components/BarChart.svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
-  import ListeningCalendar from '$lib/components/ListeningCalendar.svelte';
-  import OverviewCard from '$lib/components/OverviewCard.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import { getPresetDateRange } from '$lib/dateRanges';
   import { publicSupabaseConfigured } from '$lib/supabase';
-  import { bestAvailableMetric, formatMetric, formatMinutes, metricLabel } from '$lib/metrics';
+  import {
+    bestAvailableMetric,
+    formatMetric,
+    formatMinutes,
+    metricLabel,
+    metricValue
+  } from '$lib/metrics';
   import { getOverview } from '$lib/queries/overview';
   import type { CalendarDay, Metric, OverviewPayload, RankingRow } from '$lib/types';
 
@@ -81,6 +84,55 @@
   function calendarDisplayMetric(days: CalendarDay[]): 'minutes' | 'plays' {
     return days.some((day) => day.minutes > 0) ? 'minutes' : 'plays';
   }
+
+  function summaryRows(): Array<{ label: string; value: string; detail: string }> {
+    if (!overview) return [];
+    return [
+      {
+        label: 'Today',
+        value: summaryValue(overview.today.minutes, todayPlays),
+        detail: overview.today.top_artist ?? 'No plays yet'
+      },
+      {
+        label: 'This week',
+        value: summaryValue(overview.this_week.minutes, weekPlays),
+        detail: overview.this_week.top_artists[0]?.entity_name ?? 'No plays yet'
+      },
+      {
+        label: 'Last 30 days',
+        value: summaryValue(overview.last_30_days.minutes, last30DaysPlays),
+        detail: overview.last_30_days.top_artists[0]?.entity_name ?? 'No plays yet'
+      },
+      {
+        label: 'Top genre',
+        value: overview.today.top_genre ?? 'Unknown',
+        detail: 'Today'
+      }
+    ];
+  }
+
+  function asciiBarRows(rows: RankingRow[], metric: Metric, limit = 8): string[] {
+    const chartRows = rows.slice(0, limit);
+    const maxValue = Math.max(1, ...chartRows.map((row) => metricValue(row, metric)));
+
+    return chartRows.map((row, index) => {
+      const value = metricValue(row, metric);
+      const filled = Math.max(0, Math.round((value / maxValue) * 24));
+      const bar = '#'.repeat(filled).padEnd(24, '-');
+      return `${String(index + 1).padStart(2, '0')} ${row.entity_name} [${bar}] ${formatMetric(value, metric)}`;
+    });
+  }
+
+  function calendarGlyph(day: CalendarDay, metric: 'minutes' | 'plays', maxValue: number): string {
+    const value = metric === 'plays' ? day.plays : day.minutes;
+    if (value <= 0) return '.';
+    return ['.', '-', '=', '+', '#'][Math.min(4, Math.ceil((value / maxValue) * 4))];
+  }
+
+  function calendarText(days: CalendarDay[], metric: 'minutes' | 'plays'): string {
+    const maxValue = Math.max(1, ...days.map((day) => (metric === 'plays' ? day.plays : day.minutes)));
+    return days.map((day) => calendarGlyph(day, metric, maxValue)).join('');
+  }
 </script>
 
 <section class="page">
@@ -119,10 +171,13 @@
     {/if}
 
     <section class="grid cols-4">
-      <OverviewCard label="Today" value={summaryValue(overview.today.minutes, todayPlays)} detail={overview.today.top_artist ?? 'No plays yet'} />
-      <OverviewCard label="This week" value={summaryValue(overview.this_week.minutes, weekPlays)} detail={overview.this_week.top_artists[0]?.entity_name ?? 'No plays yet'} />
-      <OverviewCard label="Last 30 days" value={summaryValue(overview.last_30_days.minutes, last30DaysPlays)} detail={overview.last_30_days.top_artists[0]?.entity_name ?? 'No plays yet'} />
-      <OverviewCard label="Top genre" value={overview.today.top_genre ?? 'Unknown'} detail="Today" />
+      {#each summaryRows() as row}
+        <section class="panel metric-card">
+          <span class="metric-label">{row.label}</span>
+          <strong>{row.value}</strong>
+          <p>{row.detail}</p>
+        </section>
+      {/each}
     </section>
 
     <section class="grid cols-2 section-gap">
@@ -131,7 +186,7 @@
           <h2>Top artists this week</h2>
           <span class="muted">{metricNote(artistMetric, overview.this_week.top_artists)}</span>
         </div>
-        <BarChart rows={overview.this_week.top_artists} metric={artistMetric} />
+        <pre class="ascii-list">{asciiBarRows(overview.this_week.top_artists, artistMetric).join('\n')}</pre>
       </div>
 
       <div class="panel">
@@ -139,7 +194,7 @@
           <h2>Top genres this week</h2>
           <span class="muted">{metricNote(genreMetric, overview.this_week.top_genres)}</span>
         </div>
-        <BarChart rows={overview.this_week.top_genres} metric={genreMetric} />
+        <pre class="ascii-list">{asciiBarRows(overview.this_week.top_genres, genreMetric).join('\n')}</pre>
       </div>
     </section>
 
@@ -156,7 +211,7 @@
         <h2>Listening calendar</h2>
         <span class="muted">Last 365 days by {metricLabel(calendarMetric).toLowerCase()}</span>
       </div>
-      <ListeningCalendar days={overview.calendar.last_365_days} metric={calendarMetric} />
+      <pre class="calendar-text">{calendarText(overview.calendar.last_365_days, calendarMetric)}</pre>
     </section>
   {/if}
 </section>
@@ -177,6 +232,38 @@
 
   .section-gap {
     margin-top: 16px;
+  }
+
+  .metric-card {
+    display: grid;
+    gap: 4px;
+  }
+
+  .metric-label {
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+
+  .metric-label::before {
+    content: "> ";
+  }
+
+  .metric-card strong {
+    font-size: 1rem;
+  }
+
+  .metric-card p,
+  .ascii-list,
+  .calendar-text {
+    color: var(--muted);
+  }
+
+  .ascii-list,
+  .calendar-text {
+    margin: 0;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .notice {
