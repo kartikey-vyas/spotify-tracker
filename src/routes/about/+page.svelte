@@ -30,7 +30,7 @@
     <div class="panel">
       <h2>Security</h2>
       <p class="muted">
-        The frontend receives only the public Supabase URL and anon key. Service credentials and Spotify refresh tokens are used only by local scripts or GitHub Actions.
+        The frontend receives only the public Supabase URL and publishable key. Secret keys and Spotify refresh tokens are used only by local scripts or GitHub Actions.
       </p>
     </div>
   </section>

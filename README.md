@@ -7,8 +7,8 @@ The architecture follows one rule: public read, private write.
 - Frontend: static SvelteKit app for GitHub Pages
 - Database: Supabase Postgres
 - Historical import: local TypeScript CLI with service credentials
-- Forward sync: GitHub Actions using Spotify refresh token and Supabase service role
-- Browser credentials: only `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY`
+- Forward sync: GitHub Actions using Spotify refresh token and Supabase secret key
+- Browser credentials: only `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
 ## Setup
 
@@ -16,11 +16,11 @@ The architecture follows one rule: public read, private write.
 2. Apply the SQL files in `supabase/migrations/` in order.
 3. Add GitHub repository variables:
    - `PUBLIC_SUPABASE_URL`
-   - `PUBLIC_SUPABASE_ANON_KEY`
+   - `PUBLIC_SUPABASE_PUBLISHABLE_KEY`
    - Optional: `PUBLIC_BASE_PATH` if the GitHub Pages base path should not be `/${repo-name}`
 4. Add GitHub Actions secrets:
    - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_SECRET_KEY`
    - `SPOTIFY_CLIENT_ID`
    - `SPOTIFY_CLIENT_SECRET`
    - `SPOTIFY_REFRESH_TOKEN`
@@ -48,7 +48,7 @@ The local importer reads `.env.local`:
 
 ```text
 SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_SECRET_KEY=
 ```
 
 It imports track events, skips podcast rows for v1, rebuilds daily rollups, refreshes recent public activity, and regenerates `overview_cache.public_home`.

@@ -35,7 +35,7 @@
   {#if !publicSupabaseConfigured}
     <section class="panel">
       <h2>Supabase is not configured</h2>
-      <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY to load public dashboard data.</p>
+      <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY to load public dashboard data.</p>
     </section>
   {:else if loading}
     <section class="panel"><p class="muted">Loading overview...</p></section>

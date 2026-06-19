@@ -4,7 +4,7 @@ import { requireEnv } from './env.js';
 export type AdminClient = SupabaseClient;
 
 export function createServiceClient(): AdminClient {
-  return createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'), {
+  return createClient(requireEnv('SUPABASE_URL'), requireEnv('SUPABASE_SECRET_KEY'), {
     auth: {
       persistSession: false,
       autoRefreshToken: false
