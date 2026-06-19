@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
+  import MetricCard from '$lib/components/MetricCard.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import { getPresetDateRange } from '$lib/dateRanges';
@@ -8,9 +9,10 @@
   import {
     bestAvailableMetric,
     formatMetric,
-    formatMinutes,
     metricLabel,
-    metricValue
+    metricValue,
+    summaryValue,
+    topArtistDetail
   } from '$lib/metrics';
   import { getPublicProfileOverview } from '$lib/queries/overview';
   import { getProfileRankings } from '$lib/queries/rankings';
@@ -162,10 +164,6 @@
       .reduce((total, day) => total + day.plays, 0);
   }
 
-  function summaryValue(minutes: number, plays: number): string {
-    return minutes > 0 ? formatMinutes(minutes) : `${plays.toLocaleString()} plays`;
-  }
-
   function metricNote(metric: Metric, rows: RankingRow[]): string {
     const apiOnlyPlays = rows.reduce((total, row) => total + row.unknown_duration_plays, 0);
     if (metric === 'plays' && apiOnlyPlays > 0) return 'API-only plays';
@@ -176,27 +174,23 @@
     return days.some((day) => day.minutes > 0) ? 'minutes' : 'plays';
   }
 
-  function artistDetail(name: string | null | undefined): { caption: string; detail: string } {
-    return name ? { caption: 'Top artist', detail: name } : { caption: '', detail: 'No plays yet' };
-  }
-
   function summaryRows(): Array<{ label: string; value: string; caption: string; detail: string }> {
     if (!overview) return [];
     return [
       {
         label: 'Today',
         value: summaryValue(overview.today.minutes, todayPlays),
-        ...artistDetail(overview.today.top_artist)
+        ...topArtistDetail(overview.today.top_artist)
       },
       {
         label: 'This week',
         value: summaryValue(overview.this_week.minutes, weekPlays),
-        ...artistDetail(overview.this_week.top_artists[0]?.entity_name)
+        ...topArtistDetail(overview.this_week.top_artists[0]?.entity_name)
       },
       {
         label: 'Last 30 days',
         value: summaryValue(overview.last_30_days.minutes, last30DaysPlays),
-        ...artistDetail(overview.last_30_days.top_artists[0]?.entity_name)
+        ...topArtistDetail(overview.last_30_days.top_artists[0]?.entity_name)
       },
       {
         label: 'Top genre (today)',
@@ -283,13 +277,7 @@
 
     <section class="grid cols-4">
       {#each summaryRows() as row}
-        <section class="panel metric-card">
-          <span class="metric-label">{row.label}</span>
-          <strong>{row.value}</strong>
-          {#if row.detail}
-            <p>{#if row.caption}<span class="metric-caption">{row.caption}</span>{/if}{row.detail}</p>
-          {/if}
-        </section>
+        <MetricCard label={row.label} value={row.value} caption={row.caption} detail={row.detail} />
       {/each}
     </section>
 
@@ -458,42 +446,9 @@
     margin-top: 16px;
   }
 
-  .metric-card {
-    display: grid;
-    gap: 4px;
-  }
-
-  .metric-label {
-    color: var(--muted);
-    font-size: 0.86rem;
-  }
-
-  .metric-label::before {
-    content: "> ";
-  }
-
-  .metric-card strong {
-    font-size: 1rem;
-  }
-
-  .metric-card p,
-  .calendar-text {
-    color: var(--muted);
-  }
-
-  .metric-caption {
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 0.72rem;
-    opacity: 0.7;
-  }
-
-  .metric-caption::after {
-    content: " · ";
-  }
-
   .calendar-text {
     margin: 0;
+    color: var(--muted);
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-word;

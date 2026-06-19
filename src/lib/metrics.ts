@@ -1,4 +1,4 @@
-import type { Metric, RankingRow } from './types';
+import type { Metric, OverviewPayload, RankingRow } from './types';
 
 export const metricOptions: Array<{ value: Metric; label: string }> = [
   { value: 'minutes', label: 'Minutes' },
@@ -77,4 +77,47 @@ export function sourceLabel(source: number): string {
   if (source === 2) return 'API';
   if (source === 3) return 'Player';
   return 'Unknown';
+}
+
+// Headline value for a summary card: listening time when we have exact
+// durations, otherwise the play-event count (API-only data carries no duration).
+export function summaryValue(minutes: number, plays: number): string {
+  return minutes > 0 ? formatMinutes(minutes) : `${plays.toLocaleString()} plays`;
+}
+
+// The secondary line on a summary card. Returns a caption so the top artist
+// reads as a separate fact ("Top artist · toe") rather than describing the
+// headline number.
+export function topArtistDetail(name: string | null | undefined): { caption: string; detail: string } {
+  return name ? { caption: 'Top artist', detail: name } : { caption: '', detail: 'No plays yet' };
+}
+
+export type SummaryCard = { label: string; value: string; caption: string; detail: string };
+
+function totalPlays(rows: RankingRow[]): number {
+  return rows.reduce((total, row) => total + row.plays, 0);
+}
+
+// The standard This week / Top genre / Last 30 days summary cards shared by the
+// /app and /profile headers. The homepage builds its own set (it adds a Today
+// card and derives play counts from the calendar).
+export function overviewSummaryCards(overview: OverviewPayload): SummaryCard[] {
+  return [
+    {
+      label: 'This week',
+      value: summaryValue(overview.this_week.minutes, totalPlays(overview.this_week.top_artists)),
+      ...topArtistDetail(overview.this_week.top_artists[0]?.entity_name)
+    },
+    {
+      label: 'Top genre (today)',
+      value: overview.today.top_genre ?? 'Unknown',
+      caption: '',
+      detail: ''
+    },
+    {
+      label: 'Last 30 days',
+      value: summaryValue(overview.last_30_days.minutes, totalPlays(overview.last_30_days.top_artists)),
+      ...topArtistDetail(overview.last_30_days.top_artists[0]?.entity_name)
+    }
+  ];
 }

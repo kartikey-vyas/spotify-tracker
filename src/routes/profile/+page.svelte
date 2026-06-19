@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
-  import { bestAvailableMetric, formatMinutes, metricLabel } from '$lib/metrics';
+  import MetricCard from '$lib/components/MetricCard.svelte';
+  import { bestAvailableMetric, metricLabel, overviewSummaryCards } from '$lib/metrics';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import { getPublicProfileOverview } from '$lib/queries/overview';
   import { getPublicProfile } from '$lib/queries/profile';
@@ -15,6 +16,7 @@
   let error = '';
 
   $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists) : 'plays';
+  $: summaryCards = overview ? overviewSummaryCards(overview) : [];
 
   onMount(async () => {
     slug = new URLSearchParams(window.location.search).get('slug') ?? '';
@@ -66,29 +68,9 @@
     </div>
 
     <section class="grid cols-3 section-gap">
-      <section class="panel metric-card">
-        <span class="metric-label">This week</span>
-        <strong>
-          {overview.this_week.minutes > 0
-            ? formatMinutes(overview.this_week.minutes)
-            : `${overview.this_week.top_artists.reduce((total, row) => total + row.plays, 0)} plays`}
-        </strong>
-        <p>{overview.this_week.top_artists[0]?.entity_name ?? 'No plays yet'}</p>
-      </section>
-      <section class="panel metric-card">
-        <span class="metric-label">Top genre</span>
-        <strong>{overview.today.top_genre ?? 'Unknown'}</strong>
-        <p>today</p>
-      </section>
-      <section class="panel metric-card">
-        <span class="metric-label">Last 30 days</span>
-        <strong>
-          {overview.last_30_days.minutes > 0
-            ? formatMinutes(overview.last_30_days.minutes)
-            : `${overview.last_30_days.top_artists.reduce((total, row) => total + row.plays, 0)} plays`}
-        </strong>
-        <p>{overview.last_30_days.top_artists[0]?.entity_name ?? 'No plays yet'}</p>
-      </section>
+      {#each summaryCards as card}
+        <MetricCard label={card.label} value={card.value} caption={card.caption} detail={card.detail} />
+      {/each}
     </section>
 
     <section class="panel section-gap">
@@ -115,14 +97,5 @@
     margin-top: 16px;
   }
 
-  .metric-card {
-    display: grid;
-    gap: 4px;
-  }
-
-  .metric-label {
-    color: var(--muted);
-    font-size: 0.86rem;
-  }
 </style>
 
