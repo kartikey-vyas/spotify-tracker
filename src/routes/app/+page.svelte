@@ -42,8 +42,12 @@
     }
 
     const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     if (params.get('spotify') === 'connected') message = 'Spotify connected.';
     if (params.get('spotify') === 'error') error = params.get('message') ?? 'Spotify connection failed.';
+    if (hashParams.get('error')) {
+      error = hashParams.get('error_description') ?? hashParams.get('error') ?? 'Authentication failed.';
+    }
 
     supabase.auth.getSession().then(async ({ data }) => {
       session = data.session;
@@ -66,6 +70,10 @@
     return window.location.origin;
   }
 
+  function appUrl(): string {
+    return `${locationOrigin()}${base}/app/`;
+  }
+
   async function loadUserData(): Promise<void> {
     if (!supabase || !session?.user) {
       profile = null;
@@ -86,7 +94,13 @@
 
     const result =
       mode === 'signup'
-        ? await supabase.auth.signUp({ email, password })
+        ? await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              emailRedirectTo: appUrl()
+            }
+          })
         : await supabase.auth.signInWithPassword({ email, password });
 
     if (result.error) {
@@ -130,7 +144,7 @@
 
     const { data, error: invokeError } = await supabase.functions.invoke('spotify-connect', {
       body: {
-        redirectTo: `${window.location.origin}${base}/app/`
+        redirectTo: appUrl()
       }
     });
 
