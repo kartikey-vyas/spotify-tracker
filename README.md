@@ -1,19 +1,19 @@
 # Spotify History Explorer
 
-A static SvelteKit dashboard for public, read-only Spotify listening history exploration.
+A static SvelteKit dashboard for public, read-only Spotify listening history exploration across selected public profiles.
 
 The architecture follows one rule: public read, private write.
 
 - Frontend: static SvelteKit app for GitHub Pages
 - Database: Supabase Postgres
-- Historical import: local TypeScript CLI with service credentials
-- Forward sync: GitHub Actions calls a secret-key-protected Supabase Edge Function
+- Historical import: local TypeScript CLI with service credentials, usually scoped to a Supabase Auth user
+- Forward sync: GitHub Actions calls a service-key-protected Supabase Edge Function every 15 minutes
 - Browser credentials: only `PUBLIC_SUPABASE_URL` and a public Supabase key
 
 ## Setup
 
 1. Create a Supabase project.
-2. Apply the SQL files in `supabase/migrations/` in order.
+2. Apply migrations with `supabase db push`.
 3. Add GitHub repository variables:
    - `PUBLIC_SUPABASE_URL`
    - `PUBLIC_SUPABASE_PUBLISHABLE_KEY`
@@ -27,21 +27,38 @@ The architecture follows one rule: public read, private write.
    - `SPOTIFY_CLIENT_SECRET`
    - `SPOTIFY_TOKEN_ENCRYPTION_KEY`
    - `SITE_URL`
-6. Install dependencies:
+6. Configure Supabase Auth URL settings:
+   - Site URL: `https://kartikey-vyas.github.io/spotify-tracker/app/`
+   - Redirect URL: `https://kartikey-vyas.github.io/spotify-tracker/app/`
+7. Configure the Spotify app redirect URI exactly:
+   - `https://<project-ref>.supabase.co/functions/v1/spotify-callback`
+8. Install dependencies:
 
 ```bash
 pnpm install
 ```
 
-7. Run the app locally:
+9. Run the app locally:
 
 ```bash
 pnpm dev
 ```
 
-## Invite-only Friends Mode
+## Current Public Flow
 
-Friends mode adds private per-user data while keeping the site static and publicly readable where users opt in.
+The public homepage reads from `public_profile_overview`, not from the old anonymous `public_home` cache. It defaults to the `kartikey` slug and lets visitors switch between public profiles. A profile only appears there when `profiles.is_public = true` and a user-specific overview cache exists.
+
+Public profile URLs still work directly:
+
+```text
+/profile/?slug=kartikey
+```
+
+The default homepage slug is set in `src/routes/+page.svelte` as `defaultSlug`.
+
+## Invite-only User Mode
+
+Invite-only mode adds private per-user data while keeping the site static and publicly readable where users opt in.
 
 Apply migrations, deploy Edge Functions, and set Edge Function secrets:
 
@@ -54,17 +71,17 @@ supabase functions deploy spotify-callback --no-verify-jwt
 supabase functions deploy sync-due-users --no-verify-jwt
 ```
 
+`complete-onboarding` and `spotify-connect` require a logged-in Supabase user. `spotify-callback` is public because Spotify redirects to it. `sync-due-users` is public at the JWT layer but checks the service key itself.
+
 Create an invite code locally:
 
 ```bash
 pnpm invite:create --label=friend --max-uses=1
 ```
 
-Friends sign in at `/app/`, complete onboarding with the invite code, then connect Spotify. Public profiles use:
+Invite codes are stored as SHA-256 hashes in Supabase. The plaintext code is only printed by the creation command, so copy it when it is generated.
 
-```text
-/profile/?slug=their-slug
-```
+Users sign in at `/app/`, complete onboarding with the invite code, then connect Spotify. They can make their profile public/private from the app dashboard.
 
 ### How it works
 
@@ -75,7 +92,7 @@ The browser is still a static SvelteKit app. It only receives `PUBLIC_SUPABASE_U
 3. The `complete-onboarding` Edge Function validates the invite code and creates `profiles` plus initial `sync_state`.
 4. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
 5. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
-6. GitHub Actions calls `sync-due-users` with `SUPABASE_SECRET_KEY`.
+6. GitHub Actions calls `sync-due-users` with `SUPABASE_SECRET_KEY` on the `7,22,37,52 * * * *` cron.
 7. `sync-due-users` finds stale enabled users, decrypts each refresh token, fetches recently played tracks, inserts `listening_events` with that user's `user_id`, refreshes that user's rollups, and updates their overview cache.
 
 User-specific rows live under `user_id`:
@@ -112,8 +129,8 @@ That lets two users listen to the same track at the same time without colliding.
 
 ```text
 anon:
-  can read legacy public dashboard rows
   can read public profile views where profiles.is_public = true
+  cannot read archived legacy user_id = null rows
   cannot write
 
 authenticated user:
@@ -125,21 +142,19 @@ Edge Functions/service key:
   owns invite validation, Spotify token exchange, scheduled sync, event inserts, and rollup refreshes
 ```
 
-Existing single-user public data remains as legacy rows with `user_id = null`, so the public homepage keeps working during the multi-user transition.
+The old single-user public rows remain in the database with `user_id = null`, but they are archived with `archived_at` and hidden from the public read path. They are recoverable, not physically deleted.
 
 ## Local Import
 
 Put Spotify Extended Streaming History JSON files somewhere ignored by git, for example `data/`, then run:
 
 ```bash
-pnpm import:spotify-export ./data/Streaming_History_Audio_*.json
-```
-
-For a friends-mode user, pass their Supabase Auth user ID:
-
-```bash
 pnpm import:spotify-export --user-id=<auth-user-uuid> ./data/Streaming_History_Audio_*.json
 ```
+
+The `--user-id` value is the Supabase Auth user ID for the profile that should receive the imported events. The importer refreshes that user's rollups, recent activity, and `overview_cache` row.
+
+Running the importer without `--user-id` writes legacy `user_id = null` rows. That path is kept for old/manual recovery workflows, but it no longer feeds the public homepage.
 
 The local importer reads `.env.local`:
 
@@ -148,25 +163,38 @@ SUPABASE_URL=
 SUPABASE_SECRET_KEY=
 ```
 
-It imports track events, skips podcast rows for v1, rebuilds daily rollups, refreshes recent public activity, and regenerates `overview_cache.public_home`.
+It imports track events, skips podcast rows for v1, and rebuilds user-scoped public stats.
 
-## Spotify Refresh Token
+## Spotify OAuth
 
-The old single-user local auth helper still exists for legacy/manual sync. For friends mode, register this Spotify redirect URI instead:
+Current user connections go through Supabase Edge Functions. Register this Spotify redirect URI:
 
 ```text
 https://<project-ref>.supabase.co/functions/v1/spotify-callback
 ```
 
-Then each user connects Spotify from `/app/`. The refresh token is encrypted inside the Edge Function before it is stored.
+Then users connect Spotify from `/app/`. The refresh token is encrypted inside the Edge Function before it is stored in `spotify_connections`.
 
-For the legacy helper, set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` locally, register `http://127.0.0.1:5179/callback` as a Spotify redirect URI, then run:
+The old single-user local auth helper still exists for legacy/manual sync experiments:
+
+```text
+http://127.0.0.1:5179/callback
+```
+
+Set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` locally, then run:
 
 ```bash
 pnpm spotify:auth
 ```
 
-Store the printed refresh token as `SPOTIFY_REFRESH_TOKEN` only if you keep using the legacy single-user sync scripts.
+Store the printed refresh token as `SPOTIFY_REFRESH_TOKEN` only if you keep using the legacy single-user scripts.
+
+## GitHub Workflows
+
+- `deploy.yml`: builds and deploys the static site to GitHub Pages on `main` pushes.
+- `sync-recently-played.yml`: runs every 15 minutes and calls `sync-due-users`.
+- `enrich-metadata.yml`: manual-only metadata enrichment. It is not scheduled because Spotify metadata endpoints were returning 403 for the current credentials.
+- `refresh-rollups.yml`: manual legacy workflow. The anonymous `refresh_public_stats` path is intentionally a no-op after archiving the old `user_id = null` feed.
 
 ## Commands
 
@@ -174,12 +202,22 @@ Store the printed refresh token as `SPOTIFY_REFRESH_TOKEN` only if you keep usin
 pnpm build
 pnpm check
 pnpm test
+pnpm typecheck
+pnpm invite:create --label=friend --max-uses=1
+pnpm import:spotify-export --user-id=<auth-user-uuid> ./data/Streaming_History_Audio_*.json
+pnpm db:size
+```
+
+Legacy/manual commands still present in `package.json`:
+
+```bash
+pnpm spotify:auth
 pnpm sync:recently-played
 pnpm enrich:metadata
 pnpm refresh:rollups
-pnpm invite:create --label=friend
-pnpm db:size
 ```
+
+Do not use the legacy null-user commands for the current public homepage. The current sync path is `sync-due-users`.
 
 ## Data Semantics
 
@@ -193,4 +231,4 @@ Dates are bucketed in `Australia/Melbourne`; weeks start Monday.
 
 ## Security
 
-Authenticated users can read their own user-scoped rollups, overview cache, sync state, and raw listening events. They cannot directly insert/update listening events. Anon users can read legacy public data and public profile views where `profiles.is_public = true`; no anon writes are granted. Spotify refresh tokens are only handled by Edge Functions and are encrypted before storage.
+Authenticated users can read their own user-scoped rollups, overview cache, sync state, and raw listening events. They cannot directly insert/update listening events. Anon users can read public profile views where `profiles.is_public = true`; no anon writes are granted. Archived `user_id = null` rows are hidden from anon access. Spotify refresh tokens are only handled by Edge Functions and are encrypted before storage.
