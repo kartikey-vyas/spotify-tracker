@@ -198,9 +198,9 @@ Store the printed refresh token as `SPOTIFY_REFRESH_TOKEN` only if you keep usin
 ## GitHub Workflows
 
 - `deploy.yml`: builds and deploys the static site to GitHub Pages on `main` pushes.
-- `sync-recently-played.yml`: runs every 15 minutes and calls `sync-due-users`.
 - `enrich-metadata.yml`: manual-only metadata enrichment. It is not scheduled because Spotify metadata endpoints were returning 403 for the current credentials.
-- `refresh-rollups.yml`: manual legacy workflow. The anonymous `refresh_public_stats` path is intentionally a no-op after archiving the old `user_id = null` feed.
+
+The recently-played sync no longer runs from GitHub Actions: a Supabase Cron job (`pg_cron` + `pg_net`, see `supabase/migrations/*_schedule_sync_due_users_cron.sql`) calls the `sync-due-users` Edge Function every 15 minutes.
 
 ## Commands
 
@@ -220,7 +220,6 @@ Legacy/manual commands still present in `package.json`:
 pnpm spotify:auth
 pnpm sync:recently-played
 pnpm enrich:metadata
-pnpm refresh:rollups
 ```
 
 Do not use the legacy null-user commands for the current public homepage. The current sync path is `sync-due-users`.

@@ -18,7 +18,6 @@
     "import:spotify-export": "tsx scripts/import-spotify-export.ts",
     "sync:recently-played": "tsx scripts/sync-recently-played.ts",
     "enrich:metadata": "tsx scripts/enrich-metadata.ts",
-    "refresh:rollups": "tsx scripts/refresh-rollups.ts",
     "invite:create": "tsx scripts/create-invite-code.ts",
     "db:size": "tsx scripts/db-size.ts"
   },

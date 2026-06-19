@@ -28,7 +28,7 @@ pnpm import:spotify-export --user-id=<auth-user-uuid> ./data/Streaming_History_A
 pnpm db:size
 ```
 
-`spotify:auth`, `sync:recently-played`, `enrich:metadata`, `refresh:rollups` are **legacy single-user / manual** commands that write `user_id = null` rows. Do not use them for the current public homepage — current sync is the `sync-due-users` Edge Function.
+`spotify:auth`, `sync:recently-played`, `enrich:metadata` are **legacy single-user / manual** commands that write `user_id = null` rows. Do not use them for the current public homepage — current sync is the `sync-due-users` Edge Function.
 
 ## Three separate runtimes — do not mix them
 
