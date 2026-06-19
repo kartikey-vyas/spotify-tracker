@@ -23,7 +23,6 @@
   let message = '';
   let error = '';
 
-  let mode: 'signin' | 'signup' = 'signin';
   let email = '';
   let password = '';
   let inviteCode = '';
@@ -92,24 +91,15 @@
     error = '';
     message = '';
 
-    const result =
-      mode === 'signup'
-        ? await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              emailRedirectTo: appUrl()
-            }
-          })
-        : await supabase.auth.signInWithPassword({ email, password });
+    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (result.error) {
-      error = result.error.message;
+    if (authError) {
+      error = authError.message;
       return;
     }
 
-    session = result.data.session;
-    message = mode === 'signup' && !session ? 'Check your email to finish sign-up.' : 'Signed in.';
+    session = data.session;
+    message = 'Signed in.';
     await loadUserData();
   }
 
@@ -200,10 +190,8 @@
 
     {#if !session}
       <section class="panel auth-panel">
-        <div class="tabs">
-          <button class:active={mode === 'signin'} type="button" on:click={() => (mode = 'signin')}>sign in</button>
-          <button class:active={mode === 'signup'} type="button" on:click={() => (mode = 'signup')}>sign up</button>
-        </div>
+        <h2>Sign in</h2>
+        <p class="muted">Invite-only access.</p>
 
         <form on:submit|preventDefault={submitAuth}>
           <label>
@@ -214,7 +202,7 @@
             password
             <input bind:value={password} type="password" autocomplete="current-password" required />
           </label>
-          <button type="submit">{mode}</button>
+          <button type="submit">sign in</button>
         </form>
       </section>
     {:else if !profile}
@@ -357,7 +345,6 @@
     max-width: 360px;
   }
 
-  .tabs,
   .account-row,
   .status-row,
   .section-heading {
@@ -366,16 +353,6 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-  }
-
-  .tabs {
-    justify-content: flex-start;
-    margin-bottom: 16px;
-  }
-
-  .tabs button.active {
-    background: var(--text);
-    color: var(--bg);
   }
 
   .actions {

@@ -30,15 +30,16 @@ The architecture follows one rule: public read, private write.
 6. Configure Supabase Auth URL settings:
    - Site URL: `https://kartikey-vyas.github.io/spotify-tracker/app/`
    - Redirect URL: `https://kartikey-vyas.github.io/spotify-tracker/app/`
-7. Configure the Spotify app redirect URI exactly:
+7. In Supabase Auth email provider settings, disable public email signups. Create new Auth users manually from the Supabase dashboard invite flow or the Admin API.
+8. Configure the Spotify app redirect URI exactly:
    - `https://<project-ref>.supabase.co/functions/v1/spotify-callback`
-8. Install dependencies:
+9. Install dependencies:
 
 ```bash
 pnpm install
 ```
 
-9. Run the app locally:
+10. Run the app locally:
 
 ```bash
 pnpm dev
@@ -73,6 +74,8 @@ supabase functions deploy sync-due-users --no-verify-jwt
 
 `complete-onboarding` and `spotify-connect` require a logged-in Supabase user. `spotify-callback` is public because Spotify redirects to it. `sync-due-users` is public at the JWT layer but checks the service key itself.
 
+The checked-in local Supabase config has email signups disabled for local development. Hosted Auth provider settings are managed separately in the Supabase dashboard; do not use `supabase config push` unless the hosted Auth URLs and provider settings have been reviewed.
+
 Create an invite code locally:
 
 ```bash
@@ -81,19 +84,20 @@ pnpm invite:create --label=friend --max-uses=1
 
 Invite codes are stored as SHA-256 hashes in Supabase. The plaintext code is only printed by the creation command, so copy it when it is generated.
 
-Users sign in at `/app/`, complete onboarding with the invite code, then connect Spotify. They can make their profile public/private from the app dashboard.
+Create or invite the Supabase Auth user manually first. Then give that person an app invite code. Users sign in at `/app/`, complete onboarding with the invite code, then connect Spotify. They can make their profile public/private from the app dashboard.
 
 ### How it works
 
 The browser is still a static SvelteKit app. It only receives `PUBLIC_SUPABASE_URL` and a public Supabase key. All writes and all Spotify secrets stay behind Supabase RLS or Edge Functions.
 
-1. A friend signs in at `/app/` with Supabase Auth.
-2. They complete onboarding with an invite code, display name, slug, and public/private choice.
-3. The `complete-onboarding` Edge Function validates the invite code and creates `profiles` plus initial `sync_state`.
-4. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
-5. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
-6. GitHub Actions calls `sync-due-users` with `SUPABASE_SECRET_KEY` on the `7,22,37,52 * * * *` cron.
-7. `sync-due-users` finds stale enabled users, decrypts each refresh token, fetches recently played tracks, inserts `listening_events` with that user's `user_id`, refreshes that user's rollups, and updates their overview cache.
+1. The site owner invites a friend through Supabase Auth and creates an app invite code.
+2. The friend signs in at `/app/` with their invited Supabase Auth account.
+3. They complete onboarding with an invite code, display name, slug, and public/private choice.
+4. The `complete-onboarding` Edge Function validates the invite code and creates `profiles` plus initial `sync_state`.
+5. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
+6. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
+7. GitHub Actions calls `sync-due-users` with `SUPABASE_SECRET_KEY` on the `7,22,37,52 * * * *` cron.
+8. `sync-due-users` finds stale enabled users, decrypts each refresh token, fetches recently played tracks, inserts `listening_events` with that user's `user_id`, refreshes that user's rollups, and updates their overview cache.
 
 User-specific rows live under `user_id`:
 
