@@ -1,4 +1,8 @@
-import { createServiceClient, refreshPublicStats, throwIfSupabaseError } from './lib/supabase-admin.js';
+import {
+  createServiceClient,
+  refreshConnectedUsersPublicStats,
+  throwIfSupabaseError
+} from './lib/supabase-admin.js';
 import { uniqueSortedDates } from './lib/dates.js';
 import { getAlbums, getArtists, getTracks, refreshSpotifyAccessToken } from './lib/spotify.js';
 import {
@@ -145,7 +149,7 @@ async function main(): Promise<void> {
       }
     }
 
-    await refreshPublicStats(supabase, uniqueSortedDates(affectedDates));
+    await refreshConnectedUsersPublicStats(supabase, uniqueSortedDates(affectedDates));
 
     const { error: updateError } = await supabase
       .from('sync_state')
