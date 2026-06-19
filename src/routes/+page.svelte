@@ -181,12 +181,11 @@
 
   .notice {
     margin-bottom: 16px;
-    padding: 12px 14px;
-    border: 1px solid rgba(180, 83, 9, 0.24);
-    border-radius: 8px;
-    background: #fff7ed;
-    color: #7c2d12;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
     font-size: 0.94rem;
-    font-weight: 650;
+    font-weight: 400;
   }
 </style>

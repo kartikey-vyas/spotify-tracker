@@ -6,18 +6,29 @@
   export let metric: Metric = 'minutes';
   export let limit = 8;
 
+  const barWidth = 24;
+
   $: chartRows = rows.slice(0, limit);
   $: maxValue = Math.max(1, ...chartRows.map((row) => metricValue(row, metric)));
+
+  function rankLabel(index: number): string {
+    return String(index + 1).padStart(2, '0');
+  }
+
+  function asciiBar(value: number): string {
+    const filled = Math.max(0, Math.round((value / maxValue) * barWidth));
+    return '#'.repeat(filled).padEnd(barWidth, '-');
+  }
 </script>
 
 <div class="bars" aria-label="Ranking bar chart">
-  {#each chartRows as row}
+  {#each chartRows as row, index}
+    {@const value = metricValue(row, metric)}
     <div class="bar-row">
+      <div class="bar-rank">{rankLabel(index)}</div>
       <div class="bar-label" title={row.entity_name}>{row.entity_name}</div>
-      <div class="bar-track">
-        <span style={`width: ${(metricValue(row, metric) / maxValue) * 100}%`}></span>
-      </div>
-      <div class="bar-value">{formatMetric(metricValue(row, metric), metric)}</div>
+      <div class="bar-track">[{asciiBar(value)}]</div>
+      <div class="bar-value">{formatMetric(value, metric)}</div>
     </div>
   {:else}
     <p class="muted">No chart data available.</p>
@@ -27,50 +38,48 @@
 <style>
   .bars {
     display: grid;
-    gap: 12px;
+    gap: 6px;
   }
 
   .bar-row {
     display: grid;
-    grid-template-columns: minmax(120px, 1fr) minmax(120px, 2fr) minmax(78px, auto);
-    align-items: center;
-    gap: 10px;
+    grid-template-columns: 3ch minmax(14ch, 1fr) minmax(28ch, auto) minmax(8ch, auto);
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .bar-rank {
+    color: var(--muted);
   }
 
   .bar-label {
     overflow: hidden;
     color: var(--text);
-    font-weight: 700;
+    font-weight: 400;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .bar-track {
-    height: 12px;
     overflow: hidden;
-    border-radius: 999px;
-    background: var(--surface-2);
-  }
-
-  .bar-track span {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, var(--accent), var(--blue));
+    color: var(--muted);
+    white-space: nowrap;
   }
 
   .bar-value {
     color: var(--muted);
-    font-size: 0.86rem;
-    font-weight: 700;
     text-align: right;
     white-space: nowrap;
   }
 
   @media (max-width: 640px) {
     .bar-row {
-      grid-template-columns: 1fr;
-      gap: 6px;
+      grid-template-columns: 3ch minmax(0, 1fr) minmax(8ch, auto);
+      gap: 4px 8px;
+    }
+
+    .bar-track {
+      grid-column: 2 / 4;
     }
 
     .bar-value {

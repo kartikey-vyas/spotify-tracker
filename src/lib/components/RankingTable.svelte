@@ -56,8 +56,8 @@
 
 <style>
   .entity-link {
-    color: var(--accent-dark);
-    font-weight: 720;
+    color: var(--text);
+    font-weight: 400;
   }
 
   .empty {

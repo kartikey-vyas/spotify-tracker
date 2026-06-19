@@ -5,7 +5,7 @@
 </script>
 
 <section class="panel metric-card">
-  <span>{label}</span>
+  <span class="metric-label">{label}</span>
   <strong>{value}</strong>
   {#if detail}
     <p>{detail}</p>
@@ -15,20 +15,25 @@
 <style>
   .metric-card {
     display: grid;
-    gap: 8px;
-    min-height: 132px;
+    gap: 4px;
+    min-height: 0;
   }
 
-  span {
+  .metric-label {
     color: var(--muted);
-    font-size: 0.82rem;
-    font-weight: 740;
-    text-transform: uppercase;
+    font-size: 0.86rem;
+    font-weight: 400;
+    text-transform: none;
+  }
+
+  .metric-label::before {
+    content: "> ";
   }
 
   strong {
-    font-size: 2rem;
-    line-height: 1;
+    font-size: 1rem;
+    line-height: 1.25;
+    font-weight: 700;
   }
 
   p {

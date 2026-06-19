@@ -3,13 +3,13 @@
   import { base } from '$app/paths';
 
   const links = [
-    { href: '/', label: 'Overview' },
-    { href: '/explore/', label: 'Explore' },
-    { href: '/activity/', label: 'Activity' },
-    { href: '/artists/', label: 'Artists' },
-    { href: '/genres/', label: 'Genres' },
-    { href: '/tracks/', label: 'Tracks' },
-    { href: '/about/', label: 'About' }
+    { href: '/', label: 'overview' },
+    { href: '/explore/', label: 'explore' },
+    { href: '/activity/', label: 'activity' },
+    { href: '/artists/', label: 'artists' },
+    { href: '/genres/', label: 'genres' },
+    { href: '/tracks/', label: 'tracks' },
+    { href: '/about/', label: 'about' }
   ];
 </script>
 
@@ -24,12 +24,14 @@
 <div class="app-shell">
   <header class="site-header">
     <a class="brand" href="{base}/" aria-label="Spotify History Explorer home">
-      <span class="brand-mark"></span>
-      <span>Spotify History Explorer</span>
+      <span>spotify-history</span>
     </a>
 
     <nav class="site-nav" aria-label="Primary navigation">
-      {#each links as link}
+      {#each links as link, index}
+        {#if index > 0}
+          <span class="nav-separator">/</span>
+        {/if}
         <a href="{base}{link.href}" data-sveltekit-preload-data="hover">{link.label}</a>
       {/each}
     </nav>

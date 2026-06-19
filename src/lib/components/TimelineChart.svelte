@@ -6,24 +6,24 @@
   export let metric: 'minutes' | 'plays' = 'minutes';
 
   $: maxValue = Math.max(1, ...days.map((day) => valueFor(day)));
-  $: points = days
-    .map((day, index) => {
-      const x = days.length <= 1 ? 0 : (index / (days.length - 1)) * 100;
-      const y = 100 - (valueFor(day) / maxValue) * 88 - 6;
-      return `${x},${y}`;
-    })
+  $: sparkline = days
+    .map((day) => glyph(valueFor(day)))
     .join(' ');
 
   function valueFor(day: CalendarDay): number {
     return metric === 'plays' ? day.plays : day.minutes;
   }
+
+  function glyph(value: number): string {
+    if (value <= 0) return '.';
+    const level = Math.min(4, Math.ceil((value / maxValue) * 4));
+    return ['.', '-', '=', '+', '#'][level];
+  }
 </script>
 
 <div class="timeline">
   {#if days.length > 0}
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Listening over time">
-      <polyline points={points} fill="none" stroke="var(--accent-dark)" stroke-width="2.5" vector-effect="non-scaling-stroke" />
-    </svg>
+    <pre aria-label="Listening over time">{sparkline}</pre>
     <div class="timeline-meta">
       <span>{days[0].local_date}</span>
       <strong>{formatMetric(maxValue, metric)} peak</strong>
@@ -37,19 +37,20 @@
 <style>
   .timeline {
     display: grid;
-    gap: 10px;
+    gap: 8px;
   }
 
-  svg {
+  pre {
     width: 100%;
-    height: 180px;
+    min-height: 44px;
+    margin: 0;
+    padding: 8px;
     border: 1px solid var(--line);
-    border-radius: 8px;
-    background:
-      linear-gradient(to right, rgba(217, 226, 220, 0.65) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(217, 226, 220, 0.65) 1px, transparent 1px),
-      white;
-    background-size: 20% 100%, 100% 25%;
+    background: transparent;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .timeline-meta {

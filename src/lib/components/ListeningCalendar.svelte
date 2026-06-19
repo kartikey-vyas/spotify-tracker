@@ -15,6 +15,10 @@
     if (value <= 0) return 0;
     return Math.min(4, Math.ceil((value / maxValue) * 4));
   }
+
+  function glyph(value: number): string {
+    return ['.', '-', '=', '+', '#'][level(value)];
+  }
 </script>
 
 <div class="calendar" aria-label="Listening calendar">
@@ -22,7 +26,8 @@
     <span
       class={`day level-${level(valueFor(day))}`}
       title={`${day.local_date}: ${formatMetric(valueFor(day), metric)}, ${day.plays} plays`}
-    ></span>
+      >{glyph(valueFor(day))}</span
+    >
   {:else}
     <p class="muted">No calendar data available.</p>
   {/each}
@@ -30,42 +35,40 @@
 
 <style>
   .calendar {
-    display: grid;
-    grid-template-columns: repeat(53, minmax(8px, 1fr));
-    grid-auto-rows: 12px;
-    grid-auto-flow: column;
-    gap: 4px;
+    display: block;
     overflow-x: auto;
-    padding-bottom: 4px;
+    padding-bottom: 2px;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.35;
+    word-break: break-all;
   }
 
   .day {
-    width: 100%;
-    min-width: 10px;
-    height: 12px;
-    border-radius: 3px;
-    background: #e4ebe6;
+    display: inline-block;
+    width: 1ch;
+    text-align: center;
   }
 
   .level-1 {
-    background: #bfe9cb;
+    color: var(--text);
   }
 
   .level-2 {
-    background: #72d68e;
+    color: var(--text);
   }
 
   .level-3 {
-    background: #1db954;
+    color: var(--text);
   }
 
   .level-4 {
-    background: #0d7a36;
+    color: var(--text);
   }
 
   @media (max-width: 760px) {
     .calendar {
-      grid-template-columns: repeat(26, minmax(10px, 1fr));
+      font-size: 0.9rem;
     }
   }
 </style>
