@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto';
+import { optionalEnv } from './lib/env.js';
 import { createServiceClient, throwIfSupabaseError } from './lib/supabase-admin.js';
 
 function sha256(value: string): string {
@@ -26,11 +27,21 @@ function stringArg(name: string): string | null {
   return arg ? arg.slice(name.length + 3).trim() : null;
 }
 
+function inviteUrl(code: string): string | null {
+  const explicit = stringArg('site-url');
+  const siteUrl = explicit ?? optionalEnv('SITE_URL');
+  if (!siteUrl) return null;
+
+  const baseUrl = siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
+  return new URL(`invite/?code=${encodeURIComponent(code)}`, baseUrl).toString();
+}
+
 async function main(): Promise<void> {
   const code = codeFromArgs();
   const maxUses = numberArg('max-uses', 1);
   const label = stringArg('label');
   const expiresAt = stringArg('expires-at');
+  const url = inviteUrl(code);
   const supabase = createServiceClient();
 
   const { error } = await supabase.from('invite_codes').insert({
@@ -39,12 +50,13 @@ async function main(): Promise<void> {
     max_uses: maxUses,
     expires_at: expiresAt
   });
-  throwIfSupabaseError(error, 'Creating invite code failed');
+  throwIfSupabaseError(error, 'Creating invite token failed');
 
   console.log(
     JSON.stringify(
       {
         code,
+        invite_url: url,
         max_uses: maxUses,
         label,
         expires_at: expiresAt
@@ -59,4 +71,3 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });
-

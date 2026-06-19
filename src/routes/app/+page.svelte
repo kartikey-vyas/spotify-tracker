@@ -24,7 +24,6 @@
   let error = '';
 
   let email = '';
-  let password = '';
   let inviteCode = '';
   let slug = '';
   let displayName = '';
@@ -91,16 +90,20 @@
     error = '';
     message = '';
 
-    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: appUrl()
+      }
+    });
 
     if (authError) {
       error = authError.message;
       return;
     }
 
-    session = data.session;
-    message = 'Signed in.';
-    await loadUserData();
+    message = 'Check your email for a sign-in link.';
   }
 
   async function completeOnboarding(): Promise<void> {
@@ -198,11 +201,7 @@
             email
             <input bind:value={email} type="email" autocomplete="email" required />
           </label>
-          <label>
-            password
-            <input bind:value={password} type="password" autocomplete="current-password" required />
-          </label>
-          <button type="submit">sign in</button>
+          <button type="submit">send sign-in link</button>
         </form>
       </section>
     {:else if !profile}
