@@ -17,8 +17,7 @@
   const entityOptions: Array<{ value: EntityType; label: string }> = [
     { value: 'artist', label: 'Artist' },
     { value: 'track', label: 'Track' },
-    { value: 'album', label: 'Album' },
-    { value: 'genre', label: 'Genre' }
+    { value: 'album', label: 'Album' }
   ];
 
   let mounted = false;
@@ -47,7 +46,7 @@
   onMount(() => {
     const entityParam = $page.url.searchParams.get('entity');
     const idParam = $page.url.searchParams.get('id');
-    if (entityParam && ['artist', 'track', 'album', 'genre'].includes(entityParam)) {
+    if (entityParam && ['artist', 'track', 'album'].includes(entityParam)) {
       entityType = entityParam as EntityType;
     }
     if (idParam) entityId = idParam;
@@ -119,7 +118,7 @@
   <div class="page-header">
     <span class="eyebrow">Explorer</span>
     <h1>Compare listening windows</h1>
-    <p class="lede">Use daily rollups for fast rankings by artist, track, album, and genre.</p>
+    <p class="lede">Use daily rollups for fast rankings by artist, track, and album.</p>
   </div>
 
   <div class="toolbar">

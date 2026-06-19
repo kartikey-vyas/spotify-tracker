@@ -21,13 +21,6 @@
     </div>
 
     <div class="panel">
-      <h2>Genres</h2>
-      <p class="muted">
-        Genre rollups use the primary artist's Spotify genre tags and split listening time evenly across those tags.
-      </p>
-    </div>
-
-    <div class="panel">
       <h2>Security</h2>
       <p class="muted">
         The frontend receives only the public Supabase URL and publishable key. Secret keys and Spotify refresh tokens are used only by local scripts or GitHub Actions.

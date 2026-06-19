@@ -191,12 +191,6 @@
         label: 'Last 30 days',
         value: summaryValue(overview.last_30_days.minutes, last30DaysPlays),
         ...topArtistDetail(overview.last_30_days.top_artists[0]?.entity_name)
-      },
-      {
-        label: 'Top genre (today)',
-        value: overview.today.top_genre ?? 'Unknown',
-        caption: '',
-        detail: ''
       }
     ];
   }
@@ -299,21 +293,6 @@
         </div>
         <ol class="stat-list">
           {#each overview.this_week.top_artists.slice(0, 8) as row}
-            <li>
-              <span class="name">{row.entity_name}</span>
-              <span class="count">{row.plays.toLocaleString()}</span>
-            </li>
-          {/each}
-        </ol>
-      </div>
-
-      <div class="panel">
-        <div class="section-heading">
-          <h2>Top genres this week</h2>
-          <span class="muted">Plays</span>
-        </div>
-        <ol class="stat-list">
-          {#each overview.this_week.top_genres.slice(0, 8) as row}
             <li>
               <span class="name">{row.entity_name}</span>
               <span class="count">{row.plays.toLocaleString()}</span>
