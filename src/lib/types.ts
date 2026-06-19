@@ -76,6 +76,10 @@ export type Profile = {
   is_public: boolean;
 };
 
+export type PublicProfileOption = Pick<Profile, 'slug' | 'display_name'> & {
+  generated_at: string;
+};
+
 export type SpotifyConnectionStatus = {
   user_id: string;
   spotify_user_id: string | null;

@@ -1,5 +1,5 @@
 import { supabase } from '$lib/supabase';
-import type { Profile, SpotifyConnectionStatus } from '$lib/types';
+import type { Profile, PublicProfileOption, SpotifyConnectionStatus } from '$lib/types';
 
 export async function getCurrentProfile(userId: string): Promise<Profile | null> {
   if (!supabase) return null;
@@ -26,6 +26,19 @@ export async function getPublicProfile(slug: string): Promise<Profile | null> {
 
   if (error) throw new Error(error.message);
   return data ?? null;
+}
+
+export async function listPublicProfiles(): Promise<PublicProfileOption[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('public_profile_overview')
+    .select('slug,display_name,generated_at')
+    .order('display_name', { ascending: true })
+    .returns<PublicProfileOption[]>();
+
+  if (error) throw new Error(error.message);
+  return data ?? [];
 }
 
 export async function getSpotifyConnectionStatus(): Promise<SpotifyConnectionStatus | null> {
@@ -69,4 +82,3 @@ export async function updateSpotifySyncEnabled(syncEnabled: boolean): Promise<vo
 
   if (error) throw new Error(error.message);
 }
-

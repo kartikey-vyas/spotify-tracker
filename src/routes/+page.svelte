@@ -11,9 +11,14 @@
     metricLabel,
     metricValue
   } from '$lib/metrics';
-  import { getOverview } from '$lib/queries/overview';
-  import type { CalendarDay, Metric, OverviewPayload, RankingRow } from '$lib/types';
+  import { getPublicProfileOverview } from '$lib/queries/overview';
+  import { listPublicProfiles } from '$lib/queries/profile';
+  import type { CalendarDay, Metric, OverviewPayload, PublicProfileOption, RankingRow } from '$lib/types';
 
+  const defaultSlug = 'kartikey';
+
+  let profiles: PublicProfileOption[] = [];
+  let selectedSlug = defaultSlug;
   let overview: OverviewPayload | null = null;
   let loading = true;
   let error = '';
@@ -31,20 +36,50 @@
   $: genreMetric = overview ? bestAvailableMetric(overview.this_week.top_genres) : 'minutes';
   $: trackMetric = overview ? bestAvailableMetric(overview.this_week.top_tracks) : 'minutes';
   $: calendarMetric = overview ? calendarDisplayMetric(overview.calendar.last_365_days) : 'minutes';
+  $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
   $: apiOnlyMode =
     overview !== null &&
     overview.this_week.top_artists.some((row) => row.plays > 0 && row.unknown_duration_plays > 0) &&
     overview.this_week.minutes === 0;
 
   onMount(async () => {
+    const params = new URLSearchParams(window.location.search);
+    selectedSlug = params.get('slug') ?? defaultSlug;
+
     try {
-      overview = await getOverview();
+      profiles = await listPublicProfiles();
+      if (!profiles.some((profile) => profile.slug === selectedSlug)) {
+        selectedSlug = profiles.find((profile) => profile.slug === defaultSlug)?.slug ?? profiles[0]?.slug ?? defaultSlug;
+      }
+      overview = profiles.length > 0 ? await getPublicProfileOverview(selectedSlug) : null;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
       loading = false;
     }
   });
+
+  async function chooseProfile(event: Event): Promise<void> {
+    const target = event.currentTarget as HTMLSelectElement;
+    selectedSlug = target.value;
+    error = '';
+    loading = true;
+
+    try {
+      overview = await getPublicProfileOverview(selectedSlug);
+      const url = new URL(window.location.href);
+      if (selectedSlug === defaultSlug) {
+        url.searchParams.delete('slug');
+      } else {
+        url.searchParams.set('slug', selectedSlug);
+      }
+      window.history.replaceState({}, '', url.toString());
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      loading = false;
+    }
+  }
 
   function melbourneDate(date = new Date()): string {
     const parts = Object.fromEntries(
@@ -138,8 +173,10 @@
 <section class="page">
   <div class="page-header">
     <span class="eyebrow">Australia/Melbourne</span>
-    <h1>Listening history</h1>
-    <p class="lede">Public read-only Spotify listening summaries powered by daily rollups.</p>
+    <h1>{selectedProfile?.display_name ?? 'Listening history'}</h1>
+    <p class="lede">
+      {selectedProfile ? `@${selectedProfile.slug}` : 'Public read-only Spotify listening summaries.'}
+    </p>
   </div>
 
   {#if !publicSupabaseConfigured}
@@ -151,12 +188,26 @@
     <section class="panel"><p class="muted">Loading overview...</p></section>
   {:else if error}
     <section class="panel"><p class="error">{error}</p></section>
+  {:else if profiles.length === 0}
+    <section class="panel">
+      <h2>No public profiles yet</h2>
+      <p class="muted">Make at least one connected profile public to show it here.</p>
+    </section>
   {:else if !overview}
     <section class="panel">
       <h2>No overview cache yet</h2>
-      <p class="muted">Run an import or refresh job so the public_home overview cache is generated.</p>
+      <p class="muted">Run a sync so this profile has a public overview cache.</p>
     </section>
   {:else}
+    <div class="profile-picker">
+      <label for="profile">Profile</label>
+      <select id="profile" bind:value={selectedSlug} on:change={chooseProfile}>
+        {#each profiles as profile}
+          <option value={profile.slug}>{profile.display_name} / {profile.slug}</option>
+        {/each}
+      </select>
+    </div>
+
     <div class="status-row">
       <DataQualityBadge quality={1} gapRisk={overview.sync.gap_risk} />
       <span class="muted">Generated {new Date(overview.generated_at).toLocaleString()}</span>
@@ -228,6 +279,22 @@
 
   .status-row {
     margin-bottom: 16px;
+  }
+
+  .profile-picker {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .profile-picker label {
+    color: var(--muted);
+  }
+
+  .profile-picker select {
+    min-width: 190px;
   }
 
   .section-gap {
