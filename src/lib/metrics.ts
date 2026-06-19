@@ -41,6 +41,23 @@ export function bestAvailableMetric(rows: RankingRow[], preferred: Metric = 'min
   return preferred;
 }
 
+export function isMetricAvailable(rows: RankingRow[], metric: Metric): boolean {
+  if (rows.length === 0) return metric === 'plays';
+  if (metric === 'plays') return rows.some((row) => row.plays > 0);
+  if (metric === 'unique_tracks') return rows.some((row) => row.unique_tracks > 0);
+  if (metric === 'minutes') return rows.some((row) => row.minutes > 0);
+  if (metric === 'qualified_plays') return rows.some((row) => row.minutes > 0);
+  if (metric === 'skip_rate') return rows.some((row) => row.known_skip_count > 0);
+  return false;
+}
+
+export function disabledMetricLabel(metric: Metric): string {
+  if (metric === 'minutes') return 'Minutes (needs export)';
+  if (metric === 'qualified_plays') return 'Qualified plays (needs export)';
+  if (metric === 'skip_rate') return 'Skip rate (needs export)';
+  return metricLabel(metric);
+}
+
 export function formatMinutes(value: number): string {
   if (value >= 60) {
     return `${(value / 60).toFixed(1)} hr`;

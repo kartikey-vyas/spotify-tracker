@@ -5,7 +5,14 @@
   import RankingTable from '$lib/components/RankingTable.svelte';
   import TimelineChart from '$lib/components/TimelineChart.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
-  import { bestAvailableMetric, formatMetric, metricOptions, metricValue } from '$lib/metrics';
+  import {
+    bestAvailableMetric,
+    disabledMetricLabel,
+    formatMetric,
+    isMetricAvailable,
+    metricOptions,
+    metricValue
+  } from '$lib/metrics';
   import { getEntityTimeline, getRankings } from '$lib/queries/rankings';
   import type { CalendarDay, EntityType, Metric, RankingRow } from '$lib/types';
 
@@ -31,6 +38,9 @@
   $: selectedRow = entityId ? rankings.find((row) => row.entity_id === entityId) ?? null : null;
   $: selectedValue = selectedRow ? metricValue(selectedRow, metric) : 0;
   $: timelineMetric = timelineDisplayMetric(rankings, metric);
+  $: if (mounted && !loading && !isMetricAvailable(rankings, metric)) {
+    metric = 'plays';
+  }
   $: queryKey = `${preset}:${entityType}:${metric}:${entityId}`;
   $: if (mounted && queryKey !== lastKey) {
     void loadExplorer();
@@ -111,7 +121,10 @@
       <label for="metric">Metric</label>
       <select id="metric" bind:value={metric}>
         {#each metricOptions as option}
-          <option value={option.value}>{option.label}</option>
+          {@const disabled = !isMetricAvailable(rankings, option.value)}
+          <option value={option.value} {disabled}>
+            {disabled ? disabledMetricLabel(option.value) : option.label}
+          </option>
         {/each}
       </select>
     </div>

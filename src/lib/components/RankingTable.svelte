@@ -1,12 +1,15 @@
 <script lang="ts">
   import { base } from '$app/paths';
-  import { formatMetric, metricValue } from '$lib/metrics';
+  import { formatMetric, metricLabel, metricValue } from '$lib/metrics';
   import type { EntityType, Metric, RankingRow } from '$lib/types';
 
   export let rows: RankingRow[] = [];
   export let entityType: EntityType;
   export let metric: Metric = 'minutes';
   export let showLinks = true;
+
+  $: showPlaysColumn = metric !== 'plays';
+  $: columnCount = showPlaysColumn ? 4 : 3;
 </script>
 
 <div class="table-wrap">
@@ -15,9 +18,10 @@
       <tr>
         <th>#</th>
         <th>Name</th>
-        <th>{metric === 'skip_rate' ? 'Skip rate' : 'Metric'}</th>
-        <th>Plays</th>
-        <th>Unknown</th>
+        <th>{metricLabel(metric)}</th>
+        {#if showPlaysColumn}
+          <th>Plays</th>
+        {/if}
       </tr>
     </thead>
     <tbody>
@@ -37,12 +41,13 @@
             {/if}
           </td>
           <td>{formatMetric(metricValue(row, metric), metric)}</td>
-          <td>{row.plays.toLocaleString()}</td>
-          <td>{row.unknown_duration_plays.toLocaleString()}</td>
+          {#if showPlaysColumn}
+            <td>{row.plays.toLocaleString()}</td>
+          {/if}
         </tr>
       {:else}
         <tr>
-          <td colspan="5" class="empty">No listening data for this view.</td>
+          <td colspan={columnCount} class="empty">No listening data for this view.</td>
         </tr>
       {/each}
     </tbody>

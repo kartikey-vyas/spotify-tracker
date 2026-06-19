@@ -19,11 +19,6 @@
     }
   });
 
-  function duration(row: ActivityRow): string {
-    const ms = row.ms_played ?? row.inferred_ms_played;
-    if (ms === null || ms === undefined) return 'unknown';
-    return `${Math.round(ms / 1000)}s`;
-  }
 </script>
 
 <section class="page">
@@ -48,9 +43,7 @@
               <th>Artist</th>
               <th>Album</th>
               <th>Source</th>
-              <th>Duration</th>
               <th>Quality</th>
-              <th>Skipped</th>
             </tr>
           </thead>
           <tbody>
@@ -61,15 +54,13 @@
                 <td>{row.artist_name ?? 'Unknown artist'}</td>
                 <td>{row.album_name ?? 'Unknown album'}</td>
                 <td>{sourceLabel(row.source)}</td>
-                <td>{duration(row)}</td>
                 <td title={qualityLabel(row.data_quality)}>
                   <DataQualityBadge quality={row.data_quality} />
                 </td>
-                <td>{row.skipped === null ? 'unknown' : row.skipped ? 'yes' : 'no'}</td>
               </tr>
             {:else}
               <tr>
-                <td colspan="8" class="muted">No recent activity has been published yet.</td>
+                <td colspan="6" class="muted">No recent activity has been published yet.</td>
               </tr>
             {/each}
           </tbody>
