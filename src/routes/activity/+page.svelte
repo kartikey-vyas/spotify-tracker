@@ -8,6 +8,11 @@
   let rows: ActivityRow[] = [];
   let loading = true;
   let error = '';
+  let failed: Record<number, boolean> = {};
+
+  function markFailed(id: number): void {
+    failed = { ...failed, [id]: true };
+  }
 
   onMount(async () => {
     try {
@@ -38,6 +43,7 @@
         <table>
           <thead>
             <tr>
+              <th class="art-col"><span class="sr-only">Art</span></th>
               <th>Time</th>
               <th>Track</th>
               <th>Artist</th>
@@ -49,6 +55,19 @@
           <tbody>
             {#each rows as row}
               <tr>
+                <td class="art-col">
+                  {#if row.album_image_url && !failed[row.id]}
+                    <img
+                      class="thumb"
+                      src={row.album_image_url}
+                      alt={row.album_name ?? 'Album art'}
+                      loading="lazy"
+                      on:error={() => markFailed(row.id)}
+                    />
+                  {:else}
+                    <span class="thumb placeholder" aria-hidden="true">♪</span>
+                  {/if}
+                </td>
                 <td>{new Date(row.played_at).toLocaleString()}</td>
                 <td>{row.track_name ?? 'Unknown track'}</td>
                 <td>{row.artist_name ?? 'Unknown artist'}</td>
@@ -60,7 +79,7 @@
               </tr>
             {:else}
               <tr>
-                <td colspan="6" class="muted">No recent activity has been published yet.</td>
+                <td colspan="7" class="muted">No recent activity has been published yet.</td>
               </tr>
             {/each}
           </tbody>
@@ -69,3 +88,34 @@
     </section>
   {/if}
 </section>
+
+<style>
+  .art-col {
+    width: 40px;
+    padding-right: 0;
+  }
+
+  .thumb {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+
+  .placeholder {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+</style>

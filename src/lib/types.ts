@@ -60,6 +60,7 @@ export type ActivityRow = {
   artist_name: string | null;
   album_id: number | null;
   album_name: string | null;
+  album_image_url?: string | null;
   source: number;
   data_quality: number;
   ms_played: number | null;

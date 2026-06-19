@@ -76,7 +76,7 @@
 </script>
 
 <svelte:head>
-  <title>Spotify History Explorer</title>
+  <title>musik</title>
   <meta
     name="description"
     content="A public read-only dashboard for personal Spotify listening history."
@@ -85,8 +85,8 @@
 
 <div class="app-shell">
   <header class="site-header">
-    <a class="brand" href="{base}/" aria-label="Spotify History Explorer home">
-      <span>spotify-history</span>
+    <a class="brand" href="{base}/" aria-label="musik home">
+      <span>musik</span>
     </a>
 
     <div class="header-controls">

@@ -1,4 +1,4 @@
-# Spotify History Explorer Spec
+# musik Spec
 
 ## Goal
 

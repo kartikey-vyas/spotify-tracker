@@ -1,7 +1,11 @@
 import { createServiceClient, refreshPublicStats, throwIfSupabaseError } from './lib/supabase-admin.js';
 import { uniqueSortedDates } from './lib/dates.js';
-import { getArtists, getTracks, refreshSpotifyAccessToken } from './lib/spotify.js';
-import { upsertArtistFromSpotify, upsertTrackFromSpotify } from './lib/spotify-dimensions.js';
+import { getAlbums, getArtists, getTracks, refreshSpotifyAccessToken } from './lib/spotify.js';
+import {
+  upsertAlbumFromSpotify,
+  upsertArtistFromSpotify,
+  upsertTrackFromSpotify
+} from './lib/spotify-dimensions.js';
 
 type TrackRow = {
   id: number;
@@ -13,8 +17,15 @@ type ArtistRow = {
   spotify_artist_id: string;
 };
 
+type AlbumRow = {
+  id: number;
+  spotify_album_id: string;
+};
+
 const MAX_TRACKS = 50;
 const MAX_ARTISTS = 50;
+const MAX_ALBUMS = 100;
+const ALBUM_BATCH = 20;
 const ARTIST_REFRESH_DAYS = 90;
 
 async function datesForColumn(
@@ -108,6 +119,32 @@ async function main(): Promise<void> {
       affectedDates.add(localDate);
     }
 
+    // Backfill missing album cover art. Images are read live from `albums.image_url`
+    // by the frontend, so this needs no rollup/overview refresh.
+    const { data: albumRows, error: albumError } = await supabase
+      .from('albums')
+      .select('id,spotify_album_id')
+      .not('spotify_album_id', 'is', null)
+      .is('image_url', null)
+      .limit(MAX_ALBUMS)
+      .returns<AlbumRow[]>();
+    throwIfSupabaseError(albumError, 'Loading albums needing cover art failed');
+
+    let albumsRefreshed = 0;
+    if (albumRows && albumRows.length > 0) {
+      for (let i = 0; i < albumRows.length; i += ALBUM_BATCH) {
+        const chunk = albumRows.slice(i, i + ALBUM_BATCH);
+        const albums = await getAlbums(
+          accessToken,
+          chunk.map((row) => row.spotify_album_id)
+        );
+        for (const album of albums) {
+          await upsertAlbumFromSpotify(supabase, album);
+          albumsRefreshed += 1;
+        }
+      }
+    }
+
     await refreshPublicStats(supabase, uniqueSortedDates(affectedDates));
 
     const { error: updateError } = await supabase
@@ -126,6 +163,7 @@ async function main(): Promise<void> {
         {
           tracks_refreshed: trackRows?.length ?? 0,
           artists_refreshed: artistRows?.length ?? 0,
+          album_art_backfilled: albumsRefreshed,
           affected_dates: uniqueSortedDates(affectedDates)
         },
         null,

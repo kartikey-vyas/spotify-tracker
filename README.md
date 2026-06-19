@@ -1,4 +1,4 @@
-# Spotify History Explorer
+# musik
 
 A static SvelteKit dashboard for public, read-only Spotify listening history exploration across selected public profiles.
 

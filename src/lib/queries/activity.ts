@@ -1,4 +1,5 @@
 import { supabase } from '$lib/supabase';
+import { fetchAlbumImages } from '$lib/queries/images';
 import type { ActivityRow } from '$lib/types';
 
 export async function getRecentActivity(limit = 100): Promise<ActivityRow[]> {
@@ -12,5 +13,12 @@ export async function getRecentActivity(limit = 100): Promise<ActivityRow[]> {
     .returns<ActivityRow[]>();
 
   if (error) throw new Error(error.message);
-  return data ?? [];
+
+  const rows = data ?? [];
+  const images = await fetchAlbumImages(rows.map((row) => row.album_id));
+
+  return rows.map((row) => ({
+    ...row,
+    album_image_url: row.album_id != null ? (images.get(row.album_id)?.image_url ?? null) : null
+  }));
 }

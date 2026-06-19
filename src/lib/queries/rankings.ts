@@ -79,6 +79,35 @@ export async function getRankings(params: {
     .slice(0, params.limit ?? 50);
 }
 
+export async function getProfileRankings(params: {
+  slug: string;
+  entityType: EntityType;
+  start: string;
+  end: string;
+  metric: Metric;
+  limit?: number;
+}): Promise<RankingRow[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('public_profile_rollup_daily_entity_stats')
+    .select(
+      'local_date,entity_id,entity_name,minutes_exact,minutes_inferred,plays,qualified_plays,unique_tracks,skipped_count,known_skip_count,unknown_duration_plays'
+    )
+    .eq('slug', params.slug)
+    .eq('entity_type', params.entityType)
+    .gte('local_date', params.start)
+    .lte('local_date', params.end)
+    .limit(5000)
+    .returns<RollupRow[]>();
+
+  if (error) throw new Error(error.message);
+
+  return aggregateRows(data ?? [])
+    .sort((left, right) => metricValue(right, params.metric) - metricValue(left, params.metric))
+    .slice(0, params.limit ?? 50);
+}
+
 export async function getEntityTimeline(params: {
   entityType: EntityType;
   entityId: string;
