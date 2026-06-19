@@ -34,7 +34,7 @@ const trackCache = new Map<string, number>();
 const supabase = createServiceClient();
 
 function usage(): never {
-  throw new Error('Usage: pnpm import:spotify-export ./data/Streaming_History_Audio_*.json');
+  throw new Error('Usage: pnpm import:spotify-export [--user-id=<auth-user-uuid>] ./data/Streaming_History_Audio_*.json');
 }
 
 function normalizeName(value: string | null | undefined, fallback: string): string {
@@ -125,7 +125,10 @@ async function upsertTrack(
 }
 
 async function main(): Promise<void> {
-  const files = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const userIdArg = args.find((arg) => arg.startsWith('--user-id='));
+  const targetUserId = userIdArg?.slice('--user-id='.length).trim() || null;
+  const files = args.filter((arg) => !arg.startsWith('--user-id='));
   if (files.length === 0) usage();
 
   const events = [];
@@ -172,6 +175,7 @@ async function main(): Promise<void> {
         artist_order: 0
       });
       events.push({
+        user_id: targetUserId,
         played_at: new Date(playedAtMs).toISOString(),
         local_date: localDate,
         source: SOURCE_EXPORT,
@@ -201,30 +205,52 @@ async function main(): Promise<void> {
   for (const batch of chunk(events, 1000)) {
     const { error } = await supabase
       .from('listening_events')
-      .upsert(batch, { onConflict: 'source_event_key', ignoreDuplicates: true });
+      .upsert(batch, {
+        onConflict: targetUserId ? 'user_id,source_event_key' : 'source_event_key',
+        ignoreDuplicates: true
+      });
     throwIfSupabaseError(error, 'Inserting export listening events failed');
   }
 
   if (latestExactMs > 0) {
     const latestExactIso = new Date(latestExactMs).toISOString();
-    const { error } = await supabase
-      .from('sync_state')
-      .update({
-        latest_exact_export_event_at: latestExactIso,
-        api_only_period_start: latestExactIso,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', 1);
+    const stateUpdate = {
+      id: 1,
+      user_id: targetUserId,
+      latest_exact_export_event_at: latestExactIso,
+      api_only_period_start: latestExactIso,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = targetUserId
+      ? await supabase.from('sync_state').upsert(stateUpdate, { onConflict: 'user_id' })
+      : await supabase
+          .from('sync_state')
+          .update({
+            latest_exact_export_event_at: latestExactIso,
+            api_only_period_start: latestExactIso,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', 1);
     throwIfSupabaseError(error, 'Updating sync_state after import failed');
   }
 
-  await refreshPublicStats(supabase, null);
+  if (targetUserId) {
+    const { error } = await supabase.rpc('refresh_user_public_stats', {
+      p_user_id: targetUserId,
+      target_dates: null
+    });
+    throwIfSupabaseError(error, 'Refreshing user stats failed');
+  } else {
+    await refreshPublicStats(supabase, null);
+  }
 
   console.log(
     JSON.stringify(
       {
         rows_read: rowsRead,
         events_attempted: events.length,
+        user_id: targetUserId,
         affected_dates: uniqueSortedDates(affectedDates).length,
         skipped_podcast_rows: skippedPodcastRows,
         skipped_rows_without_track_uri: skippedRowsWithoutTrackUri

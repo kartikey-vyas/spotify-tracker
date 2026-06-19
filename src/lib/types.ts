@@ -68,3 +68,23 @@ export type ActivityRow = {
   context_uri: string | null;
   context_type: string | null;
 };
+
+export type Profile = {
+  user_id: string;
+  slug: string;
+  display_name: string;
+  is_public: boolean;
+};
+
+export type SpotifyConnectionStatus = {
+  user_id: string;
+  spotify_user_id: string | null;
+  spotify_display_name: string | null;
+  scopes: string[];
+  sync_enabled: boolean;
+  connected_at: string;
+  last_token_refresh_at: string | null;
+  last_error_at: string | null;
+  last_error: string | null;
+  updated_at: string;
+};

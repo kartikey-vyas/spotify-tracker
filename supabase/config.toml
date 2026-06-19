@@ -259,6 +259,18 @@ max_frequency = "5s"
 # enabled = true
 # uri = "pg-functions://postgres/auth/before-user-created-hook"
 
+[functions.complete-onboarding]
+verify_jwt = true
+
+[functions.spotify-connect]
+verify_jwt = true
+
+[functions.spotify-callback]
+verify_jwt = false
+
+[functions.sync-due-users]
+verify_jwt = false
+
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
 # [auth.hook.custom_access_token]
 # enabled = true
