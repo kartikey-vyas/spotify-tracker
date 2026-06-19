@@ -121,10 +121,27 @@ export async function spotifyApiFetch<T>(
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Spotify API ${path} failed with HTTP ${response.status}: ${body.slice(0, 240)}`);
+    const error = new Error(
+      `Spotify API ${path} failed with HTTP ${response.status}: ${body.slice(0, 240)}`
+    ) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
 
   return (await response.json()) as T;
+}
+
+/**
+ * Fetch a single catalog item, returning null when Spotify reports it does not
+ * exist (404) so one missing id does not abort an entire enrichment batch.
+ */
+async function getByIdOrNull<T>(path: string, accessToken: string): Promise<T | null> {
+  try {
+    return await spotifyApiFetch<T>(path, accessToken);
+  } catch (error) {
+    if ((error as { status?: number }).status === 404) return null;
+    throw error;
+  }
 }
 
 export async function getRecentlyPlayed(
@@ -142,33 +159,27 @@ export async function getRecentlyPlayed(
   );
 }
 
+// The batch "Get Several X" endpoints (/v1/tracks?ids=, /v1/artists?ids=,
+// /v1/albums?ids=) were removed from the Spotify Web API in February 2026; only
+// the single-item endpoints remain. Fetch each id individually and aggregate,
+// skipping ids Spotify no longer knows about.
+async function getCatalogItems<T>(prefix: string, accessToken: string, ids: string[]): Promise<T[]> {
+  const items: T[] = [];
+  for (const id of ids) {
+    const item = await getByIdOrNull<T>(`${prefix}/${id}`, accessToken);
+    if (item) items.push(item);
+  }
+  return items;
+}
+
 export async function getTracks(accessToken: string, ids: string[]): Promise<SpotifyTrack[]> {
-  if (ids.length === 0) return [];
-  const params = new URLSearchParams({ ids: ids.join(',') });
-  const response = await spotifyApiFetch<{ tracks: Array<SpotifyTrack | null> }>(
-    `/v1/tracks?${params.toString()}`,
-    accessToken
-  );
-  return response.tracks.filter((track): track is SpotifyTrack => Boolean(track));
+  return getCatalogItems<SpotifyTrack>('/v1/tracks', accessToken, ids);
 }
 
 export async function getArtists(accessToken: string, ids: string[]): Promise<SpotifyArtist[]> {
-  if (ids.length === 0) return [];
-  const params = new URLSearchParams({ ids: ids.join(',') });
-  const response = await spotifyApiFetch<{ artists: Array<SpotifyArtist | null> }>(
-    `/v1/artists?${params.toString()}`,
-    accessToken
-  );
-  return response.artists.filter((artist): artist is SpotifyArtist => Boolean(artist));
+  return getCatalogItems<SpotifyArtist>('/v1/artists', accessToken, ids);
 }
 
 export async function getAlbums(accessToken: string, ids: string[]): Promise<SpotifyAlbum[]> {
-  if (ids.length === 0) return [];
-  // Spotify allows at most 20 album ids per request.
-  const params = new URLSearchParams({ ids: ids.slice(0, 20).join(',') });
-  const response = await spotifyApiFetch<{ albums: Array<SpotifyAlbum | null> }>(
-    `/v1/albums?${params.toString()}`,
-    accessToken
-  );
-  return response.albums.filter((album): album is SpotifyAlbum => Boolean(album));
+  return getCatalogItems<SpotifyAlbum>('/v1/albums', accessToken, ids);
 }

@@ -198,7 +198,7 @@ Store the printed refresh token as `SPOTIFY_REFRESH_TOKEN` only if you keep usin
 ## GitHub Workflows
 
 - `deploy.yml`: builds and deploys the static site to GitHub Pages on `main` pushes.
-- `enrich-metadata.yml`: manual-only metadata enrichment. It is not scheduled because Spotify metadata endpoints were returning 403 for the current credentials.
+- `enrich-metadata.yml`: manual-only metadata enrichment (artist images/genres + backfill for imported history). Spotify removed the batch catalog endpoints (`/v1/{artists,albums,tracks}?ids=`) in Feb 2026, so the fetchers in `scripts/lib/spotify.ts` call the single-item endpoints (`/v1/artists/{id}`, …) one id at a time.
 
 The recently-played sync no longer runs from GitHub Actions: a Supabase Cron job (`pg_cron` + `pg_net`, see `supabase/migrations/*_schedule_sync_due_users_cron.sql`) calls the `sync-due-users` Edge Function every 15 minutes.
 
