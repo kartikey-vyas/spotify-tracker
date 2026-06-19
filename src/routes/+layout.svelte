@@ -14,19 +14,38 @@
 
   const themeKey = 'spotify-history-theme';
   const themes = [
+    { value: 'warm-dark', label: 'dark' },
+    { value: 'kanagawa', label: 'kanagawa' },
     { value: 'light', label: 'light' },
-    { value: 'black', label: 'black' },
-    { value: 'warm-dark', label: 'warm dark' }
+    { value: 'black', label: 'black' }
   ] as const;
 
   type Theme = (typeof themes)[number]['value'];
 
-  let theme: Theme = 'light';
+  let theme: Theme = 'warm-dark';
+  let themeMenu: HTMLDetailsElement | null = null;
 
   onMount(() => {
-    const currentTheme = document.documentElement.dataset.theme;
-    theme = isTheme(currentTheme) ? currentTheme : 'light';
+    let storedTheme: string | null = null;
+
+    try {
+      storedTheme = localStorage.getItem(themeKey);
+    } catch {
+      storedTheme = null;
+    }
+
+    const currentTheme = isTheme(storedTheme) ? storedTheme : document.documentElement.dataset.theme;
+    theme = isTheme(currentTheme) ? currentTheme : 'warm-dark';
     applyTheme(theme);
+
+    const closeThemeMenu = (event: MouseEvent) => {
+      if (themeMenu && event.target instanceof Node && !themeMenu.contains(event.target)) {
+        themeMenu.open = false;
+      }
+    };
+
+    document.addEventListener('click', closeThemeMenu);
+    return () => document.removeEventListener('click', closeThemeMenu);
   });
 
   function isTheme(value: string | undefined | null): value is Theme {
@@ -47,6 +66,12 @@
     } catch {
       // Keep the applied theme even when storage is unavailable.
     }
+  }
+
+  function selectTheme(nextTheme: Theme): void {
+    theme = nextTheme;
+    applyTheme(theme);
+    if (themeMenu) themeMenu.open = false;
   }
 </script>
 
@@ -72,16 +97,25 @@
           {/if}
           <a href="{base}{link.href}" data-sveltekit-preload-data="hover">{link.label}</a>
         {/each}
-      </nav>
 
-      <label class="theme-control">
-        <span>theme</span>
-        <select bind:value={theme} on:change={() => applyTheme(theme)} aria-label="Color theme">
-          {#each themes as option}
-            <option value={option.value}>{option.label}</option>
-          {/each}
-        </select>
-      </label>
+        <span class="nav-separator">/</span>
+        <details bind:this={themeMenu} class="theme-menu">
+          <summary>theme</summary>
+          <div class="theme-options" role="radiogroup" aria-label="Color theme">
+            {#each themes as option}
+              <button
+                class:active={theme === option.value}
+                type="button"
+                role="radio"
+                aria-checked={theme === option.value}
+                on:click={() => selectTheme(option.value)}
+              >
+                {option.label}
+              </button>
+            {/each}
+          </div>
+        </details>
+      </nav>
     </div>
   </header>
 

@@ -6,13 +6,15 @@
     <script>
       try {
         const theme = localStorage.getItem('spotify-history-theme');
-        if (theme === 'black' || theme === 'warm-dark') {
+        if (theme === 'black' || theme === 'warm-dark' || theme === 'kanagawa') {
           document.documentElement.dataset.theme = theme;
-        } else {
+        } else if (theme === 'light') {
           document.documentElement.removeAttribute('data-theme');
+        } else {
+          document.documentElement.dataset.theme = 'warm-dark';
         }
       } catch {
-        document.documentElement.removeAttribute('data-theme');
+        document.documentElement.dataset.theme = 'warm-dark';
       }
     </script>
     %sveltekit.head%

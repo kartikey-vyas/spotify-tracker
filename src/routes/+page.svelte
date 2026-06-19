@@ -22,6 +22,7 @@
   let overview: OverviewPayload | null = null;
   let loading = true;
   let error = '';
+  let profileMenu: HTMLDetailsElement | null = null;
 
   const thisWeekRange = getPresetDateRange('this_week');
   const last30DaysRange = getPresetDateRange('last_30_days');
@@ -59,9 +60,25 @@
     }
   });
 
-  async function chooseProfile(event: Event): Promise<void> {
-    const target = event.currentTarget as HTMLSelectElement;
-    selectedSlug = target.value;
+  onMount(() => {
+    const closeProfileMenu = (event: MouseEvent) => {
+      if (profileMenu && event.target instanceof Node && !profileMenu.contains(event.target)) {
+        profileMenu.open = false;
+      }
+    };
+
+    document.addEventListener('click', closeProfileMenu);
+    return () => document.removeEventListener('click', closeProfileMenu);
+  });
+
+  async function chooseProfile(slug: string): Promise<void> {
+    if (slug === selectedSlug) {
+      if (profileMenu) profileMenu.open = false;
+      return;
+    }
+
+    selectedSlug = slug;
+    if (profileMenu) profileMenu.open = false;
     error = '';
     loading = true;
 
@@ -79,6 +96,10 @@
     } finally {
       loading = false;
     }
+  }
+
+  function profileOptionLabel(profile: PublicProfileOption): string {
+    return profile.display_name;
   }
 
   function melbourneDate(date = new Date()): string {
@@ -200,12 +221,23 @@
     </section>
   {:else}
     <div class="profile-picker">
-      <label for="profile">Profile</label>
-      <select id="profile" bind:value={selectedSlug} on:change={chooseProfile}>
-        {#each profiles as profile}
-          <option value={profile.slug}>{profile.display_name} / {profile.slug}</option>
-        {/each}
-      </select>
+      <span class="profile-label">Profile</span>
+      <details bind:this={profileMenu} class="profile-menu">
+        <summary>{selectedProfile ? profileOptionLabel(selectedProfile) : 'Choose profile'}</summary>
+        <div class="profile-options" role="radiogroup" aria-label="Profile">
+          {#each profiles as profile}
+            <button
+              class:active={profile.slug === selectedSlug}
+              type="button"
+              role="radio"
+              aria-checked={profile.slug === selectedSlug}
+              on:click={() => chooseProfile(profile.slug)}
+            >
+              <span>{profile.display_name}</span>
+            </button>
+          {/each}
+        </div>
+      </details>
     </div>
 
     <div class="status-row">
@@ -289,12 +321,83 @@
     margin-bottom: 16px;
   }
 
-  .profile-picker label {
+  .profile-label {
     color: var(--muted);
   }
 
-  .profile-picker select {
-    min-width: 190px;
+  .profile-menu {
+    position: relative;
+    min-width: 220px;
+  }
+
+  .profile-menu summary {
+    min-height: 32px;
+    padding: 5px 28px 5px 9px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .profile-menu summary::after {
+    position: absolute;
+    top: 13px;
+    right: 9px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid var(--muted);
+    border-right: 4px solid transparent;
+    border-left: 4px solid transparent;
+    content: "";
+  }
+
+  .profile-menu[open] summary::after {
+    transform: rotate(180deg);
+  }
+
+  .profile-menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .profile-menu summary:hover {
+    background: var(--surface-2);
+  }
+
+  .profile-options {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 10;
+    display: grid;
+    width: 100%;
+    border: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .profile-options button {
+    display: block;
+    width: 100%;
+    min-height: 32px;
+    padding: 7px 9px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .profile-options button:last-child {
+    border-bottom: 0;
+  }
+
+  .profile-options button:hover {
+    background: var(--surface-2);
+  }
+
+  .profile-options button.active {
+    background: var(--text);
+    color: var(--bg);
   }
 
   .section-gap {
