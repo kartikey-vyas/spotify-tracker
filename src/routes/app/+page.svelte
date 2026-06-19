@@ -288,7 +288,7 @@
           <span class="muted">Generated {new Date(overview.generated_at).toLocaleString()}</span>
         </div>
 
-        <section class="grid cols-3 section-gap">
+        <section class="grid cols-2 section-gap">
           {#each summaryCards as card}
             <MetricCard label={card.label} value={card.value} caption={card.caption} detail={card.detail} />
           {/each}

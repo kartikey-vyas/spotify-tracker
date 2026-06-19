@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
-  import RankingTable from '$lib/components/RankingTable.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import { getPresetDateRange } from '$lib/dateRanges';
   import { publicSupabaseConfigured } from '$lib/supabase';
@@ -18,7 +17,7 @@
   import { getProfileRankings } from '$lib/queries/rankings';
   import { fetchAlbumImages } from '$lib/queries/images';
   import { listPublicProfiles } from '$lib/queries/profile';
-  import type { CalendarDay, Metric, OverviewPayload, PublicProfileOption, RankingRow } from '$lib/types';
+  import type { CalendarDay, OverviewPayload, PublicProfileOption } from '$lib/types';
 
   const defaultSlug = 'kartikey';
 
@@ -39,7 +38,6 @@
   $: last30DaysPlays = overview
     ? playsForRange(overview.calendar.last_365_days, last30DaysRange.start, last30DaysRange.end)
     : 0;
-  $: trackMetric = overview ? bestAvailableMetric(overview.this_week.top_tracks) : 'minutes';
   $: calendarMetric = overview ? calendarDisplayMetric(overview.calendar.last_365_days) : 'minutes';
   $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
   $: apiOnlyMode =
@@ -164,12 +162,6 @@
       .reduce((total, day) => total + day.plays, 0);
   }
 
-  function metricNote(metric: Metric, rows: RankingRow[]): string {
-    const apiOnlyPlays = rows.reduce((total, row) => total + row.unknown_duration_plays, 0);
-    if (metric === 'plays' && apiOnlyPlays > 0) return 'API-only plays';
-    return metricLabel(metric);
-  }
-
   function calendarDisplayMetric(days: CalendarDay[]): 'minutes' | 'plays' {
     return days.some((day) => day.minutes > 0) ? 'minutes' : 'plays';
   }
@@ -269,7 +261,7 @@
       </section>
     {/if}
 
-    <section class="grid cols-4">
+    <section class="grid cols-3">
       {#each summaryRows() as row}
         <MetricCard label={row.label} value={row.value} caption={row.caption} detail={row.detail} />
       {/each}
@@ -300,14 +292,21 @@
           {/each}
         </ol>
       </div>
-    </section>
 
-    <section class="panel section-gap">
-      <div class="section-heading">
-        <h2>Top tracks this week</h2>
-        <span class="muted">{metricNote(trackMetric, overview.this_week.top_tracks)}</span>
+      <div class="panel">
+        <div class="section-heading">
+          <h2>Top tracks this week</h2>
+          <span class="muted">Plays</span>
+        </div>
+        <ol class="stat-list">
+          {#each overview.this_week.top_tracks.slice(0, 8) as row}
+            <li>
+              <span class="name">{row.entity_name}</span>
+              <span class="count">{row.plays.toLocaleString()}</span>
+            </li>
+          {/each}
+        </ol>
       </div>
-      <RankingTable rows={overview.this_week.top_tracks} entityType="track" metric={trackMetric} />
     </section>
 
     <section class="panel section-gap">
