@@ -1,17 +1,22 @@
 <script lang="ts">
-  import { formatMinutes } from '$lib/metrics';
+  import { formatMetric } from '$lib/metrics';
   import type { CalendarDay } from '$lib/types';
 
   export let days: CalendarDay[] = [];
+  export let metric: 'minutes' | 'plays' = 'minutes';
 
-  $: maxMinutes = Math.max(1, ...days.map((day) => day.minutes));
+  $: maxValue = Math.max(1, ...days.map((day) => valueFor(day)));
   $: points = days
     .map((day, index) => {
       const x = days.length <= 1 ? 0 : (index / (days.length - 1)) * 100;
-      const y = 100 - (day.minutes / maxMinutes) * 88 - 6;
+      const y = 100 - (valueFor(day) / maxValue) * 88 - 6;
       return `${x},${y}`;
     })
     .join(' ');
+
+  function valueFor(day: CalendarDay): number {
+    return metric === 'plays' ? day.plays : day.minutes;
+  }
 </script>
 
 <div class="timeline">
@@ -21,7 +26,7 @@
     </svg>
     <div class="timeline-meta">
       <span>{days[0].local_date}</span>
-      <strong>{formatMinutes(maxMinutes)} peak</strong>
+      <strong>{formatMetric(maxValue, metric)} peak</strong>
       <span>{days[days.length - 1].local_date}</span>
     </div>
   {:else}

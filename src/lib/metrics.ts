@@ -22,6 +22,25 @@ export function formatMetric(value: number, metric: Metric): string {
   return Math.round(value).toLocaleString();
 }
 
+export function metricLabel(metric: Metric): string {
+  if (metric === 'minutes') return 'Minutes';
+  if (metric === 'plays') return 'Plays';
+  if (metric === 'qualified_plays') return 'Qualified plays';
+  if (metric === 'unique_tracks') return 'Unique tracks';
+  if (metric === 'skip_rate') return 'Skip rate';
+  return 'Metric';
+}
+
+export function bestAvailableMetric(rows: RankingRow[], preferred: Metric = 'minutes'): Metric {
+  if (preferred === 'minutes') {
+    const hasMinutes = rows.some((row) => row.minutes > 0);
+    const hasApiOnlyPlays = rows.some((row) => row.plays > 0 && row.unknown_duration_plays > 0);
+    if (!hasMinutes && hasApiOnlyPlays) return 'plays';
+  }
+
+  return preferred;
+}
+
 export function formatMinutes(value: number): string {
   if (value >= 60) {
     return `${(value / 60).toFixed(1)} hr`;

@@ -1,21 +1,27 @@
 <script lang="ts">
+  import { formatMetric } from '$lib/metrics';
   import type { CalendarDay } from '$lib/types';
 
   export let days: CalendarDay[] = [];
+  export let metric: 'minutes' | 'plays' = 'minutes';
 
-  $: maxMinutes = Math.max(1, ...days.map((day) => day.minutes));
+  $: maxValue = Math.max(1, ...days.map((day) => valueFor(day)));
 
-  function level(minutes: number): number {
-    if (minutes <= 0) return 0;
-    return Math.min(4, Math.ceil((minutes / maxMinutes) * 4));
+  function valueFor(day: CalendarDay): number {
+    return metric === 'plays' ? day.plays : day.minutes;
+  }
+
+  function level(value: number): number {
+    if (value <= 0) return 0;
+    return Math.min(4, Math.ceil((value / maxValue) * 4));
   }
 </script>
 
 <div class="calendar" aria-label="Listening calendar">
   {#each days as day}
     <span
-      class={`day level-${level(day.minutes)}`}
-      title={`${day.local_date}: ${Math.round(day.minutes)} minutes, ${day.plays} plays`}
+      class={`day level-${level(valueFor(day))}`}
+      title={`${day.local_date}: ${formatMetric(valueFor(day), metric)}, ${day.plays} plays`}
     ></span>
   {:else}
     <p class="muted">No calendar data available.</p>

@@ -4,16 +4,17 @@
   import RankingTable from '$lib/components/RankingTable.svelte';
   import { getPresetDateRange } from '$lib/dateRanges';
   import { getRankings } from '$lib/queries/rankings';
-  import type { RankingRow } from '$lib/types';
+  import type { Metric, RankingRow } from '$lib/types';
 
   let rows: RankingRow[] = [];
   let error = '';
   let loading = true;
   const range = getPresetDateRange('last_30_days');
+  const metric: Metric = 'plays';
 
   onMount(async () => {
     try {
-      rows = await getRankings({ entityType: 'genre', start: range.start, end: range.end, metric: 'minutes', limit: 100 });
+      rows = await getRankings({ entityType: 'genre', start: range.start, end: range.end, metric, limit: 100 });
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -35,8 +36,8 @@
     <section class="panel"><p class="error">{error}</p></section>
   {:else}
     <section class="grid cols-2">
-      <div class="panel"><BarChart {rows} metric="minutes" limit={12} /></div>
-      <div class="panel"><RankingTable {rows} entityType="genre" metric="minutes" /></div>
+      <div class="panel"><BarChart {rows} {metric} limit={12} /></div>
+      <div class="panel"><RankingTable {rows} entityType="genre" {metric} /></div>
     </section>
   {/if}
 </section>
