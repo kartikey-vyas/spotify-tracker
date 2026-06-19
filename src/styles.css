@@ -19,14 +19,49 @@
   color: var(--text);
 }
 
+html[data-theme='black'] {
+  color-scheme: dark;
+  --bg: #000000;
+  --surface: #050505;
+  --surface-2: #111111;
+  --text: #f5f3ec;
+  --muted: #aaa79f;
+  --line: #3f3f3f;
+  --accent: #f5f3ec;
+  --accent-dark: #f5f3ec;
+  --blue: #f5f3ec;
+  --amber: #e3b76a;
+  --red: #ff8a80;
+}
+
+html[data-theme='warm-dark'] {
+  color-scheme: dark;
+  --bg: #17120f;
+  --surface: #1d1713;
+  --surface-2: #2a211b;
+  --text: #eee8dc;
+  --muted: #b8ad9e;
+  --line: #5a4d43;
+  --accent: #eee8dc;
+  --accent-dark: #eee8dc;
+  --blue: #eee8dc;
+  --amber: #dfb36c;
+  --red: #ff9588;
+}
+
 * {
   box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   background: var(--bg);
+  color: var(--text);
   line-height: 1.45;
 }
 
@@ -42,8 +77,42 @@ select {
   font: inherit;
 }
 
+button,
+input:not([type='checkbox']),
+select {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
 button {
   cursor: pointer;
+  padding: 5px 8px;
+}
+
+button:hover,
+select:hover,
+input:not([type='checkbox']):hover {
+  background: var(--surface-2);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--text);
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 .app-shell {
@@ -80,6 +149,14 @@ button {
   gap: 8px;
 }
 
+.header-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .nav-separator {
   color: var(--muted);
 }
@@ -94,6 +171,19 @@ button {
 .site-nav a:hover {
   background: transparent;
   color: var(--muted);
+}
+
+.theme-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.theme-control select {
+  min-width: 116px;
 }
 
 main {
@@ -224,7 +314,7 @@ h3 {
   padding: 5px 7px;
   border: 1px solid var(--line);
   border-radius: 0;
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text);
 }
 
@@ -280,6 +370,10 @@ th {
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .header-controls {
+    justify-content: flex-start;
   }
 
   .site-nav {

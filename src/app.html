@@ -3,6 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      try {
+        const theme = localStorage.getItem('spotify-history-theme');
+        if (theme === 'black' || theme === 'warm-dark') {
+          document.documentElement.dataset.theme = theme;
+        } else {
+          document.documentElement.removeAttribute('data-theme');
+        }
+      } catch {
+        document.documentElement.removeAttribute('data-theme');
+      }
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
