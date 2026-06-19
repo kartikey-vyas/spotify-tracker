@@ -161,3 +161,14 @@ export async function getArtists(accessToken: string, ids: string[]): Promise<Sp
   );
   return response.artists.filter((artist): artist is SpotifyArtist => Boolean(artist));
 }
+
+export async function getAlbums(accessToken: string, ids: string[]): Promise<SpotifyAlbum[]> {
+  if (ids.length === 0) return [];
+  // Spotify allows at most 20 album ids per request.
+  const params = new URLSearchParams({ ids: ids.slice(0, 20).join(',') });
+  const response = await spotifyApiFetch<{ albums: Array<SpotifyAlbum | null> }>(
+    `/v1/albums?${params.toString()}`,
+    accessToken
+  );
+  return response.albums.filter((album): album is SpotifyAlbum => Boolean(album));
+}

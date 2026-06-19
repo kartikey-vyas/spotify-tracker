@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
+  import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import { getPresetDateRange } from '$lib/dateRanges';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import {
@@ -12,6 +13,8 @@
     metricValue
   } from '$lib/metrics';
   import { getPublicProfileOverview } from '$lib/queries/overview';
+  import { getProfileRankings } from '$lib/queries/rankings';
+  import { fetchAlbumImages } from '$lib/queries/images';
   import { listPublicProfiles } from '$lib/queries/profile';
   import type { CalendarDay, Metric, OverviewPayload, PublicProfileOption, RankingRow } from '$lib/types';
 
@@ -20,6 +23,7 @@
   let profiles: PublicProfileOption[] = [];
   let selectedSlug = defaultSlug;
   let overview: OverviewPayload | null = null;
+  let topAlbums: CoverItem[] = [];
   let loading = true;
   let error = '';
   let profileMenu: HTMLDetailsElement | null = null;
@@ -33,8 +37,6 @@
   $: last30DaysPlays = overview
     ? playsForRange(overview.calendar.last_365_days, last30DaysRange.start, last30DaysRange.end)
     : 0;
-  $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists) : 'minutes';
-  $: genreMetric = overview ? bestAvailableMetric(overview.this_week.top_genres) : 'minutes';
   $: trackMetric = overview ? bestAvailableMetric(overview.this_week.top_tracks) : 'minutes';
   $: calendarMetric = overview ? calendarDisplayMetric(overview.calendar.last_365_days) : 'minutes';
   $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
@@ -53,6 +55,7 @@
         selectedSlug = profiles.find((profile) => profile.slug === defaultSlug)?.slug ?? profiles[0]?.slug ?? defaultSlug;
       }
       overview = profiles.length > 0 ? await getPublicProfileOverview(selectedSlug) : null;
+      topAlbums = overview ? await loadCoverWall(selectedSlug) : [];
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -81,9 +84,11 @@
     if (profileMenu) profileMenu.open = false;
     error = '';
     loading = true;
+    topAlbums = [];
 
     try {
       overview = await getPublicProfileOverview(selectedSlug);
+      topAlbums = overview ? await loadCoverWall(selectedSlug) : [];
       const url = new URL(window.location.href);
       if (selectedSlug === defaultSlug) {
         url.searchParams.delete('slug');
@@ -96,6 +101,36 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function loadCoverWall(slug: string): Promise<CoverItem[]> {
+    const albums = await getProfileRankings({
+      slug,
+      entityType: 'album',
+      start: thisWeekRange.start,
+      end: thisWeekRange.end,
+      metric: 'minutes',
+      limit: 50
+    });
+    if (albums.length === 0) return [];
+
+    const metric = bestAvailableMetric(albums);
+    const sorted = [...albums]
+      .sort((left, right) => metricValue(right, metric) - metricValue(left, metric))
+      .slice(0, 24);
+    const images = await fetchAlbumImages(sorted.map((row) => Number(row.entity_id)));
+
+    return sorted.map((row) => {
+      const art = images.get(Number(row.entity_id));
+      return {
+        id: row.entity_id,
+        title: row.entity_name,
+        subtitle: null,
+        value: formatMetric(metricValue(row, metric), metric),
+        imageUrl: art?.image_url ?? null,
+        href: `/explore/?entity=album&id=${encodeURIComponent(row.entity_id)}`
+      } satisfies CoverItem;
+    });
   }
 
   function profileOptionLabel(profile: PublicProfileOption): string {
@@ -165,18 +200,6 @@
         detail: 'Today'
       }
     ];
-  }
-
-  function asciiBarRows(rows: RankingRow[], metric: Metric, limit = 8): string[] {
-    const chartRows = rows.slice(0, limit);
-    const maxValue = Math.max(1, ...chartRows.map((row) => metricValue(row, metric)));
-
-    return chartRows.map((row, index) => {
-      const value = metricValue(row, metric);
-      const filled = Math.max(0, Math.round((value / maxValue) * 24));
-      const bar = '#'.repeat(filled).padEnd(24, '-');
-      return `${String(index + 1).padStart(2, '0')} ${row.entity_name} [${bar}] ${formatMetric(value, metric)}`;
-    });
   }
 
   function calendarGlyph(day: CalendarDay, metric: 'minutes' | 'plays', maxValue: number): string {
@@ -263,21 +286,45 @@
       {/each}
     </section>
 
+    {#if topAlbums.length > 0}
+      <section class="panel section-gap">
+        <div class="section-heading">
+          <h2>Top albums this week</h2>
+          <span class="muted">Cover wall</span>
+        </div>
+        <CoverWall items={topAlbums} />
+      </section>
+    {/if}
+
     <section class="grid cols-2 section-gap">
       <div class="panel">
         <div class="section-heading">
           <h2>Top artists this week</h2>
-          <span class="muted">{metricNote(artistMetric, overview.this_week.top_artists)}</span>
+          <span class="muted">Plays</span>
         </div>
-        <pre class="ascii-list">{asciiBarRows(overview.this_week.top_artists, artistMetric).join('\n')}</pre>
+        <ol class="stat-list">
+          {#each overview.this_week.top_artists.slice(0, 8) as row}
+            <li>
+              <span class="name">{row.entity_name}</span>
+              <span class="count">{row.plays.toLocaleString()}</span>
+            </li>
+          {/each}
+        </ol>
       </div>
 
       <div class="panel">
         <div class="section-heading">
           <h2>Top genres this week</h2>
-          <span class="muted">{metricNote(genreMetric, overview.this_week.top_genres)}</span>
+          <span class="muted">Plays</span>
         </div>
-        <pre class="ascii-list">{asciiBarRows(overview.this_week.top_genres, genreMetric).join('\n')}</pre>
+        <ol class="stat-list">
+          {#each overview.this_week.top_genres.slice(0, 8) as row}
+            <li>
+              <span class="name">{row.entity_name}</span>
+              <span class="count">{row.plays.toLocaleString()}</span>
+            </li>
+          {/each}
+        </ol>
       </div>
     </section>
 
@@ -423,17 +470,55 @@
   }
 
   .metric-card p,
-  .ascii-list,
   .calendar-text {
     color: var(--muted);
   }
 
-  .ascii-list,
   .calendar-text {
     margin: 0;
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .stat-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: rank;
+  }
+
+  .stat-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--line);
+    counter-increment: rank;
+  }
+
+  .stat-list li:last-child {
+    border-bottom: 0;
+  }
+
+  .stat-list li::before {
+    content: counter(rank);
+    min-width: 1.4em;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-list .name {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stat-list .count {
+    margin-left: auto;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
 
   .notice {
