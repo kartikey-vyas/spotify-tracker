@@ -176,28 +176,33 @@
     return days.some((day) => day.minutes > 0) ? 'minutes' : 'plays';
   }
 
-  function summaryRows(): Array<{ label: string; value: string; detail: string }> {
+  function artistDetail(name: string | null | undefined): { caption: string; detail: string } {
+    return name ? { caption: 'Top artist', detail: name } : { caption: '', detail: 'No plays yet' };
+  }
+
+  function summaryRows(): Array<{ label: string; value: string; caption: string; detail: string }> {
     if (!overview) return [];
     return [
       {
         label: 'Today',
         value: summaryValue(overview.today.minutes, todayPlays),
-        detail: overview.today.top_artist ?? 'No plays yet'
+        ...artistDetail(overview.today.top_artist)
       },
       {
         label: 'This week',
         value: summaryValue(overview.this_week.minutes, weekPlays),
-        detail: overview.this_week.top_artists[0]?.entity_name ?? 'No plays yet'
+        ...artistDetail(overview.this_week.top_artists[0]?.entity_name)
       },
       {
         label: 'Last 30 days',
         value: summaryValue(overview.last_30_days.minutes, last30DaysPlays),
-        detail: overview.last_30_days.top_artists[0]?.entity_name ?? 'No plays yet'
+        ...artistDetail(overview.last_30_days.top_artists[0]?.entity_name)
       },
       {
-        label: 'Top genre',
+        label: 'Top genre (today)',
         value: overview.today.top_genre ?? 'Unknown',
-        detail: 'Today'
+        caption: '',
+        detail: ''
       }
     ];
   }
@@ -281,7 +286,9 @@
         <section class="panel metric-card">
           <span class="metric-label">{row.label}</span>
           <strong>{row.value}</strong>
-          <p>{row.detail}</p>
+          {#if row.detail}
+            <p>{#if row.caption}<span class="metric-caption">{row.caption}</span>{/if}{row.detail}</p>
+          {/if}
         </section>
       {/each}
     </section>
@@ -472,6 +479,17 @@
   .metric-card p,
   .calendar-text {
     color: var(--muted);
+  }
+
+  .metric-caption {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.72rem;
+    opacity: 0.7;
+  }
+
+  .metric-caption::after {
+    content: " · ";
   }
 
   .calendar-text {
