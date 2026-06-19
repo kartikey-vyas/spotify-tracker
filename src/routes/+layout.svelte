@@ -6,7 +6,7 @@
 
   const links = [
     { href: '/', label: 'overview' },
-    { href: '/app/', label: 'dashboard' },
+    { href: '/app/', label: 'login' },
     { href: '/explore/', label: 'explore' },
     { href: '/activity/', label: 'activity' },
     { href: '/about/', label: 'about' }
