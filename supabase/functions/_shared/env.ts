@@ -19,17 +19,21 @@ export function publishableKey(): string {
   return keys[0] ?? requireEnv('SUPABASE_ANON_KEY');
 }
 
+// Single-value secret env vars, in precedence order. `SUPABASE_SECRET_KEYS`
+// (a JSON map) is checked ahead of these.
+const SECRET_KEY_ENV_VARS = ['SUPABASE_SECRET_KEY', 'SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
+
 export function secretKeys(): string[] {
   return [
     ...parseKeyMap(Deno.env.get('SUPABASE_SECRET_KEYS')),
-    Deno.env.get('SUPABASE_SECRET_KEY'),
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    ...SECRET_KEY_ENV_VARS.map((name) => Deno.env.get(name))
   ].filter((value): value is string => Boolean(value));
 }
 
 export function secretKey(): string {
   const [first] = secretKeys();
-  if (!first) throw new Error('SUPABASE_SECRET_KEYS or SUPABASE_SECRET_KEY is required');
+  if (!first) {
+    throw new Error(`SUPABASE_SECRET_KEYS or one of ${SECRET_KEY_ENV_VARS.join(', ')} is required`);
+  }
   return first;
 }
-

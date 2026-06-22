@@ -113,6 +113,13 @@ input:not([type='checkbox']):hover {
   background: var(--surface-2);
 }
 
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,

@@ -46,6 +46,73 @@ uv sync
 pnpm dev
 ```
 
+## Local Auth Testing
+
+Normal local app development can point at the hosted Supabase project via
+`.env.local`, which lets `pnpm dev` show live data:
+
+```text
+PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+PUBLIC_SUPABASE_PUBLISHABLE_KEY=<hosted publishable key>
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SECRET_KEY=<hosted secret key>
+```
+
+To test the full local Auth flow instead, add a gitignored
+`.env.development.local` override using values from `supabase status -o env`.
+Remove this file when you want the browser to use live hosted data again:
+
+```text
+PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local PUBLISHABLE_KEY>
+SITE_URL=http://127.0.0.1:5173/app/
+```
+
+The local Supabase stack is configured for Vite's default dev origin. Auth emails
+are captured by Mailpit/Inbucket at `http://127.0.0.1:54324`; they are not sent
+externally.
+
+Local `supabase/config.toml` enables Auth signups so the OTP/magic-link endpoint
+will issue emails. The app still passes `shouldCreateUser: false` on sign-in, so
+new app users are created through the invite flow rather than by typing any
+email into `/app/`. Hosted Auth signup policy is managed in the Supabase
+dashboard; do not run `supabase config push` without reviewing it.
+
+For local Edge Functions, create the gitignored file `supabase/functions/.env`
+with the same local secret key:
+
+```text
+SUPABASE_SECRET_KEY=<local SECRET_KEY>
+```
+
+`supabase start` loads this file automatically. If the stack is already
+running, restart it after creating or changing local Auth/function config.
+
+`supabase/seed.sql` creates a local owner account and admin marker on
+`supabase db reset`:
+
+```text
+email: admin@local.test
+profile: /local-admin
+```
+
+To test admin auth locally:
+
+1. Start Supabase and the app: `supabase start`, then `pnpm dev`.
+2. Open `/app/`, sign in with `admin@local.test`.
+3. Open `http://127.0.0.1:54324`, click the magic link email, and return to the app.
+4. Open `/admin/`; the seeded user is in `admin_users`.
+
+To test the invite flow end to end, open:
+
+```text
+http://127.0.0.1:5173/app/invite/?code=local-invite
+```
+
+Use any test email and profile details. The seeded invite has 20 uses and the
+magic sign-in email will appear in Mailpit. Local users can also be inspected or
+deleted in Supabase Studio at `http://127.0.0.1:54323`.
+
 ## Current Public Flow
 
 The public homepage reads from `public_profile_overview`, not from the old anonymous `public_home` cache. It defaults to the `kartikey` slug and lets visitors switch between public profiles. A profile only appears there when `profiles.is_public = true` and a user-specific overview cache exists.

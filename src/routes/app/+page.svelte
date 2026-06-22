@@ -1,7 +1,7 @@
 <script lang="ts">
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
-  import type { Session } from '@supabase/supabase-js';
+  import type { Session, SupabaseClient } from '@supabase/supabase-js';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
@@ -23,8 +23,12 @@
   let loading = true;
   let message = '';
   let error = '';
+  type AuthAction = 'password' | 'link';
+  let authSubmitting = false;
+  let authAction: AuthAction | null = null;
 
   let email = '';
+  let password = '';
   let inviteCode = '';
   let slug = '';
   let displayName = '';
@@ -87,25 +91,62 @@
     overview = profile ? await getUserOverview(session.user.id) : null;
   }
 
-  async function submitAuth(): Promise<void> {
+  // Owns the in-flight guard and reset; the callback runs the actual auth call
+  // and returns an error message (or null on success) after setting `message`.
+  async function runAuth(
+    action: AuthAction,
+    run: (client: SupabaseClient, trimmedEmail: string) => Promise<string | null>
+  ): Promise<void> {
     if (!supabase) return;
+    if (authSubmitting) return;
+
     error = '';
-    message = '';
+    authSubmitting = true;
+    authAction = action;
 
-    const { error: authError } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: appUrl()
+    try {
+      const authError = await run(supabase, email.trim());
+      if (authError) {
+        error = authError;
+        message = '';
       }
-    });
-
-    if (authError) {
-      error = authError.message;
-      return;
+    } finally {
+      authSubmitting = false;
+      authAction = null;
     }
+  }
 
-    message = 'Check your email for a sign-in link.';
+  function submitPasswordAuth(): Promise<void> {
+    return runAuth('password', async (client, trimmedEmail) => {
+      message = '';
+      const { data, error: authError } = await client.auth.signInWithPassword({
+        email: trimmedEmail,
+        password
+      });
+      if (authError) return authError.message;
+
+      session = data.session;
+      await loadUserData();
+      message = 'Signed in.';
+      return null;
+    });
+  }
+
+  function sendSignInLink(): Promise<void> {
+    return runAuth('link', async (client, trimmedEmail) => {
+      message = `Sending sign-in link to ${trimmedEmail}...`;
+      const { error: authError } = await client.auth.signInWithOtp({
+        email: trimmedEmail,
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: appUrl()
+        }
+      });
+      if (authError) return authError.message;
+
+      message = `Sign-in link sent to ${trimmedEmail}. Check your email.`;
+      return null;
+    });
   }
 
   async function completeOnboarding(): Promise<void> {
@@ -198,12 +239,27 @@
         <h2>Sign in</h2>
         <p class="muted">Invite-only access.</p>
 
-        <form on:submit|preventDefault={submitAuth}>
+        <form on:submit|preventDefault={submitPasswordAuth}>
           <label>
             email
-            <input bind:value={email} type="email" autocomplete="email" required />
+            <input bind:value={email} type="email" autocomplete="email" disabled={authSubmitting} required />
           </label>
-          <button type="submit">send sign-in link</button>
+          <label>
+            password
+            <input
+              bind:value={password}
+              type="password"
+              autocomplete="current-password"
+              disabled={authSubmitting}
+              required
+            />
+          </label>
+          <button type="submit" disabled={authSubmitting}>
+            {authSubmitting && authAction === 'password' ? 'signing in...' : 'sign in'}
+          </button>
+          <button type="button" disabled={authSubmitting || !email.trim()} on:click={sendSignInLink}>
+            {authSubmitting && authAction === 'link' ? 'sending...' : 'send sign-in link'}
+          </button>
         </form>
       </section>
     {:else if !profile}

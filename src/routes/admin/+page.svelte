@@ -1,53 +1,50 @@
 <script lang="ts">
-  import { dev } from '$app/environment';
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import {
+    catalogTotalsLabel,
+    classifySystemHealth,
+    classifyUserHealth,
+    coverageLabel,
+    cronFreshnessLabel,
+    formatCount,
     formatDateTime,
-    gapReasonLabel,
-    gapWindowLabel,
-    type SyncDiagnosticsRow
-  } from '$lib/adminDiagnostics';
-  import {
-    getAdminSyncDiagnostics,
-    getPublicSyncDiagnostics,
-    isCurrentUserAdmin
-  } from '$lib/queries/admin';
-  import { publicSupabaseConfigured, supabase } from '$lib/supabase';
+    gapDiagnosticLabel,
+    latestPlayLabel,
+    overviewFreshnessLabel,
+    statusClass,
+    syncFreshnessLabel,
+    userErrorLabel,
+    visibilityLabel,
+    type AdminDashboard
+  } from '$lib/adminHealth';
+  import { getAdminDashboard, isCurrentUserAdmin } from '$lib/queries/admin';
+  import { publicSupabaseConfigured } from '$lib/supabase';
 
   let loading = true;
   let isAdmin = false;
-  let rows: SyncDiagnosticsRow[] = [];
+  let dashboard: AdminDashboard | null = null;
   let error = '';
-  let message = '';
 
-  $: gapRows = rows.filter((row) => row.gap_risk);
-  $: continuousRows = rows.filter((row) => !row.gap_risk);
+  $: system = dashboard?.system ?? null;
+  $: users = dashboard?.users ?? [];
+  $: invites = dashboard?.invites ?? [];
+  $: systemStatus = system ? classifySystemHealth(system) : 'paused';
 
   onMount(async () => {
-    await loadDiagnostics();
+    await loadDashboard();
   });
 
-  async function loadDiagnostics(): Promise<void> {
+  async function loadDashboard(): Promise<void> {
     loading = true;
     error = '';
-    message = '';
 
     try {
       isAdmin = await isCurrentUserAdmin();
-      if (!isAdmin && !dev) {
-        rows = [];
-        return;
-      }
-
-      rows = isAdmin && supabase ? await getAdminSyncDiagnostics() : await getPublicSyncDiagnostics();
-      if (dev && !supabase) {
-        message = 'Supabase is not configured, so diagnostics cannot load.';
-      } else if (dev && !isAdmin) {
-        message = 'Local public preview: sign in as an admin to see private sync rows.';
-      }
+      dashboard = isAdmin ? await getAdminDashboard() : null;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
+      dashboard = null;
     } finally {
       loading = false;
     }
@@ -55,10 +52,15 @@
 </script>
 
 <section class="page">
-  <div class="page-header">
-    <span class="eyebrow">admin</span>
-    <h1>Sync diagnostics</h1>
-    <p class="lede">Gap-risk details stay here so the public pages only show listener-facing stats.</p>
+  <div class="page-header admin-header">
+    <div>
+      <span class="eyebrow">admin</span>
+      <h1>Data health</h1>
+      <p class="lede">Read-only operational status for sync coverage, invites, and catalog freshness.</p>
+    </div>
+    {#if isAdmin}
+      <button type="button" on:click={loadDashboard}>refresh</button>
+    {/if}
   </div>
 
   {#if !publicSupabaseConfigured}
@@ -67,140 +69,257 @@
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY.</p>
     </section>
   {:else if loading}
-    <section class="panel"><p class="muted">Loading diagnostics...</p></section>
-  {:else if !isAdmin && !dev}
+    <section class="panel"><p class="muted">Loading admin health...</p></section>
+  {:else if !isAdmin}
     <section class="panel auth-panel">
       <h2>Admin sign-in required</h2>
       <p class="muted">Sign in from the app page with an account listed in admin_users.</p>
       <a href="{base}/app/">go to login</a>
     </section>
+  {:else if error}
+    <section class="panel">
+      <h2>Unable to load admin health</h2>
+      <p class="error">{error}</p>
+    </section>
+  {:else if !dashboard || !system}
+    <section class="panel">
+      <h2>No admin rows returned</h2>
+      <p class="muted">Confirm this account is present in admin_users.</p>
+    </section>
   {:else}
-    {#if message}<p class="notice">{message}</p>{/if}
-    {#if error}<p class="error">{error}</p>{/if}
-
-    <section class="grid cols-3 section-gap">
+    <section class="health-strip section-gap">
       <article class="panel metric">
-        <span class="muted">Flagged profiles</span>
-        <strong>{gapRows.length.toLocaleString()}</strong>
+        <span class="muted">Overall</span>
+        <strong class={statusClass(systemStatus)}>{systemStatus}</strong>
       </article>
       <article class="panel metric">
-        <span class="muted">Continuous profiles</span>
-        <strong>{continuousRows.length.toLocaleString()}</strong>
+        <span class="muted">Last cron run</span>
+        <strong>{cronFreshnessLabel(system)}</strong>
       </article>
       <article class="panel metric">
-        <span class="muted">Access mode</span>
-        <strong>{isAdmin ? 'admin' : 'local preview'}</strong>
+        <span class="muted">Stale sync users</span>
+        <strong>{formatCount(system.stale_sync_user_count)}</strong>
+      </article>
+      <article class="panel metric">
+        <span class="muted">Sync errors</span>
+        <strong>{formatCount(system.sync_error_user_count)}</strong>
+      </article>
+      <article class="panel metric">
+        <span class="muted">Pending invites</span>
+        <strong>{formatCount(system.pending_invite_count)}</strong>
+      </article>
+      <article class="panel metric">
+        <span class="muted">Catalog</span>
+        <strong>{catalogTotalsLabel(system)}</strong>
       </article>
     </section>
 
     <section class="panel section-gap">
       <div class="section-heading">
-        <h2>Gap risk</h2>
-        <button type="button" on:click={loadDiagnostics}>refresh</button>
+        <h2>Users</h2>
+        <span class="muted">{formatCount(users.length)} profiles</span>
       </div>
 
-      {#if gapRows.length === 0}
-        <p class="muted">No profiles have a stored gap-risk flag.</p>
-      {:else}
-        <div class="diagnostic-list">
-          {#each gapRows as row}
-            <article class="diagnostic-item">
-              <div class="diagnostic-head">
-                <h3>{row.display_name}</h3>
-                <span class="status warn">gap-risk</span>
-              </div>
-              <p>{gapWindowLabel(row)}</p>
-              <dl>
-                <div>
-                  <dt>Reason</dt>
-                  <dd>{gapReasonLabel(row)}</dd>
-                </div>
-                <div>
-                  <dt>Last API sync</dt>
-                  <dd>{formatDateTime(row.recently_played_last_success_at)}</dd>
-                </div>
-                <div>
-                  <dt>Exact export through</dt>
-                  <dd>{formatDateTime(row.latest_exact_export_event_at)}</dd>
-                </div>
-                <div>
-                  <dt>API-only starts</dt>
-                  <dd>{formatDateTime(row.api_only_period_start)}</dd>
-                </div>
-                {#if row.recently_played_last_error}
-                  <div>
-                    <dt>Last error</dt>
-                    <dd>{row.recently_played_last_error}</dd>
-                  </div>
-                {/if}
-              </dl>
-            </article>
-          {/each}
-        </div>
-      {/if}
-    </section>
-
-    <section class="panel section-gap">
-      <h2>All sync states</h2>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Profile</th>
               <th>Status</th>
-              <th>Last API sync</th>
-              <th>Exact export through</th>
-              <th>API-only starts</th>
-              <th>Updated</th>
+              <th>Profile</th>
+              <th>Visibility</th>
+              <th>Spotify</th>
+              <th>Sync</th>
+              <th>Last sync</th>
+              <th>Latest play</th>
+              <th>Coverage</th>
+              <th>Overview</th>
             </tr>
           </thead>
           <tbody>
-            {#each rows as row}
+            {#each users as user}
+              {@const health = classifyUserHealth(user)}
+              {@const errorLabel = userErrorLabel(user)}
               <tr>
-                <td>{row.display_name}</td>
-                <td>{row.gap_risk ? 'gap-risk' : 'continuous'}</td>
-                <td>{formatDateTime(row.recently_played_last_success_at)}</td>
-                <td>{formatDateTime(row.latest_exact_export_event_at)}</td>
-                <td>{formatDateTime(row.api_only_period_start)}</td>
-                <td>{formatDateTime(row.updated_at)}</td>
+                <td><span class={statusClass(health)}>{health}</span></td>
+                <td>
+                  <strong>{user.display_name}</strong>
+                  <span class="cell-note">/{user.slug}</span>
+                </td>
+                <td>{visibilityLabel(user)}</td>
+                <td>
+                  {user.spotify_connected ? 'connected' : 'not connected'}
+                  {#if user.spotify_display_name}
+                    <span class="cell-note">{user.spotify_display_name}</span>
+                  {/if}
+                </td>
+                <td>
+                  {user.sync_enabled ? 'enabled' : 'paused'}
+                  <span class="cell-note">gap: {gapDiagnosticLabel(user)}</span>
+                  {#if errorLabel}
+                    <span class="cell-note error">{errorLabel}</span>
+                  {/if}
+                </td>
+                <td title={formatDateTime(user.recently_played_last_success_at)}>
+                  {syncFreshnessLabel(user)}
+                </td>
+                <td title={formatDateTime(user.latest_stored_event_at)}>{latestPlayLabel(user)}</td>
+                <td>
+                  {coverageLabel(user)}
+                  <span class="cell-note">exact through {formatDateTime(user.latest_exact_export_event_at)}</span>
+                  <span class="cell-note">API from {formatDateTime(user.api_only_period_start)}</span>
+                </td>
+                <td title={formatDateTime(user.overview_generated_at)}>
+                  {overviewFreshnessLabel(user)}
+                  <span class="cell-note">rollup {formatDateTime(user.latest_rollup_updated_at)}</span>
+                </td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
     </section>
+
+    <section class="grid cols-2 section-gap">
+      <section class="panel">
+        <div class="section-heading">
+          <h2>Invites</h2>
+          <span class="muted">{formatCount(system.total_invite_count)} total</span>
+        </div>
+        <div class="table-wrap compact-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Invite</th>
+                <th>Status</th>
+                <th>Uses</th>
+                <th>Expiry</th>
+                <th>Accepted email</th>
+                <th>Accepted</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each invites as invite}
+                <tr>
+                  <td>{invite.label ?? 'unlabeled'}</td>
+                  <td><span class={statusClass(invite.status)}>{invite.status}</span></td>
+                  <td>{formatCount(invite.use_count)} / {formatCount(invite.max_uses)}</td>
+                  <td>{formatDateTime(invite.expires_at)}</td>
+                  <td>{invite.accepted_email ?? 'n/a'}</td>
+                  <td>{formatDateTime(invite.accepted_at)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel catalog-panel">
+        <h2>Catalog/Data quality</h2>
+        <dl>
+          <div>
+            <dt>Artists</dt>
+            <dd>{formatCount(system.artist_count)}</dd>
+          </div>
+          <div>
+            <dt>Albums</dt>
+            <dd>{formatCount(system.album_count)}</dd>
+          </div>
+          <div>
+            <dt>Tracks</dt>
+            <dd>{formatCount(system.track_count)}</dd>
+          </div>
+          <div>
+            <dt>Tracks missing duration</dt>
+            <dd>{formatCount(system.tracks_missing_duration)}</dd>
+          </div>
+          <div>
+            <dt>Albums missing image</dt>
+            <dd>{formatCount(system.albums_missing_image)}</dd>
+          </div>
+          <div>
+            <dt>Stale/unrefreshed artists</dt>
+            <dd>{formatCount(system.artists_stale_or_unrefreshed)}</dd>
+          </div>
+          <div>
+            <dt>Metadata last success</dt>
+            <dd>{formatDateTime(system.metadata_last_success_at)}</dd>
+          </div>
+          <div>
+            <dt>Metadata last error</dt>
+            <dd>{formatDateTime(system.metadata_last_error_at)}</dd>
+          </div>
+        </dl>
+        {#if system.metadata_last_error}
+          <p class="error metadata-error">{system.metadata_last_error}</p>
+        {/if}
+      </section>
+    </section>
   {/if}
 </section>
 
 <style>
-  .section-gap {
-    margin-top: 12px;
-  }
-
-  .section-heading,
-  .diagnostic-head {
+  .admin-header {
     display: flex;
-    align-items: center;
+    align-items: start;
     justify-content: space-between;
     gap: 12px;
   }
 
-  .diagnostic-list {
-    display: grid;
-    gap: 12px;
+  .section-gap {
     margin-top: 12px;
   }
 
-  .diagnostic-item {
-    display: grid;
-    gap: 10px;
-    padding-top: 12px;
-    border-top: 1px solid var(--line);
+  .section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
   }
 
-  .diagnostic-item:first-child {
-    padding-top: 0;
-    border-top: 0;
+  .health-strip {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .metric strong {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
+  .cell-note {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+  }
+
+  .status.healthy,
+  .status.accepted {
+    color: var(--text);
+  }
+
+  .status.warning,
+  .status.pending,
+  .status.expired {
+    color: var(--amber);
+  }
+
+  .status.critical,
+  .status.exhausted {
+    color: var(--red);
+  }
+
+  .status.paused {
+    color: var(--muted);
+  }
+
+  .catalog-panel {
+    display: grid;
+    align-content: start;
+    gap: 10px;
   }
 
   dl {
@@ -220,11 +339,23 @@
     overflow-wrap: anywhere;
   }
 
-  .status.warn {
-    color: var(--amber);
+  .metadata-error {
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 1100px) {
+    .health-strip {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 
   @media (max-width: 800px) {
+    .admin-header {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .health-strip,
     dl {
       grid-template-columns: 1fr;
     }

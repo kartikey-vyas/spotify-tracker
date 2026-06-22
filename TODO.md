@@ -1,5 +1,16 @@
 # TODO
 
+## Admin operations to add later
+
+The admin data-health page is intentionally read-only for now. Future owner-only
+actions should stay behind explicit admin/service checks:
+
+1. Trigger sync now for all due users or one selected user.
+2. Rerun metadata enrichment.
+3. Create and revoke invite links.
+4. Pause or resume a user's Spotify sync.
+5. Refresh a user's rollups and overview cache.
+
 ## Backfill extended streaming history (2014–2026)
 
 Marimo/Polars exploration + cleaning + user-scoped TS import flow written up in
