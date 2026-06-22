@@ -1,5 +1,12 @@
 # TODO
 
+## Backfill extended streaming history (2014–2026)
+
+Hybrid Python-explore + data-seam + TS-import plan written up in
+[docs/extended-history-backfill-plan.md](docs/extended-history-backfill-plan.md).
+Raw data is in `my_spotify_data.zip` (gitignored — contains PII). Key gotcha:
+avoid double-counting the overlap window against the live sync.
+
 ## Restore genres via a non-Spotify source
 
 **Why:** Spotify's Web API no longer returns the `genres` field on artist objects

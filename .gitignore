@@ -12,3 +12,9 @@ coverage/
 
 data/
 *.local
+
+# Spotify data export (contains PII: ip_addr, conn_country) + analysis workspace
+my_spotify_data.zip
+Spotify Extended Streaming History/
+analysis/
+*.ndjson
