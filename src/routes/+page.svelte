@@ -29,12 +29,14 @@
   let error = '';
   let profileMenu: HTMLDetailsElement | null = null;
 
-  const thisWeekRange = getPresetDateRange('this_week');
+  const last7DaysRange = getPresetDateRange('last_7_days');
   const last30DaysRange = getPresetDateRange('last_30_days');
 
   $: todayDate = melbourneDate();
   $: todayPlays = overview ? playsForDate(overview.calendar.last_365_days, todayDate) : 0;
-  $: weekPlays = overview ? playsForRange(overview.calendar.last_365_days, thisWeekRange.start, thisWeekRange.end) : 0;
+  $: last7DaysPlays = overview
+    ? playsForRange(overview.calendar.last_365_days, last7DaysRange.start, last7DaysRange.end)
+    : 0;
   $: last30DaysPlays = overview
     ? playsForRange(overview.calendar.last_365_days, last30DaysRange.start, last30DaysRange.end)
     : 0;
@@ -107,8 +109,8 @@
     const albums = await getProfileRankings({
       slug,
       entityType: 'album',
-      start: thisWeekRange.start,
-      end: thisWeekRange.end,
+      start: last7DaysRange.start,
+      end: last7DaysRange.end,
       metric: 'minutes',
       limit: 50
     });
@@ -175,8 +177,8 @@
         ...topArtistDetail(overview.today.top_artist)
       },
       {
-        label: 'This week',
-        value: summaryValue(overview.this_week.minutes, weekPlays),
+        label: 'Last 7 days',
+        value: summaryValue(overview.this_week.minutes, last7DaysPlays),
         ...topArtistDetail(overview.this_week.top_artists[0]?.entity_name)
       },
       {
@@ -249,7 +251,7 @@
     </div>
 
     <div class="status-row">
-      <DataQualityBadge quality={1} gapRisk={overview.sync.gap_risk} />
+      <DataQualityBadge quality={1} />
       <span class="muted">Generated {new Date(overview.generated_at).toLocaleString()}</span>
       {#if overview.sync.last_success_at}
         <span class="muted">Last API sync {new Date(overview.sync.last_success_at).toLocaleString()}</span>
@@ -270,7 +272,7 @@
     {#if topAlbums.length > 0}
       <section class="panel section-gap">
         <div class="section-heading">
-          <h2>Top albums this week</h2>
+          <h2>Top albums last 7 days</h2>
           <span class="muted">Cover wall</span>
         </div>
         <CoverWall items={topAlbums} />
@@ -280,7 +282,7 @@
     <section class="grid cols-2 section-gap">
       <div class="panel">
         <div class="section-heading">
-          <h2>Top artists this week</h2>
+          <h2>Top artists last 7 days</h2>
           <span class="muted">Plays</span>
         </div>
         <ol class="stat-list">
@@ -295,7 +297,7 @@
 
       <div class="panel">
         <div class="section-heading">
-          <h2>Top tracks this week</h2>
+          <h2>Top tracks last 7 days</h2>
           <span class="muted">Plays</span>
         </div>
         <ol class="stat-list">

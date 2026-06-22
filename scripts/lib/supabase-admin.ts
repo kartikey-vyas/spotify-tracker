@@ -18,16 +18,6 @@ export function throwIfSupabaseError(error: { message: string } | null, context:
   }
 }
 
-export async function refreshPublicStats(
-  supabase: AdminClient,
-  targetDates: string[] | null = null
-): Promise<void> {
-  const { error } = await supabase.rpc('refresh_public_stats', {
-    target_dates: targetDates
-  });
-  throwIfSupabaseError(error, 'Refreshing public stats failed');
-}
-
 export async function refreshUserPublicStats(
   supabase: AdminClient,
   userId: string,
@@ -43,9 +33,8 @@ export async function refreshUserPublicStats(
 /**
  * Recompute per-user rollups for the given dates across every sync-enabled
  * connection. Genres/metadata written by enrichment only reach the daily
- * rollups (and therefore the overview cache) through this per-user path; the
- * legacy global refresh_public_stats is a no-op since the anonymous feed was
- * archived. Skips entirely when no dates changed to avoid a full rebuild.
+ * rollups (and therefore the overview cache) through this per-user path.
+ * Skips entirely when no dates changed to avoid a full rebuild.
  */
 export async function refreshConnectedUsersPublicStats(
   supabase: AdminClient,

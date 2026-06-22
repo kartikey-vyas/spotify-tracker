@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { browser } from '$app/environment';
+  import { browser, dev } from '$app/environment';
   import '../styles.css';
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
+  import { isCurrentUserAdmin } from '$lib/queries/admin';
+  import { supabase } from '$lib/supabase';
 
   const links = [
     { href: '/', label: 'overview' },
@@ -24,6 +26,7 @@
 
   let theme: Theme = 'warm-dark';
   let themeMenu: HTMLDetailsElement | null = null;
+  let showAdmin = dev;
 
   onMount(() => {
     let storedTheme: string | null = null;
@@ -45,7 +48,18 @@
     };
 
     document.addEventListener('click', closeThemeMenu);
-    return () => document.removeEventListener('click', closeThemeMenu);
+
+    void refreshAdminAccess();
+    const {
+      data: { subscription }
+    } = supabase?.auth.onAuthStateChange(() => {
+      void refreshAdminAccess();
+    }) ?? { data: { subscription: null } };
+
+    return () => {
+      document.removeEventListener('click', closeThemeMenu);
+      subscription?.unsubscribe();
+    };
   });
 
   function isTheme(value: string | undefined | null): value is Theme {
@@ -73,6 +87,10 @@
     applyTheme(theme);
     if (themeMenu) themeMenu.open = false;
   }
+
+  async function refreshAdminAccess(): Promise<void> {
+    showAdmin = dev || (await isCurrentUserAdmin());
+  }
 </script>
 
 <svelte:head>
@@ -97,6 +115,11 @@
           {/if}
           <a href="{base}{link.href}" data-sveltekit-preload-data="hover">{link.label}</a>
         {/each}
+
+        {#if showAdmin}
+          <span class="nav-separator">/</span>
+          <a href="{base}/admin/" data-sveltekit-preload-data="hover">admin</a>
+        {/if}
 
         <span class="nav-separator">/</span>
         <details bind:this={themeMenu} class="theme-menu">

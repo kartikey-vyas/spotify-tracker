@@ -60,7 +60,7 @@
     <section class="panel"><p class="muted">This profile has no public stats yet.</p></section>
   {:else}
     <div class="status-row">
-      <DataQualityBadge quality={1} gapRisk={overview.sync.gap_risk} />
+      <DataQualityBadge quality={1} />
       {#if overview.sync.last_success_at}
         <span class="muted">Last sync {new Date(overview.sync.last_success_at).toLocaleString()}</span>
       {/if}
@@ -75,7 +75,7 @@
 
     <section class="panel section-gap">
       <div class="section-heading">
-        <h2>Top artists this week</h2>
+        <h2>Top artists last 7 days</h2>
         <span class="muted">{metricLabel(artistMetric)}</span>
       </div>
       <RankingTable rows={overview.this_week.top_artists} entityType="artist" metric={artistMetric} />
@@ -98,4 +98,3 @@
   }
 
 </style>
-

@@ -1,4 +1,4 @@
-import { createServiceClient, refreshPublicStats, throwIfSupabaseError } from './lib/supabase-admin.js';
+import { createServiceClient, throwIfSupabaseError } from './lib/supabase-admin.js';
 import { localDateFor, uniqueSortedDates, unixMs } from './lib/dates.js';
 import { sha256 } from './lib/hash.js';
 import { getRecentlyPlayed, refreshSpotifyAccessToken } from './lib/spotify.js';
@@ -115,8 +115,6 @@ async function main(): Promise<void> {
 
     const { error: updateError } = await supabase.from('sync_state').update(syncUpdate).eq('id', 1);
     throwIfSupabaseError(updateError, 'Updating sync_state success failed');
-
-    await refreshPublicStats(supabase, uniqueSortedDates(affectedDates));
 
     console.log(
       JSON.stringify(

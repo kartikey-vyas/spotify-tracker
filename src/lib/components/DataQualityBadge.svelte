@@ -2,12 +2,9 @@
   import { qualityLabel } from '$lib/metrics';
 
   export let quality: number;
-  export let gapRisk = false;
 </script>
 
-<span class:warn={gapRisk} class="quality">
-  [{gapRisk ? 'gap-risk' : qualityLabel(quality).toLowerCase()}]
-</span>
+<span class="quality">[{qualityLabel(quality).toLowerCase()}]</span>
 
 <style>
   .quality {
@@ -24,7 +21,4 @@
     white-space: nowrap;
   }
 
-  .quality.warn {
-    color: var(--amber);
-  }
 </style>

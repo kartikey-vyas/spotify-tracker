@@ -98,13 +98,13 @@ function totalPlays(rows: RankingRow[]): number {
   return rows.reduce((total, row) => total + row.plays, 0);
 }
 
-// The standard This week / Last 30 days summary cards shared by the /app and
+// The standard Last 7 days / Last 30 days summary cards shared by the /app and
 // /profile headers. The homepage builds its own set (it adds a Today card and
 // derives play counts from the calendar).
 export function overviewSummaryCards(overview: OverviewPayload): SummaryCard[] {
   return [
     {
-      label: 'This week',
+      label: 'Last 7 days',
       value: summaryValue(overview.this_week.minutes, totalPlays(overview.this_week.top_artists)),
       ...topArtistDetail(overview.this_week.top_artists[0]?.entity_name)
     },
