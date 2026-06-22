@@ -1,51 +1,87 @@
-# Extended Streaming History — Backfill Plan
+# Extended Streaming History Backfill
 
-Hybrid approach: **Python** for exploration + cleaning → **data-seam file** → existing **TS importer** for the authoritative idempotent write. Goal: load ~12 years (2014–2026) of extended streaming history into the DB without double-counting against the live sync.
+Use **Marimo** for exploration, **Polars** for cleaning, and the existing TypeScript importer for the authoritative database write. Marimo notebooks are committed as Python files, can run through `uv`, and support DuckDB-backed SQL exploration over local dataframes.
 
-## Grounding facts (already verified)
+## Local Data
 
-- **Data:** `my_spotify_data.zip` → `Spotify Extended Streaming History/Streaming_History_Audio_YYYY.json` for 2014–2026, plus `Streaming_History_Video_*.json` (ignore video). Each audio file is a JSON array of play records.
-- **Audio record schema:** `ts` (ISO), `ms_played`, `master_metadata_track_name`, `master_metadata_album_artist_name`, `master_metadata_album_album_name`, `spotify_track_uri`, `reason_start`, `reason_end`, `shuffle`, `skipped`, `offline`, `incognito_mode`, `platform`, `conn_country`, `ip_addr`, plus null episode/audiobook fields for music rows.
-- **The TS importer already consumes this exact format.** `scripts/import-spotify-export.ts` has an `ExportRow` type matching these fields and writes events with `source = SOURCE_EXPORT (1)`, `data_quality = QUALITY_EXACT (1)`. **No reformatting needed.**
-- **Idempotency / dedup key:** `sourceEventKey = sha256(['export', ts, spotify_track_uri, spotify_episode_uri, ms_played, platform, reason_start, reason_end])`, upserted on `(user_id, source_event_key)` with `ignoreDuplicates`. Re-importing the same rows is a no-op.
+Keep all private data under gitignored paths:
 
-## The data seam
+- Raw export: `my_spotify_data.zip` or an extracted `Spotify Extended Streaming History/` folder.
+- Generated output: `analysis/out/cleaned_YYYY.json` and `analysis/out/summary.json`.
+- Do not commit raw rows, IP addresses, countries, or generated cleaned files.
 
-- **Format:** NDJSON (one record per line) or a JSON array, in **Spotify export-row shape**. Because the TS importer parses raw export rows, Python's cleaned output is just filtered export-format files — the importer eats them unchanged.
-- **Hard rule:** Python must pass the 8 dedup-key fields through **verbatim** (`ts`, `spotify_track_uri`, `spotify_episode_uri`, `ms_played`, `platform`, `reason_start`, `reason_end`). Altering any of them changes the hash and breaks dedup against re-imports. Filtering rows = fine; mutating these fields = not.
+The cleaner reads only `Streaming_History_Audio_*.json` files and ignores video history files.
 
-## Python side — explore + clean (no coupling to `src/` or `scripts/lib`)
+## Explore
 
-Location: `analysis/` (gitignored). Toolchain: `uv` + `pandas` (+ `pyarrow` optional). Skills available: `uv`, `ruff`, `ty`.
+```bash
+uv run marimo edit notebooks/spotify_extended_history_explore.py
+```
 
-1. **Load** all `Streaming_History_Audio_*.json` into one DataFrame.
-2. **Explore:** total plays, date range, plays/year, top artists/tracks, `ms_played` distribution, % rows with null `spotify_track_uri`, skipped rate, incognito/offline counts.
-3. **Filter to music:** keep rows where `spotify_track_uri` is not null (drops podcasts/audiobooks/video and "local file" plays). Decide on incognito/ultra-short plays — recommend **keep them** and let the rollups' existing `>=30s` qualification handle it (don't pre-judge minutes).
-4. **Overlap cutoff (CRITICAL — see below).** Emit only export rows older than where the live sync's coverage begins.
-5. **Emit** cleaned NDJSON to `analysis/out/` (per-year or single file).
+The notebook loads a local zip or extracted folder, then shows:
 
-### ⚠️ The overlap double-count problem (most important correctness issue)
+- Date range and total rows.
+- Plays by year.
+- Top artists and tracks.
+- Null URI, skipped, offline, and incognito rates.
+- `ms_played` distribution.
+- A DuckDB SQL editor over the loaded `history_df` dataframe.
 
-The live sync ingests recent plays as `source = SOURCE_RECENTLY_PLAYED` with a **different** `source_event_key` scheme. The export also contains those same recent plays as `SOURCE_EXPORT`. They will **not** dedupe against each other → the overlap window gets **double-counted** minutes/plays.
+## Choose The Cutoff
 
-**Decide a cutoff in Python before emitting:**
-- Query the earliest synced event: `min(played_at)` of `listening_events where source = 2 (SOURCE_RECENTLY_PLAYED)` for the user (or `sync_state.recently_played_cursor_ms` / `api_only_period_start`).
-- Emit only export rows with `ts <` that boundary. Recent plays stay owned by the sync; history owned by the export. Clean split, no reconciliation needed.
+The export overlaps with live recently-played sync data, but export rows and API rows use different source-event hashes. Without a cutoff, overlap dates double-count.
 
-## TS side — authoritative write
+Use the earliest API event for the target user:
 
-1. **Fix the importer's no-op refresh first.** `scripts/import-spotify-export.ts` calls `refreshPublicStats` (a gutted no-op since the anon feed was archived), so rollups won't recompute after import. Change it to `refreshConnectedUsersPublicStats(supabase, uniqueSortedDates(affectedDates))` — exactly the fix already applied to `enrich-metadata.ts` (see `scripts/lib/supabase-admin.ts`).
-2. **Get the auth user id.** The importer scopes events via `--user-id=<auth-user-uuid>`; without it, it writes legacy `user_id = null` rows that the current per-user app ignores. Find your real uuid (Supabase Auth users / `spotify_connections.user_id`).
-3. **Run:** `pnpm import:spotify-export --user-id=<uuid> ./analysis/out/cleaned_*.json`. It upserts fallback artist/album/track dimension rows (no Spotify IDs yet) + `listening_events`.
-4. **Enrich after:** run `pnpm enrich:metadata` repeatedly to backfill artist images for the imported artists (per-run caps: 50/50/100). Genres still need the Last.fm source from `TODO.md`. The per-user rollup refresh now propagates these.
+```sql
+select min(played_at)
+from listening_events
+where user_id = '<auth-user-uuid>'
+  and source = 2;
+```
 
-## Validation / done criteria
+Only export rows with `ts < cutoff` should be imported.
 
-- Imported event count ≈ kept Python rows.
-- **Re-run import → 0 new rows** (idempotency proven).
-- Spot-check a date present in both export and sync: no doubled minutes/plays (overlap cutoff worked).
-- Overview/rollups show historical dates (e.g., top artists for 2017).
+## Clean
 
-## Privacy
+```bash
+uv run python -m tools.spotify_backfill.clean \
+  --input my_spotify_data.zip \
+  --out analysis/out \
+  --cutoff-iso '<timestamp>'
+```
 
-- Raw export holds **PII** (`ip_addr`, `conn_country`, `platform`). `my_spotify_data.zip`, any extracted data, and `analysis/out/` are gitignored — **never commit raw data or PII**. Strip `ip_addr`/`conn_country` from anything that leaves the machine.
+The cleaner:
+
+- Emits JSON arrays, matching `scripts/import-spotify-export.ts`.
+- Drops rows with missing `spotify_track_uri`.
+- Keeps incognito, offline, skipped, and short plays.
+- Applies the strict cutoff `ts < --cutoff-iso`.
+- Preserves the source-event hash fields: `ts`, `spotify_track_uri`, `spotify_episode_uri`, `ms_played`, `platform`, `reason_start`, `reason_end`.
+- Excludes `ip_addr` and `conn_country` from cleaned output.
+
+## Import
+
+```bash
+pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
+```
+
+The importer requires `--user-id`, writes user-scoped events, keeps the existing source-event hash behavior, and refreshes the target user's affected dates with `refresh_user_public_stats`.
+
+Re-run the import once. The second run should be a no-op because events upsert on `(user_id, source_event_key)` with duplicate ignores.
+
+## Enrich
+
+```bash
+pnpm enrich:metadata
+```
+
+Run until refresh counts taper off.
+
+## Validation
+
+- Cleaned row count roughly matches importer attempted events.
+- Second import does not create new rows.
+- Known overlap dates do not double-count export/API plays.
+- Historical years appear in profile rollups.
+

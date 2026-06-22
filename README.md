@@ -6,8 +6,8 @@ The architecture follows one rule: public read, private write.
 
 - Frontend: static SvelteKit app for GitHub Pages
 - Database: Supabase Postgres
-- Historical import: local TypeScript CLI with service credentials, usually scoped to a Supabase Auth user
-- Forward sync: GitHub Actions calls a service-key-protected Supabase Edge Function every 15 minutes
+- Historical import: local Marimo/Polars exploration + cleaning, followed by a user-scoped TypeScript CLI import with service credentials
+- Forward sync: Supabase Cron calls a service-key-protected Supabase Edge Function every 15 minutes
 - Browser credentials: only `PUBLIC_SUPABASE_URL` and a public Supabase key
 
 ## Setup
@@ -37,6 +37,7 @@ The architecture follows one rule: public read, private write.
 
 ```bash
 pnpm install
+uv sync
 ```
 
 10. Run the app locally:
@@ -98,7 +99,7 @@ The browser is still a static SvelteKit app. It only receives `PUBLIC_SUPABASE_U
 5. The friend signs in from email and lands at `/app/`.
 6. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
 7. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
-8. GitHub Actions calls `sync-due-users` with `SUPABASE_SECRET_KEY` on the `7,22,37,52 * * * *` cron.
+8. Supabase Cron calls `sync-due-users` every 15 minutes using the service key stored in Supabase Vault.
 9. `sync-due-users` finds stale enabled users, decrypts each refresh token, fetches recently played tracks, inserts `listening_events` with that user's `user_id`, refreshes that user's rollups, and updates their overview cache.
 
 User-specific rows live under `user_id`:
@@ -152,15 +153,43 @@ The old single-user public rows remain in the database with `user_id = null`, bu
 
 ## Local Import
 
-Put Spotify Extended Streaming History JSON files somewhere ignored by git, for example `data/`, then run:
+Extended Streaming History backfills use Python for local exploration/cleaning and the TypeScript importer for the database write. See [docs/extended-history-backfill-plan.md](docs/extended-history-backfill-plan.md) for the full flow.
+
+Keep private Spotify export data in gitignored paths such as `my_spotify_data.zip`, an extracted `Spotify Extended Streaming History/` folder, or `analysis/`.
+
+Explore the export with Marimo:
 
 ```bash
-pnpm import:spotify-export --user-id=<auth-user-uuid> ./data/Streaming_History_Audio_*.json
+uv run marimo edit notebooks/spotify_extended_history_explore.py
+```
+
+Choose a cutoff before importing so export rows do not double-count recently-played API rows:
+
+```sql
+select min(played_at)
+from listening_events
+where user_id = '<auth-user-uuid>'
+  and source = 2;
+```
+
+Clean the export into JSON arrays:
+
+```bash
+uv run python -m tools.spotify_backfill.clean \
+  --input my_spotify_data.zip \
+  --out analysis/out \
+  --cutoff-iso '<timestamp>'
+```
+
+Then import the cleaned files:
+
+```bash
+pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
 ```
 
 The `--user-id` value is the Supabase Auth user ID for the profile that should receive the imported events. The importer refreshes that user's rollups, recent activity, and `overview_cache` row.
 
-Running the importer without `--user-id` writes legacy `user_id = null` rows. That path is kept for old/manual recovery workflows, but it no longer feeds the public homepage.
+The importer requires `--user-id`; the legacy null-user import path has been removed from this script.
 
 The local importer reads `.env.local`:
 
@@ -169,7 +198,7 @@ SUPABASE_URL=
 SUPABASE_SECRET_KEY=
 ```
 
-It imports track events, skips podcast rows for v1, and rebuilds user-scoped public stats.
+The cleaner reads only `Streaming_History_Audio_*.json`, ignores video history, drops rows without `spotify_track_uri`, preserves the source-event hash fields verbatim, and excludes `ip_addr` / `conn_country` from cleaned output. Re-run the import once after the first import; it should be a no-op because events upsert on `(user_id, source_event_key)`.
 
 ## Spotify OAuth
 
@@ -209,12 +238,15 @@ pnpm build
 pnpm check
 pnpm test
 pnpm typecheck
+uv run pytest
+uv run marimo edit notebooks/spotify_extended_history_explore.py
+uv run python -m tools.spotify_backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
 pnpm invite:create --label=friend --max-uses=1 --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
-pnpm import:spotify-export --user-id=<auth-user-uuid> ./data/Streaming_History_Audio_*.json
+pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
 pnpm db:size
 ```
 
-Legacy/manual commands still present in `package.json`:
+Additional manual commands still present in `package.json`:
 
 ```bash
 pnpm spotify:auth
@@ -222,7 +254,7 @@ pnpm sync:recently-played
 pnpm enrich:metadata
 ```
 
-Do not use the legacy null-user commands for the current public homepage. The current sync path is `sync-due-users`.
+Do not use `spotify:auth` or `sync:recently-played` for the current public homepage. The current sync path is `sync-due-users`. `enrich:metadata` remains useful after large imports to backfill Spotify metadata.
 
 ## Data Semantics
 

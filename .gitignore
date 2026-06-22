@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 .pnpm-store/
+.venv/
 .svelte-kit/
 build/
 .vite/
@@ -9,6 +10,7 @@ coverage/
 .env
 .env.*
 !.env.example
+.mcp.json
 
 data/
 *.local

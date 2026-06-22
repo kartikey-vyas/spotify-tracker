@@ -1,5 +1,11 @@
 import { readFile } from 'node:fs/promises';
-import { createServiceClient, refreshPublicStats, throwIfSupabaseError } from './lib/supabase-admin.js';
+import { pathToFileURL } from 'node:url';
+import {
+  createServiceClient,
+  refreshUserPublicStats,
+  throwIfSupabaseError,
+  type AdminClient
+} from './lib/supabase-admin.js';
 import { localDateFor, uniqueSortedDates, unixMs } from './lib/dates.js';
 import { sha256 } from './lib/hash.js';
 import { spotifyIdFromUri } from './lib/spotify.js';
@@ -31,10 +37,29 @@ const QUALITY_EXACT = 1;
 const artistCache = new Map<string, number>();
 const albumCache = new Map<string, number>();
 const trackCache = new Map<string, number>();
-const supabase = createServiceClient();
 
 function usage(): never {
-  throw new Error('Usage: pnpm import:spotify-export [--user-id=<auth-user-uuid>] ./data/Streaming_History_Audio_*.json');
+  throw new Error('Usage: pnpm import:spotify-export --user-id=<auth-user-uuid> ./analysis/out/cleaned_*.json');
+}
+
+export type ImportArgs = {
+  targetUserId: string;
+  files: string[];
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function parseImportArgs(args: string[]): ImportArgs {
+  const userIdArgs = args.filter((arg) => arg.startsWith('--user-id='));
+  if (userIdArgs.length !== 1) usage();
+
+  const targetUserId = userIdArgs[0]?.slice('--user-id='.length).trim();
+  if (!targetUserId || !UUID_RE.test(targetUserId)) usage();
+
+  const files = args.filter((arg) => !arg.startsWith('--user-id='));
+  if (files.length === 0) usage();
+
+  return { targetUserId, files };
 }
 
 function normalizeName(value: string | null | undefined, fallback: string): string {
@@ -42,7 +67,7 @@ function normalizeName(value: string | null | undefined, fallback: string): stri
   return trimmed && trimmed.length > 0 ? trimmed : fallback;
 }
 
-function sourceEventKey(row: ExportRow): string {
+export function sourceEventKey(row: ExportRow): string {
   return sha256([
     'export',
     row.ts,
@@ -63,7 +88,18 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+export async function refreshImportedDates(
+  supabase: AdminClient,
+  targetUserId: string,
+  affectedDates: Set<string>
+): Promise<void> {
+  const dates = uniqueSortedDates(affectedDates);
+  if (dates.length === 0) return;
+  await refreshUserPublicStats(supabase, targetUserId, dates);
+}
+
 async function getOrCreateNamedRow(
+  supabase: AdminClient,
   table: 'artists' | 'albums',
   cache: Map<string, number>,
   name: string
@@ -97,6 +133,7 @@ async function getOrCreateNamedRow(
 }
 
 async function upsertTrack(
+  supabase: AdminClient,
   trackName: string,
   trackUri: string,
   albumId: number | null
@@ -124,12 +161,8 @@ async function upsertTrack(
   return data.id;
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const userIdArg = args.find((arg) => arg.startsWith('--user-id='));
-  const targetUserId = userIdArg?.slice('--user-id='.length).trim() || null;
-  const files = args.filter((arg) => !arg.startsWith('--user-id='));
-  if (files.length === 0) usage();
+export async function main(args = process.argv.slice(2), supabase = createServiceClient()): Promise<void> {
+  const { targetUserId, files } = parseImportArgs(args);
 
   const events = [];
   const trackArtists = [];
@@ -161,9 +194,9 @@ async function main(): Promise<void> {
       const artistName = normalizeName(row.master_metadata_album_artist_name, 'Unknown Artist');
       const albumName = normalizeName(row.master_metadata_album_album_name, 'Unknown Album');
       const trackName = normalizeName(row.master_metadata_track_name, 'Unknown Track');
-      const artistId = await getOrCreateNamedRow('artists', artistCache, artistName);
-      const albumId = await getOrCreateNamedRow('albums', albumCache, albumName);
-      const trackId = await upsertTrack(trackName, row.spotify_track_uri, albumId);
+      const artistId = await getOrCreateNamedRow(supabase, 'artists', artistCache, artistName);
+      const albumId = await getOrCreateNamedRow(supabase, 'albums', albumCache, albumName);
+      const trackId = await upsertTrack(supabase, trackName, row.spotify_track_uri, albumId);
       const playedAtMs = unixMs(row.ts);
       const localDate = localDateFor(row.ts);
 
@@ -206,7 +239,7 @@ async function main(): Promise<void> {
     const { error } = await supabase
       .from('listening_events')
       .upsert(batch, {
-        onConflict: targetUserId ? 'user_id,source_event_key' : 'source_event_key',
+        onConflict: 'user_id,source_event_key',
         ignoreDuplicates: true
       });
     throwIfSupabaseError(error, 'Inserting export listening events failed');
@@ -222,28 +255,11 @@ async function main(): Promise<void> {
       updated_at: new Date().toISOString()
     };
 
-    const { error } = targetUserId
-      ? await supabase.from('sync_state').upsert(stateUpdate, { onConflict: 'user_id' })
-      : await supabase
-          .from('sync_state')
-          .update({
-            latest_exact_export_event_at: latestExactIso,
-            api_only_period_start: latestExactIso,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', 1);
+    const { error } = await supabase.from('sync_state').upsert(stateUpdate, { onConflict: 'user_id' });
     throwIfSupabaseError(error, 'Updating sync_state after import failed');
   }
 
-  if (targetUserId) {
-    const { error } = await supabase.rpc('refresh_user_public_stats', {
-      p_user_id: targetUserId,
-      target_dates: null
-    });
-    throwIfSupabaseError(error, 'Refreshing user stats failed');
-  } else {
-    await refreshPublicStats(supabase, null);
-  }
+  await refreshImportedDates(supabase, targetUserId, affectedDates);
 
   console.log(
     JSON.stringify(
@@ -261,7 +277,9 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}
