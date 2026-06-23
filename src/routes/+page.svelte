@@ -3,7 +3,8 @@
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
-  import { getPresetDateRange } from '$lib/dateRanges';
+  import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
+  import { glyphTimeline } from '$lib/glyphs';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import {
     bestAvailableMetric,
@@ -32,7 +33,7 @@
   const last7DaysRange = getPresetDateRange('last_7_days');
   const last30DaysRange = getPresetDateRange('last_30_days');
 
-  $: todayDate = melbourneDate();
+  $: todayDate = melbourneToday();
   $: todayPlays = overview ? playsForDate(overview.calendar.last_365_days, todayDate) : 0;
   $: last7DaysPlays = overview
     ? playsForRange(overview.calendar.last_365_days, last7DaysRange.start, last7DaysRange.end)
@@ -139,21 +140,6 @@
     return profile.display_name;
   }
 
-  function melbourneDate(date = new Date()): string {
-    const parts = Object.fromEntries(
-      new Intl.DateTimeFormat('en-AU', {
-        timeZone: 'Australia/Melbourne',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      })
-        .formatToParts(date)
-        .map((part) => [part.type, part.value])
-    );
-
-    return `${parts.year}-${parts.month}-${parts.day}`;
-  }
-
   function playsForDate(days: CalendarDay[], localDate: string): number {
     return days.find((day) => day.local_date === localDate)?.plays ?? 0;
   }
@@ -189,16 +175,6 @@
     ];
   }
 
-  function calendarGlyph(day: CalendarDay, metric: 'minutes' | 'plays', maxValue: number): string {
-    const value = metric === 'plays' ? day.plays : day.minutes;
-    if (value <= 0) return '.';
-    return ['.', '-', '=', '+', '#'][Math.min(4, Math.ceil((value / maxValue) * 4))];
-  }
-
-  function calendarText(days: CalendarDay[], metric: 'minutes' | 'plays'): string {
-    const maxValue = Math.max(1, ...days.map((day) => (metric === 'plays' ? day.plays : day.minutes)));
-    return days.map((day) => calendarGlyph(day, metric, maxValue)).join('');
-  }
 </script>
 
 <section class="page">
@@ -316,7 +292,7 @@
         <h2>Listening calendar</h2>
         <span class="muted">Last 365 days by {metricLabel(calendarMetric).toLowerCase()}</span>
       </div>
-      <pre class="calendar-text">{calendarText(overview.calendar.last_365_days, calendarMetric)}</pre>
+      <pre class="calendar-text">{glyphTimeline(overview.calendar.last_365_days, calendarMetric)}</pre>
     </section>
   {/if}
 </section>

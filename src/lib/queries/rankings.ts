@@ -16,6 +16,11 @@ type RollupRow = {
   unknown_duration_plays: number;
 };
 
+// Daily rollup rows are aggregated client-side across the date range, so we
+// fetch the per-day rows and reduce them here. This caps how many we pull in a
+// single query; a year of multi-entity rollups stays well under this bound.
+const MAX_ROLLUP_ROWS = 5000;
+
 function numberValue(value: number | string | null | undefined): number {
   if (value === null || value === undefined) return 0;
   return typeof value === 'number' ? value : Number(value);
@@ -69,7 +74,7 @@ export async function getRankings(params: {
     .eq('entity_type', params.entityType)
     .gte('local_date', params.start)
     .lte('local_date', params.end)
-    .limit(5000)
+    .limit(MAX_ROLLUP_ROWS)
     .returns<RollupRow[]>();
 
   if (error) throw new Error(error.message);
@@ -98,7 +103,7 @@ export async function getProfileRankings(params: {
     .eq('entity_type', params.entityType)
     .gte('local_date', params.start)
     .lte('local_date', params.end)
-    .limit(5000)
+    .limit(MAX_ROLLUP_ROWS)
     .returns<RollupRow[]>();
 
   if (error) throw new Error(error.message);
@@ -145,7 +150,7 @@ export async function getCalendar(start: string, end: string): Promise<CalendarD
     .gte('local_date', start)
     .lte('local_date', end)
     .order('local_date', { ascending: true })
-    .limit(5000)
+    .limit(MAX_ROLLUP_ROWS)
     .returns<Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>>>();
 
   if (error) throw new Error(error.message);

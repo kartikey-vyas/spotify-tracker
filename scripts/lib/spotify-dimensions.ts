@@ -28,10 +28,9 @@ export async function upsertArtistFromSpotify(
 
   if ('images' in artist) {
     payload.image_url = firstImageUrl(artist.images);
-    payload.last_refreshed_at = new Date().toISOString();
   }
 
-  if ('genres' in artist) {
+  if ('images' in artist || 'genres' in artist) {
     payload.last_refreshed_at = new Date().toISOString();
   }
 

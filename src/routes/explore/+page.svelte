@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
+  import { glyphTimeline } from '$lib/glyphs';
   import {
     bestAvailableMetric,
     disabledMetricLabel,
@@ -87,20 +88,6 @@
     return selectedMetric === 'plays' || bestAvailableMetric(rows) === 'plays' ? 'plays' : 'minutes';
   }
 
-  function timelineText(days: CalendarDay[], selectedMetric: 'minutes' | 'plays'): string {
-    const maxValue = Math.max(1, ...days.map((day) => dayValue(day, selectedMetric)));
-    return days.map((day) => glyph(dayValue(day, selectedMetric), maxValue)).join(' ');
-  }
-
-  function dayValue(day: CalendarDay, selectedMetric: 'minutes' | 'plays'): number {
-    return selectedMetric === 'plays' ? day.plays : day.minutes;
-  }
-
-  function glyph(value: number, maxValue: number): string {
-    if (value <= 0) return '.';
-    return ['.', '-', '=', '+', '#'][Math.min(4, Math.ceil((value / maxValue) * 4))];
-  }
-
   function asciiBarRows(rows: RankingRow[], selectedMetric: Metric, limit = 12): string[] {
     const chartRows = rows.slice(0, limit);
     const maxValue = Math.max(1, ...chartRows.map((row) => metricValue(row, selectedMetric)));
@@ -181,7 +168,7 @@
 
       <section class="panel section-gap">
         <h2>Listening over time</h2>
-        <pre class="ascii-list">{timelineText(timeline, timelineMetric)}</pre>
+        <pre class="ascii-list">{glyphTimeline(timeline, timelineMetric, ' ')}</pre>
       </section>
     {/if}
 

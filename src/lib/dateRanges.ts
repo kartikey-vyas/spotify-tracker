@@ -46,6 +46,11 @@ function dateFromParts(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 12));
 }
 
+export function melbourneToday(date = new Date()): string {
+  const { year, month, day } = melbourneParts(date);
+  return isoDate(dateFromParts(year, month, day));
+}
+
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }

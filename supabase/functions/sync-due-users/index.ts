@@ -31,7 +31,7 @@ async function markUserSyncError(userId: string, message: string): Promise<void>
   const supabase = adminClient();
   const now = new Date().toISOString();
 
-  await supabase
+  const { error: stateError } = await supabase
     .from('sync_state')
     .upsert(
       {
@@ -44,8 +44,11 @@ async function markUserSyncError(userId: string, message: string): Promise<void>
       },
       { onConflict: 'user_id' }
     );
+  if (stateError) {
+    console.error(`Failed to record sync_state error for ${userId}: ${stateError.message}`);
+  }
 
-  await supabase
+  const { error: connectionError } = await supabase
     .from('spotify_connections')
     .update({
       last_error_at: now,
@@ -53,6 +56,9 @@ async function markUserSyncError(userId: string, message: string): Promise<void>
       updated_at: now
     })
     .eq('user_id', userId);
+  if (connectionError) {
+    console.error(`Failed to record connection error for ${userId}: ${connectionError.message}`);
+  }
 }
 
 async function syncUser(connection: Connection): Promise<Record<string, unknown>> {

@@ -6,6 +6,10 @@ node_modules/
 build/
 .vite/
 coverage/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
 
 .env
 .env.*
