@@ -1,3 +1,6 @@
+-- Imported verbatim from the production migration ledger (applied via the
+-- Supabase dashboard). Captured into the repo to reconcile divergent history.
+
 create schema if not exists private;
 
 revoke all on schema private from public, anon, authenticated;
@@ -381,3 +384,5 @@ to authenticated;
 
 drop policy if exists "Admins read all profiles" on public.profiles;
 drop policy if exists "Admins read all sync state" on public.sync_state;
+
+notify pgrst, 'reload schema';

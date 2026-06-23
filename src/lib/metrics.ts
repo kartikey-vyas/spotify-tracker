@@ -79,10 +79,12 @@ export function sourceLabel(source: number): string {
   return 'Unknown';
 }
 
-// Headline value for a summary card: listening time when we have exact
-// durations, otherwise the play-event count (API-only data carries no duration).
-export function summaryValue(minutes: number, plays: number): string {
-  return minutes > 0 ? formatMinutes(minutes) : `${plays.toLocaleString()} plays`;
+// Headline value for a summary card. Plays is the metric we rank and report on:
+// it is recorded consistently across both the export and the API, whereas
+// API-only data carries no duration, so a minutes headline understates recent
+// listening.
+export function summaryValue(plays: number): string {
+  return `${plays.toLocaleString()} plays`;
 }
 
 // The secondary line on a summary card. Returns a caption so the top artist
@@ -105,12 +107,12 @@ export function overviewSummaryCards(overview: OverviewPayload): SummaryCard[] {
   return [
     {
       label: 'Last 7 days',
-      value: summaryValue(overview.this_week.minutes, totalPlays(overview.this_week.top_artists)),
+      value: summaryValue(totalPlays(overview.this_week.top_artists)),
       ...topArtistDetail(overview.this_week.top_artists[0]?.entity_name)
     },
     {
       label: 'Last 30 days',
-      value: summaryValue(overview.last_30_days.minutes, totalPlays(overview.last_30_days.top_artists)),
+      value: summaryValue(totalPlays(overview.last_30_days.top_artists)),
       ...topArtistDetail(overview.last_30_days.top_artists[0]?.entity_name)
     }
   ];

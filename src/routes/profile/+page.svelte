@@ -15,7 +15,7 @@
   let loading = true;
   let error = '';
 
-  $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists) : 'plays';
+  $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists, 'plays') : 'plays';
   $: summaryCards = overview ? overviewSummaryCards(overview) : [];
 
   onMount(async () => {

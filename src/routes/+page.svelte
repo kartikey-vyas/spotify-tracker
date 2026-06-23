@@ -117,7 +117,7 @@
     });
     if (albums.length === 0) return [];
 
-    const metric = bestAvailableMetric(albums);
+    const metric = bestAvailableMetric(albums, 'plays');
     const sorted = [...albums]
       .sort((left, right) => metricValue(right, metric) - metricValue(left, metric))
       .slice(0, 24);
@@ -159,17 +159,17 @@
     return [
       {
         label: 'Today',
-        value: summaryValue(overview.today.minutes, todayPlays),
+        value: summaryValue(todayPlays),
         ...topArtistDetail(overview.today.top_artist)
       },
       {
         label: 'Last 7 days',
-        value: summaryValue(overview.this_week.minutes, last7DaysPlays),
+        value: summaryValue(last7DaysPlays),
         ...topArtistDetail(overview.this_week.top_artists[0]?.entity_name)
       },
       {
         label: 'Last 30 days',
-        value: summaryValue(overview.last_30_days.minutes, last30DaysPlays),
+        value: summaryValue(last30DaysPlays),
         ...topArtistDetail(overview.last_30_days.top_artists[0]?.entity_name)
       }
     ];

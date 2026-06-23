@@ -35,7 +35,7 @@
   let isPublic = false;
   const slugPattern = '[a-z0-9][a-z0-9-]{1,38}[a-z0-9]';
 
-  $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists) : 'plays';
+  $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists, 'plays') : 'plays';
   $: summaryCards = overview ? overviewSummaryCards(overview) : [];
   $: publicUrl = profile ? `${locationOrigin()}${base}/profile/?slug=${profile.slug}` : '';
 
