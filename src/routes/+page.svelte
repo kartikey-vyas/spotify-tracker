@@ -112,7 +112,7 @@
       entityType: 'album',
       start: last7DaysRange.start,
       end: last7DaysRange.end,
-      metric: 'minutes',
+      metric: 'plays',
       limit: 50
     });
     if (albums.length === 0) return [];
