@@ -1,6 +1,11 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { requireEnv } from './env.js';
 
+// Above this, a 429 retry-after indicates a daily/abuse cap rather than a
+// transient burst; we abort instead of sleeping (a 24h retry-after once hung an
+// enrichment run for days).
+const MAX_RETRY_AFTER_SECONDS = 120;
+
 export type SpotifyImage = {
   url: string;
   height?: number | null;
@@ -108,13 +113,27 @@ export async function spotifyApiFetch<T>(
     }
   });
 
-  if (response.status === 429 && attempt <= 4) {
+  if (response.status === 429) {
     const retryAfter = Number(response.headers.get('retry-after') ?? '1');
-    await sleep(Math.max(1, retryAfter) * 1000);
-    return spotifyApiFetch<T>(path, accessToken, init, attempt + 1);
+    console.warn(`Spotify 429 rate limited on ${path} (attempt ${attempt}); retry-after ${retryAfter}s`);
+    // A large retry-after means a daily/abuse cap, not a transient burst. Never
+    // block for that long — surface it so callers can stop, not hang for hours.
+    if (retryAfter > MAX_RETRY_AFTER_SECONDS) {
+      const error = new Error(
+        `Spotify rate limit exceeded on ${path}: retry-after ${retryAfter}s (daily cap)`
+      ) as Error & { status?: number; retryAfter?: number };
+      error.status = 429;
+      error.retryAfter = retryAfter;
+      throw error;
+    }
+    if (attempt <= 4) {
+      await sleep(Math.max(1, retryAfter) * 1000);
+      return spotifyApiFetch<T>(path, accessToken, init, attempt + 1);
+    }
   }
 
   if (response.status >= 500 && attempt <= 3) {
+    console.warn(`Spotify ${response.status} on ${path} (attempt ${attempt}); backing off`);
     await sleep(500 * attempt * attempt);
     return spotifyApiFetch<T>(path, accessToken, init, attempt + 1);
   }
@@ -135,7 +154,7 @@ export async function spotifyApiFetch<T>(
  * Fetch a single catalog item, returning null when Spotify reports it does not
  * exist (404) so one missing id does not abort an entire enrichment batch.
  */
-async function getByIdOrNull<T>(path: string, accessToken: string): Promise<T | null> {
+export async function getByIdOrNull<T>(path: string, accessToken: string): Promise<T | null> {
   try {
     return await spotifyApiFetch<T>(path, accessToken);
   } catch (error) {
