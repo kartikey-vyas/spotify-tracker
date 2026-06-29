@@ -3,13 +3,12 @@
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
+  import ContributionGraph from '$lib/components/ContributionGraph.svelte';
   import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
-  import { glyphTimeline } from '$lib/glyphs';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import {
     bestAvailableMetric,
     formatMetric,
-    metricLabel,
     metricValue,
     summaryValue,
     topArtistDetail
@@ -41,12 +40,7 @@
   $: last30DaysPlays = overview
     ? playsForRange(overview.calendar.last_365_days, last30DaysRange.start, last30DaysRange.end)
     : 0;
-  $: calendarMetric = overview ? calendarDisplayMetric(overview.calendar.last_365_days) : 'minutes';
   $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
-  $: apiOnlyMode =
-    overview !== null &&
-    overview.this_week.top_artists.some((row) => row.plays > 0 && row.unknown_duration_plays > 0) &&
-    overview.this_week.minutes === 0;
 
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -150,10 +144,6 @@
       .reduce((total, day) => total + day.plays, 0);
   }
 
-  function calendarDisplayMetric(days: CalendarDay[]): 'minutes' | 'plays' {
-    return days.some((day) => day.minutes > 0) ? 'minutes' : 'plays';
-  }
-
   function summaryRows(): Array<{ label: string; value: string; caption: string; detail: string }> {
     if (!overview) return [];
     return [
@@ -233,12 +223,6 @@
         <span class="muted">Last API sync {new Date(overview.sync.last_success_at).toLocaleString()}</span>
       {/if}
     </div>
-    {#if apiOnlyMode}
-      <section class="notice">
-        Showing API-only play counts for now. Exact minutes will appear after the Spotify export import.
-      </section>
-    {/if}
-
     <section class="grid cols-3">
       {#each summaryRows() as row}
         <MetricCard label={row.label} value={row.value} caption={row.caption} detail={row.detail} />
@@ -290,9 +274,9 @@
     <section class="panel section-gap">
       <div class="section-heading">
         <h2>Listening calendar</h2>
-        <span class="muted">Last 365 days by {metricLabel(calendarMetric).toLowerCase()}</span>
+        <span class="muted">Last 53 weeks by plays</span>
       </div>
-      <pre class="calendar-text">{glyphTimeline(overview.calendar.last_365_days, calendarMetric)}</pre>
+      <ContributionGraph days={overview.calendar.last_365_days} metric="plays" />
     </section>
   {/if}
 </section>
@@ -402,14 +386,6 @@
     margin-top: 16px;
   }
 
-  .calendar-text {
-    margin: 0;
-    color: var(--muted);
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
   .stat-list {
     margin: 0;
     padding: 0;
@@ -450,13 +426,4 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .notice {
-    margin-bottom: 16px;
-    padding: 8px 0;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    color: var(--muted);
-    font-size: 0.94rem;
-    font-weight: 400;
-  }
 </style>

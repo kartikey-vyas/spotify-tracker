@@ -19,6 +19,8 @@
     { value: 'warm-dark', label: 'dark' },
     { value: 'kanagawa', label: 'kanagawa' },
     { value: 'light', label: 'light' },
+    { value: 'blush', label: 'blush' },
+    { value: 'rose', label: 'rose' },
     { value: 'black', label: 'black' }
   ] as const;
 

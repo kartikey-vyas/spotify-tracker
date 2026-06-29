@@ -64,6 +64,36 @@ html[data-theme='kanagawa'] {
   --red: #e46876;
 }
 
+html[data-theme='blush'] {
+  color-scheme: light;
+  --bg: #fdeef3;
+  --surface: #fff5f8;
+  --surface-2: #f6dde6;
+  --text: #3a2230;
+  --muted: #8a6675;
+  --line: #b07089;
+  --accent: #c2367a;
+  --accent-dark: #a12a66;
+  --blue: #c2367a;
+  --amber: #b5650b;
+  --red: #b3122a;
+}
+
+html[data-theme='rose'] {
+  color-scheme: dark;
+  --bg: #1c0f17;
+  --surface: #261320;
+  --surface-2: #331a2b;
+  --text: #ffe1ee;
+  --muted: #c397ad;
+  --line: #6e3a55;
+  --accent: #ff6fae;
+  --accent-dark: #e85a99;
+  --blue: #b58cff;
+  --amber: #f0b56a;
+  --red: #ff6f8f;
+}
+
 * {
   box-sizing: border-box;
 }

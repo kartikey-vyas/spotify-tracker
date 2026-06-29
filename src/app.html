@@ -8,10 +8,10 @@
     <script>
       try {
         const theme = localStorage.getItem('spotify-history-theme');
-        if (theme === 'black' || theme === 'warm-dark' || theme === 'kanagawa') {
-          document.documentElement.dataset.theme = theme;
-        } else if (theme === 'light') {
+        if (theme === 'light') {
           document.documentElement.removeAttribute('data-theme');
+        } else if (theme) {
+          document.documentElement.dataset.theme = theme;
         } else {
           document.documentElement.dataset.theme = 'warm-dark';
         }
