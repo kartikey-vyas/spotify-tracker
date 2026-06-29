@@ -242,7 +242,7 @@ where user_id = '<auth-user-uuid>'
 Clean the export into JSON arrays:
 
 ```bash
-uv run python -m tools.spotify_backfill.clean \
+uv run python -m backfill.clean \
   --input my_spotify_data.zip \
   --out analysis/out \
   --cutoff-iso '<timestamp>'
@@ -307,7 +307,7 @@ pnpm test
 pnpm typecheck
 uv run pytest
 uv run marimo edit notebooks/spotify_extended_history_explore.py
-uv run python -m tools.spotify_backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
+uv run python -m backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
 pnpm invite:create --label=friend --max-uses=1 --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
 pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
 pnpm db:size

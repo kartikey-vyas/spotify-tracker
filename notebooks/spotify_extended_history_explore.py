@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.14.0"
+__generated_with = "0.23.10"
 app = marimo.App(width="full")
 
 
@@ -10,21 +10,19 @@ def _():
     import marimo as mo
     import polars as pl
 
-    from tools.spotify_backfill import clean_export_frame, load_export, summarize_history
+    from backfill import clean_export_frame, load_export, summarize_history
 
-    return clean_export_frame, duckdb, load_export, mo, pl, summarize_history
+    return clean_export_frame, duckdb, load_export, mo, summarize_history
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        """
-        # Spotify extended history exploration
+    mo.md("""
+    # Spotify extended history exploration
 
-        Point this notebook at a local `my_spotify_data.zip` file or extracted Spotify export folder.
-        The committed notebook contains no Spotify rows; raw data and generated outputs stay under gitignored paths.
-        """
-    )
+    Point this notebook at a local `my_spotify_data.zip` file or extracted Spotify export folder.
+    The committed notebook contains no Spotify rows; raw data and generated outputs stay under gitignored paths.
+    """)
     return
 
 
@@ -74,7 +72,7 @@ def _(history_df, load_error, mo, summarize_history):
             {"metric": "Incognito rate", "value": summary["incognito_rate"]},
         ]
     )
-    return summary
+    return (summary,)
 
 
 @app.cell
@@ -105,7 +103,7 @@ def _(clean_export_frame, cutoff_iso, history_df, mo):
         mo.callout(str(clean_error), kind="danger")
     else:
         mo.md(f"Preview keeps `{cleaned_preview.height:,}` rows with track URIs and `ts < {cutoff_iso.value}`.")
-    return cleaned_preview, clean_error
+    return clean_error, cleaned_preview
 
 
 @app.cell
@@ -119,20 +117,20 @@ def _(mo):
     sql_query = mo.ui.text_area(
         label="DuckDB SQL over history_df",
         value="""select
-  date_part('year', cast(ts as timestamptz)) as year,
-  count(*) as plays
-from history_df
-where spotify_track_uri is not null
-group by 1
-order by 1""",
+      date_part('year', cast(ts as timestamptz)) as year,
+      count(*) as plays
+    from history_df
+    where spotify_track_uri is not null
+    group by 1
+    order by 1""",
         full_width=True,
     )
     sql_query
-    return sql_query
+    return (sql_query,)
 
 
 @app.cell
-def _(duckdb, history_df, mo, sql_query):
+def _(duckdb, mo, sql_query):
     sql_error = None
     try:
         sql_result = duckdb.sql(sql_query.value).pl()
@@ -141,20 +139,23 @@ def _(duckdb, history_df, mo, sql_query):
         sql_error = exc
 
     mo.callout(str(sql_error), kind="danger") if sql_error else mo.ui.table(sql_result)
-    return sql_error, sql_result
+    return
 
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        Export cleaned files from the terminal:
+    mo.md("""
+    Export cleaned files from the terminal:
 
-        ```bash
-        uv run python -m tools.spotify_backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
-        ```
-        """
-    )
+    ```bash
+    uv run python -m backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
+    ```
+    """)
+    return
+
+
+@app.cell
+def _():
     return
 
 

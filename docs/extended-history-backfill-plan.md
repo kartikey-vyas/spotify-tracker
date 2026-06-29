@@ -45,7 +45,7 @@ Only export rows with `ts < cutoff` should be imported.
 ## Clean
 
 ```bash
-uv run python -m tools.spotify_backfill.clean \
+uv run python -m backfill.clean \
   --input my_spotify_data.zip \
   --out analysis/out \
   --cutoff-iso '<timestamp>'

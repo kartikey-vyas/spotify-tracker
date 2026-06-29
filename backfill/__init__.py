@@ -1,4 +1,4 @@
-"""Helpers for Spotify extended streaming history backfills."""
+"""Repository-local Python tooling for Spotify extended streaming history backfills."""
 
 from .cleaning import (
     DEDUPE_KEY_FIELDS,
@@ -17,4 +17,3 @@ __all__ = [
     "summarize_history",
     "write_cleaned_export",
 ]
-

@@ -16,7 +16,7 @@ pnpm build        # static build into build/ (adapter-static)
 pnpm check        # svelte-kit sync + svelte-check (app type checking)
 pnpm typecheck    # tsc on scripts/ via tsconfig.scripts.json
 pnpm test         # vitest run (tests/unit/*.test.ts)
-uv run pytest     # Python tests for tools/spotify_backfill
+uv run pytest     # Python tests for the backfill package
 ```
 
 Run a single test: `pnpm vitest run tests/unit/dates.test.ts` (or `pnpm vitest -t "<name>"`).
@@ -26,7 +26,7 @@ Operational CLIs (require `.env.local` with `SUPABASE_URL` + `SUPABASE_SECRET_KE
 ```bash
 pnpm invite:create --label=friend --max-uses=1 --site-url=https://.../app/
 uv run marimo edit notebooks/spotify_extended_history_explore.py
-uv run python -m tools.spotify_backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
+uv run python -m backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
 pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
 pnpm db:size
 ```
@@ -40,7 +40,7 @@ This repo has three TypeScript environments plus local Python tooling with diffe
 1. **Browser app** (`src/`) — SvelteKit + Svelte 5, prerendered. Reads env via `$env/dynamic/public`, talks to Supabase only through the public client in `src/lib/supabase.ts` (nullable — every query guards `if (!supabase) return null`). Type checked with `pnpm check`.
 2. **Node scripts** (`scripts/`) — `tsx`, ESM, service-key access. Env loaded from `.env.local`/`.env` via `scripts/lib/env.ts`; Supabase admin client in `scripts/lib/supabase-admin.ts`. Type checked with `pnpm typecheck` (`tsconfig.scripts.json`).
 3. **Supabase Edge Functions** (`supabase/functions/`) — **Deno**, `npm:`/URL imports, `Deno.env`. Shared helpers in `supabase/functions/_shared/`. Not covered by either tsconfig.
-4. **Python backfill tools** (`tools/spotify_backfill/`, `notebooks/`) — `uv`, Marimo, Polars, DuckDB. These are local-only tools for PII-sensitive Spotify export exploration and cleaning; generated data belongs under gitignored `analysis/`.
+4. **Python backfill tools** (`backfill/`, `notebooks/`) — `uv`, Marimo, Polars, DuckDB. These are local-only tools for PII-sensitive Spotify export exploration and cleaning; generated data belongs under gitignored `analysis/`.
 
 There is intentional duplication of helpers (dates, hashing, Spotify dimensions, env) across `scripts/lib/` and `supabase/functions/_shared/` because Node and Deno cannot share modules. When changing logic in one, check whether the parallel copy needs the same change.
 
@@ -67,7 +67,7 @@ The committed workflow is documented in `docs/extended-history-backfill-plan.md`
 
 1. Explore with `uv run marimo edit notebooks/spotify_extended_history_explore.py`.
 2. Find the cutoff with `min(played_at)` for the target user where `source = 2`.
-3. Clean with `uv run python -m tools.spotify_backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'`.
+3. Clean with `uv run python -m backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'`.
 4. Import with `pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json`.
 5. Re-run the import once to verify idempotency, then run `pnpm enrich:metadata` until counts taper off.
 
