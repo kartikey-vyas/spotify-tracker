@@ -1,10 +1,9 @@
 import type { ClockBucket } from '$lib/types';
 
 /**
- * Collapses the sparse (weekday, hour) play buckets into a 24-hour, time-of-day
- * profile for the radial listening clock. Pure and deterministic: weekdays are
- * summed away, leaving one slice per hour (0–23) with a `fraction` (0–1) of the
- * busiest hour for radial length.
+ * Builds a 24-hour, time-of-day profile for the radial listening clock from
+ * sparse per-hour play buckets. Pure and deterministic: one slice per hour
+ * (0–23) with a `fraction` (0–1) of the busiest hour for radial length.
  */
 
 const HOURS_PER_DAY = 24;

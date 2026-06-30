@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CalendarDay } from '$lib/types';
   import { melbourneToday } from '$lib/dateRanges';
+  import { formatPlays } from '$lib/metrics';
   import {
     availableYears,
     buildYearGrid,
@@ -26,7 +27,7 @@
 
   const noun = metric === 'plays' ? 'plays' : 'minutes';
   const amount = (value: number): string =>
-    metric === 'plays' ? `${value} ${value === 1 ? 'play' : 'plays'}` : `${value} min`;
+    metric === 'plays' ? formatPlays(value) : `${value} min`;
 
   function tooltip(cell: ContributionCell): string {
     if (!cell.inRange) return '';

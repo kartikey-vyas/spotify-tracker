@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ReleaseYearBucket } from '$lib/types';
   import { buildReleaseYearChart, type ReleaseYearBar } from '$lib/release-years';
+  import { formatPlays } from '$lib/metrics';
 
   export let buckets: ReleaseYearBucket[];
 
@@ -11,9 +12,7 @@
   const showLabel = (year: number): boolean => year % 10 === 0 || year === lastYear;
 
   function tooltip(bar: ReleaseYearBar): string {
-    return bar.value > 0
-      ? `${bar.year} · ${bar.value.toLocaleString()} ${bar.value === 1 ? 'play' : 'plays'}`
-      : `${bar.year} · No plays`;
+    return bar.value > 0 ? `${bar.year} · ${formatPlays(bar.value)}` : `${bar.year} · No plays`;
   }
 </script>
 

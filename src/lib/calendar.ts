@@ -1,9 +1,10 @@
 import type { CalendarDay } from '$lib/types';
 
 /**
- * Builds the data for a GitHub-style contribution graph from a list of daily
- * listening totals. Pure and deterministic: pass `endDate` for stable output
- * (defaults to the most recent date present in `days`).
+ * Pure helpers for the GitHub-style listening calendar: a fixed Jan–Dec grid
+ * for a single year (`buildYearGrid`) plus the list of years to offer
+ * (`availableYears`). Deterministic — pass `endDate` to cap the current
+ * (partial) year so future days render as empty squares.
  */
 
 export type CalendarMetric = 'plays' | 'minutes';
@@ -36,14 +37,6 @@ export interface ContributionGrid {
   total: number;
 }
 
-export interface BuildGridOptions {
-  /** Number of week columns to render. */
-  weeks?: number;
-  /** ISO `YYYY-MM-DD` of the most recent day to show. Defaults to max date in `days`. */
-  endDate?: string;
-}
-
-export const DEFAULT_WEEKS = 53;
 const DAYS_PER_WEEK = 7;
 const MS_PER_DAY = 86_400_000;
 /** Minimum columns between month labels; closer ones overlap, so the earlier is dropped. */
@@ -91,55 +84,6 @@ function levelFor(value: number, maxValue: number): ContributionLevel {
 
 function emptyGrid(): ContributionGrid {
   return { weeks: [], monthLabels: [], maxValue: 0, total: 0 };
-}
-
-export function buildContributionGrid(
-  days: CalendarDay[],
-  metric: CalendarMetric,
-  options: BuildGridOptions = {}
-): ContributionGrid {
-  if (days.length === 0) return emptyGrid();
-
-  const weekCount = options.weeks ?? DEFAULT_WEEKS;
-
-  const valueByDate = new Map<string, number>();
-  let maxDateMs = -Infinity;
-  for (const day of days) {
-    valueByDate.set(day.local_date, dayValue(day, metric));
-    maxDateMs = Math.max(maxDateMs, parseISODate(day.local_date));
-  }
-
-  const endMs = options.endDate ? parseISODate(options.endDate) : maxDateMs;
-  // Align the rightmost column to the week containing endDate (Sunday-first).
-  const lastSundayMs = endMs - new Date(endMs).getUTCDay() * MS_PER_DAY;
-  const firstSundayMs = lastSundayMs - (weekCount - 1) * DAYS_PER_WEEK * MS_PER_DAY;
-
-  let maxValue = 0;
-  let total = 0;
-  const cellsByWeek: Array<Array<Omit<ContributionCell, 'level'>>> = [];
-  for (let week = 0; week < weekCount; week += 1) {
-    const column: Array<Omit<ContributionCell, 'level'>> = [];
-    for (let row = 0; row < DAYS_PER_WEEK; row += 1) {
-      const ms = firstSundayMs + (week * DAYS_PER_WEEK + row) * MS_PER_DAY;
-      const inRange = ms <= endMs;
-      const value = inRange ? (valueByDate.get(toISODate(ms)) ?? 0) : 0;
-      if (inRange) {
-        total += value;
-        maxValue = Math.max(maxValue, value);
-      }
-      column.push({ date: toISODate(ms), value, inRange });
-    }
-    cellsByWeek.push(column);
-  }
-
-  const safeMax = Math.max(1, maxValue);
-  const weeks: ContributionCell[][] = cellsByWeek.map((column) =>
-    column.map((cell) => ({ ...cell, level: cell.inRange ? levelFor(cell.value, safeMax) : 0 }))
-  );
-
-  const monthLabels = monthLabelsFor(weeks, (column) => column[0].date);
-
-  return { weeks, monthLabels, maxValue, total };
 }
 
 /** Distinct years that have any data, newest first — drives the year selector. */

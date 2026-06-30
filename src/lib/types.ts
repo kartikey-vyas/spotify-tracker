@@ -19,9 +19,8 @@ export type CalendarDay = {
   plays: number;
 };
 
-/** One non-empty cell of the listening clock: local weekday (0=Sun..6=Sat) × hour (0..23). */
+/** One non-empty hour of the listening clock: local hour (0..23) and its plays. */
 export type ClockBucket = {
-  dow: number;
   hour: number;
   plays: number;
 };

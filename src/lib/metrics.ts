@@ -87,6 +87,11 @@ export function summaryValue(plays: number): string {
   return `${plays.toLocaleString()} plays`;
 }
 
+// Pluralised play count for tooltips (e.g. "1 play", "1,234 plays").
+export function formatPlays(count: number): string {
+  return `${count.toLocaleString()} ${count === 1 ? 'play' : 'plays'}`;
+}
+
 // The secondary line on a summary card. Returns a caption so the top artist
 // reads as a separate fact ("Top artist · toe") rather than describing the
 // headline number.

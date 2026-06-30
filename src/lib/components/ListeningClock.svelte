@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ClockBucket } from '$lib/types';
   import { buildHourClock } from '$lib/clock';
+  import { formatPlays } from '$lib/metrics';
 
   export let buckets: ClockBucket[];
 
@@ -33,9 +34,7 @@
   const hourText = (hour: number): string => `${String(hour).padStart(2, '0')}:00`;
 
   function tooltip(hour: number, value: number): string {
-    return value > 0
-      ? `${value.toLocaleString()} ${value === 1 ? 'play' : 'plays'} · ${hourText(hour)}`
-      : `No plays · ${hourText(hour)}`;
+    return value > 0 ? `${formatPlays(value)} · ${hourText(hour)}` : `No plays · ${hourText(hour)}`;
   }
 
   $: wedges = clock.hours.map((slice) => {
@@ -50,7 +49,8 @@
     };
   });
 
-  $: labels = HOUR_LABELS.map((hour) => {
+  // Static — depends only on constants, so compute once (not reactively).
+  const labels = HOUR_LABELS.map((hour) => {
     const [x, y] = polar(R_LABEL, hour * 15);
     return { hour, x, y };
   });
