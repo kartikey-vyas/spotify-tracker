@@ -35,8 +35,11 @@
   const last30DaysRange = getPresetDateRange('last_30_days');
 
   $: todayDate = melbourneToday();
-  // `daily` replaces the old `last_365_days`; fall back for caches not yet rebuilt.
-  $: calendarDays = overview ? (overview.calendar.daily ?? []) : [];
+  // `daily` (full history) supersedes the legacy `last_365_days`; read whichever
+  // the cache has so the page works before and after the migration is applied.
+  $: calendarDays = overview
+    ? (overview.calendar.daily ?? overview.calendar.last_365_days ?? [])
+    : [];
   $: todayPlays = playsForDate(calendarDays, todayDate);
   $: last7DaysPlays = playsForRange(calendarDays, last7DaysRange.start, last7DaysRange.end);
   $: last30DaysPlays = playsForRange(calendarDays, last30DaysRange.start, last30DaysRange.end);

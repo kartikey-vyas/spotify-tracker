@@ -59,7 +59,10 @@ export type OverviewPayload = {
     top_genres: RankingRow[];
   };
   calendar: {
-    daily: CalendarDay[];
+    /** Full daily history; present once the clock/release migration has run. */
+    daily?: CalendarDay[];
+    /** Legacy field on caches built before that migration. */
+    last_365_days?: CalendarDay[];
   };
   /** Optional: absent on caches built before these viz shipped. */
   clock?: ClockBucket[];
