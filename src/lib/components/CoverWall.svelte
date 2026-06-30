@@ -12,11 +12,15 @@
 <script lang="ts">
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
+  import { tooltip } from '$lib/actions/tooltip';
 
   export let items: CoverItem[] = [];
+  // When true, render skeleton tiles instead of items (same grid + row trim).
+  export let loading = false;
+  export let placeholderCount = 36;
 
   let failed: Record<string, boolean> = {};
-  let grid: HTMLUListElement;
+  let grid: HTMLUListElement | undefined;
   let columns = 0;
 
   // Read the live column count from the resolved grid template (auto-fill).
@@ -27,6 +31,7 @@
   }
 
   onMount(() => {
+    if (!grid) return;
     measureColumns();
     const observer = new ResizeObserver(measureColumns);
     observer.observe(grid);
@@ -42,6 +47,7 @@
   }
 
   $: visible = items.slice(0, completeRowCount(items.length, columns));
+  $: skeletonCount = completeRowCount(placeholderCount, columns);
 
   function markFailed(id: string): void {
     failed = { ...failed, [id]: true };
@@ -52,35 +58,41 @@
   }
 </script>
 
-{#if items.length > 0}
+{#if loading || items.length > 0}
   <ul class="cover-wall" bind:this={grid}>
-    {#each visible as item (item.id)}
-      <li>
-        <svelte:element
-          this={item.href ? 'a' : 'div'}
-          class="tile"
-          href={item.href ? `${base}${item.href}` : undefined}
-          title={[captionText(item), item.value].filter(Boolean).join(' · ')}
-        >
-          {#if item.imageUrl && !failed[item.id]}
-            <img
-              class="art"
-              src={item.imageUrl}
-              alt={captionText(item)}
-              loading="lazy"
-              on:error={() => markFailed(item.id)}
-            />
-          {:else}
-            <span class="art placeholder" aria-hidden="true">♪</span>
-          {/if}
-          <span class="overlay">
-            <span class="title">{item.title}</span>
-            {#if item.subtitle}<span class="subtitle">{item.subtitle}</span>{/if}
-            {#if item.value}<span class="value">{item.value}</span>{/if}
-          </span>
-        </svelte:element>
-      </li>
-    {/each}
+    {#if loading}
+      {#each Array(skeletonCount) as _, index (index)}
+        <li><span class="tile skeleton" aria-hidden="true"></span></li>
+      {/each}
+    {:else}
+      {#each visible as item (item.id)}
+        <li>
+          <svelte:element
+            this={item.href ? 'a' : 'div'}
+            class="tile"
+            href={item.href ? `${base}${item.href}` : undefined}
+            use:tooltip={[captionText(item), item.value].filter(Boolean).join(' · ')}
+          >
+            {#if item.imageUrl && !failed[item.id]}
+              <img
+                class="art"
+                src={item.imageUrl}
+                alt={captionText(item)}
+                loading="lazy"
+                on:error={() => markFailed(item.id)}
+              />
+            {:else}
+              <span class="art placeholder" aria-hidden="true">♪</span>
+            {/if}
+            <span class="overlay">
+              <span class="title">{item.title}</span>
+              {#if item.subtitle}<span class="subtitle">{item.subtitle}</span>{/if}
+              {#if item.value}<span class="value">{item.value}</span>{/if}
+            </span>
+          </svelte:element>
+        </li>
+      {/each}
+    {/if}
   </ul>
 {:else}
   <p class="empty muted">No albums for this view.</p>

@@ -34,6 +34,7 @@
   let listWindow: ListWindow = '30d';
   let loadToken = 0;
   let loading = true;
+  let bandLoading = false;
   let error = '';
   let profileMenu: HTMLDetailsElement | null = null;
 
@@ -53,6 +54,14 @@
   $: last7DaysPlays = playsForRange(calendarDays, last7DaysRange.start, last7DaysRange.end);
   $: last30DaysPlays = playsForRange(calendarDays, last30DaysRange.start, last30DaysRange.end);
   $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
+  // Skeletons only when the band is loading with nothing to show yet (first
+  // paint + profile switch). On a 7d/30d toggle the previous lists are kept, so
+  // they stay visible instead of flashing to skeletons.
+  $: bandSkeleton =
+    bandLoading && topAlbums.length === 0 && topArtists.length === 0 && topTracks.length === 0;
+  // Loading while data is already on screen (a 7d/30d toggle): dim the band so
+  // the swap eases instead of popping. Distinct from the cold-load skeleton.
+  $: bandPending = bandLoading && !bandSkeleton;
 
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -64,11 +73,20 @@
         selectedSlug = profiles.find((profile) => profile.slug === defaultSlug)?.slug ?? profiles[0]?.slug ?? defaultSlug;
       }
       overview = profiles.length > 0 ? await getPublicProfileOverview(selectedSlug) : null;
-      if (overview) await loadRecent(selectedSlug, rangeFor(listWindow));
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
+      // Render the page chrome (cards, calendar, clock) as soon as the overview
+      // resolves; the band loads after and shows skeletons via bandLoading.
       loading = false;
+    }
+
+    if (overview && !error) {
+      try {
+        await loadRecent(selectedSlug, rangeFor(listWindow));
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : String(caught);
+      }
     }
   });
 
@@ -99,7 +117,6 @@
 
     try {
       overview = await getPublicProfileOverview(selectedSlug);
-      if (overview) await loadRecent(selectedSlug, rangeFor(listWindow));
       const url = new URL(window.location.href);
       if (selectedSlug === defaultSlug) {
         url.searchParams.delete('slug');
@@ -112,6 +129,14 @@
     } finally {
       loading = false;
     }
+
+    if (overview && !error) {
+      try {
+        await loadRecent(selectedSlug, rangeFor(listWindow));
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : String(caught);
+      }
+    }
   }
 
   // Top albums/artists/tracks for the chosen window, queried live so any window
@@ -119,16 +144,22 @@
   // slower in-flight load overwriting a newer one when the toggle is clicked.
   async function loadRecent(slug: string, range: { start: string; end: string }): Promise<void> {
     const token = ++loadToken;
-    const [artists, tracks, albumRows] = await Promise.all([
-      getProfileRankings({ slug, entityType: 'artist', start: range.start, end: range.end, metric: 'plays', limit: 8 }),
-      getProfileRankings({ slug, entityType: 'track', start: range.start, end: range.end, metric: 'plays', limit: 8 }),
-      getProfileRankings({ slug, entityType: 'album', start: range.start, end: range.end, metric: 'plays', limit: 50 })
-    ]);
-    const covers = await albumsToCovers(albumRows);
-    if (token !== loadToken) return;
-    topArtists = artists;
-    topTracks = tracks;
-    topAlbums = covers;
+    bandLoading = true;
+    try {
+      const [artists, tracks, albumRows] = await Promise.all([
+        getProfileRankings({ slug, entityType: 'artist', start: range.start, end: range.end, metric: 'plays', limit: 8 }),
+        getProfileRankings({ slug, entityType: 'track', start: range.start, end: range.end, metric: 'plays', limit: 8 }),
+        getProfileRankings({ slug, entityType: 'album', start: range.start, end: range.end, metric: 'plays', limit: 50 })
+      ]);
+      const covers = await albumsToCovers(albumRows);
+      if (token !== loadToken) return;
+      topArtists = artists;
+      topTracks = tracks;
+      topAlbums = covers;
+    } finally {
+      // Only the newest load owns the flag; a superseded load must not clear it.
+      if (token === loadToken) bandLoading = false;
+    }
   }
 
   async function albumsToCovers(albums: RankingRow[]): Promise<CoverItem[]> {
@@ -279,30 +310,38 @@
       </div>
     </div>
 
-    {#if topAlbums.length > 0}
-      <section class="panel">
+    {#if bandSkeleton || topAlbums.length > 0}
+      <section class="panel band-region" class:is-pending={bandPending}>
         <div class="section-heading">
           <h2>Top albums {windowLabel}</h2>
           <span class="muted">Cover wall</span>
         </div>
-        <CoverWall items={topAlbums} />
+        <CoverWall items={topAlbums} loading={bandSkeleton} />
       </section>
     {/if}
 
-    <section class="grid cols-2 section-gap">
+    <section class="grid cols-2 section-gap band-region" class:is-pending={bandPending}>
       <div class="panel">
         <div class="section-heading">
           <h2>Top artists {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        <ol class="stat-list">
-          {#each topArtists as row}
-            <li>
-              <span class="name">{row.entity_name}</span>
-              <span class="count">{row.plays.toLocaleString()}</span>
-            </li>
-          {/each}
-        </ol>
+        {#if bandSkeleton}
+          <ol class="stat-list skeleton-list" aria-hidden="true">
+            {#each Array(8) as _, index (index)}
+              <li><span class="skeleton skeleton-line"></span></li>
+            {/each}
+          </ol>
+        {:else}
+          <ol class="stat-list">
+            {#each topArtists as row}
+              <li>
+                <span class="name">{row.entity_name}</span>
+                <span class="count">{row.plays.toLocaleString()}</span>
+              </li>
+            {/each}
+          </ol>
+        {/if}
       </div>
 
       <div class="panel">
@@ -310,14 +349,22 @@
           <h2>Top tracks {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        <ol class="stat-list">
-          {#each topTracks as row}
-            <li>
-              <span class="name">{row.entity_name}</span>
-              <span class="count">{row.plays.toLocaleString()}</span>
-            </li>
-          {/each}
-        </ol>
+        {#if bandSkeleton}
+          <ol class="stat-list skeleton-list" aria-hidden="true">
+            {#each Array(8) as _, index (index)}
+              <li><span class="skeleton skeleton-line"></span></li>
+            {/each}
+          </ol>
+        {:else}
+          <ol class="stat-list">
+            {#each topTracks as row}
+              <li>
+                <span class="name">{row.entity_name}</span>
+                <span class="count">{row.plays.toLocaleString()}</span>
+              </li>
+            {/each}
+          </ol>
+        {/if}
       </div>
     </section>
 
@@ -571,6 +618,44 @@
     margin-left: auto;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Skeleton rows reuse the .stat-list scaffold (rank number + border) so the
+     placeholder reads like the real list. Widths vary so the bars look like
+     names rather than a uniform block. */
+  .skeleton-line {
+    display: block;
+    width: 62%;
+    height: 0.82rem;
+  }
+
+  .skeleton-list li:nth-child(3n) .skeleton-line {
+    width: 46%;
+  }
+
+  .skeleton-list li:nth-child(4n + 1) .skeleton-line {
+    width: 74%;
+  }
+
+  /* Window toggle: ease the band down while the new window loads, then back up
+     once it swaps in — a calm "refreshing" cue rather than a hard pop. */
+  .band-region {
+    transition: opacity 0.18s ease;
+  }
+
+  .band-region.is-pending {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .band-region {
+      transition: none;
+    }
+
+    .band-region.is-pending {
+      opacity: 1;
+    }
   }
 
 </style>
