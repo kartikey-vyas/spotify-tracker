@@ -206,42 +206,26 @@
     flex: 0 0 auto;
     flex-direction: column;
     gap: 2px;
-    /* Show ~5 years; scroll the rest vertically only, with a thin themed bar. */
+    /* Show ~5 years; the rest scroll under the browser's native (overlay)
+       scrollbar. padding-right keeps the year labels clear of it. */
     max-height: 8.5rem;
+    padding-right: 10px;
     overflow-x: hidden;
     overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--line) transparent;
-  }
-
-  .years::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .years::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .years::-webkit-scrollbar-thumb {
-    border-radius: 3px;
-    background: var(--line);
-  }
-
-  .years::-webkit-scrollbar-thumb:hover {
-    background: var(--muted);
+    overscroll-behavior: contain;
   }
 
   .years button {
     min-height: 0;
     /* Keep full height inside the capped, scrollable column (don't flex-shrink). */
     flex: 0 0 auto;
-    padding: 3px 10px;
+    padding: 3px 4px;
     border: 0;
     background: transparent;
     color: var(--muted);
     font-size: 0.82rem;
     font-variant-numeric: tabular-nums;
-    text-align: left;
+    text-align: right;
   }
 
   .years button:hover {
