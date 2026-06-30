@@ -19,6 +19,18 @@ export type CalendarDay = {
   plays: number;
 };
 
+/** One non-empty hour of the listening clock: local hour (0..23) and its plays. */
+export type ClockBucket = {
+  hour: number;
+  plays: number;
+};
+
+/** Plays of music released in a given year (compilations excluded). */
+export type ReleaseYearBucket = {
+  year: number;
+  plays: number;
+};
+
 export type OverviewPayload = {
   generated_at: string;
   timezone: string;
@@ -46,8 +58,14 @@ export type OverviewPayload = {
     top_genres: RankingRow[];
   };
   calendar: {
-    last_365_days: CalendarDay[];
+    /** Full daily history; present once the clock/release migration has run. */
+    daily?: CalendarDay[];
+    /** Legacy field on caches built before that migration. */
+    last_365_days?: CalendarDay[];
   };
+  /** Optional: absent on caches built before these viz shipped. */
+  clock?: ClockBucket[];
+  release_years?: ReleaseYearBucket[];
 };
 
 export type ActivityRow = {

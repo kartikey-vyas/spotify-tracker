@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { CalendarDay } from '$lib/types';
   import { melbourneToday } from '$lib/dateRanges';
+  import { formatPlays } from '$lib/metrics';
   import {
-    buildContributionGrid,
+    availableYears,
+    buildYearGrid,
     WEEKDAY_LABELS,
     type CalendarMetric,
     type ContributionCell
@@ -11,11 +13,21 @@
   export let days: CalendarDay[];
   export let metric: CalendarMetric = 'plays';
 
-  $: grid = buildContributionGrid(days, metric, { endDate: melbourneToday() });
+  let selectedYear: number | null = null;
+
+  $: years = availableYears(days);
+  // Default to the newest year, and re-snap if the data set changes under us.
+  $: if (years.length > 0 && (selectedYear === null || !years.includes(selectedYear))) {
+    selectedYear = years[0];
+  }
+  $: grid =
+    selectedYear === null
+      ? null
+      : buildYearGrid(days, selectedYear, metric, { endDate: melbourneToday() });
 
   const noun = metric === 'plays' ? 'plays' : 'minutes';
   const amount = (value: number): string =>
-    metric === 'plays' ? `${value} ${value === 1 ? 'play' : 'plays'}` : `${value} min`;
+    metric === 'plays' ? formatPlays(value) : `${value} min`;
 
   function tooltip(cell: ContributionCell): string {
     if (!cell.inRange) return '';
@@ -29,58 +41,92 @@
   }
 </script>
 
-{#if grid.weeks.length > 0}
-  <div class="graph-scroll">
-    <div class="graph" style="--columns: {grid.weeks.length}">
-      <div class="months">
-        {#each grid.monthLabels as { column, label } (column)}
-          <span class="month" style="grid-column: {column + 1}">{label}</span>
-        {/each}
+{#if grid && grid.weeks.length > 0}
+  <div class="calendar">
+    <div class="calendar-main">
+      <div class="graph-scroll">
+        <div class="graph" style="--columns: {grid.weeks.length}">
+          <div class="months">
+            {#each grid.monthLabels as { column, label } (column)}
+              <span class="month" style="grid-column: {column + 1}">{label}</span>
+            {/each}
+          </div>
+
+          <div class="weekdays" aria-hidden="true">
+            {#each WEEKDAY_LABELS as label}
+              <span class="weekday">{label}</span>
+            {/each}
+          </div>
+
+          <div class="cells" role="img" aria-label="Listening activity in {selectedYear}">
+            {#each grid.weeks as week}
+              {#each week as cell (cell.date)}
+                {#if cell.inRange}
+                  <span class="cell" data-level={cell.level} title={tooltip(cell)}></span>
+                {:else}
+                  <span class="cell pad"></span>
+                {/if}
+              {/each}
+            {/each}
+          </div>
+        </div>
       </div>
 
-      <div class="weekdays" aria-hidden="true">
-        {#each WEEKDAY_LABELS as label}
-          <span class="weekday">{label}</span>
+      <div class="legend">
+        <span class="muted">Less</span>
+        {#each [0, 1, 2, 3, 4] as level}
+          <span class="cell" data-level={level}></span>
         {/each}
-      </div>
-
-      <div class="cells" role="img" aria-label="Listening activity over the last year">
-        {#each grid.weeks as week}
-          {#each week as cell (cell.date)}
-            {#if cell.inRange}
-              <span class="cell" data-level={cell.level} title={tooltip(cell)}></span>
-            {:else}
-              <span class="cell pad"></span>
-            {/if}
-          {/each}
-        {/each}
+        <span class="muted">More</span>
       </div>
     </div>
-  </div>
 
-  <div class="legend">
-    <span class="muted">Less</span>
-    {#each [0, 1, 2, 3, 4] as level}
-      <span class="cell" data-level={level}></span>
-    {/each}
-    <span class="muted">More</span>
+    {#if years.length > 1}
+      <div class="years" role="radiogroup" aria-label="Year">
+        {#each years as year}
+          <button
+            class:active={year === selectedYear}
+            type="button"
+            role="radio"
+            aria-checked={year === selectedYear}
+            on:click={() => (selectedYear = year)}
+          >
+            {year}
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
 {/if}
 
 <style>
+  .calendar {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .calendar-main {
+    /* Take the leftover width and allow shrinking so the grid scrolls in place. */
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
   .graph-scroll {
     overflow-x: auto;
     padding-bottom: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
   }
 
   /* Two columns: weekday labels gutter + the cells. Months row spans the top. */
   .graph {
-    --cell: 11px;
-    --gap: 3px;
+    --cell: 10px;
+    --gap: 2px;
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto;
-    gap: 4px 6px;
+    gap: 6px 8px;
     width: max-content;
   }
 
@@ -125,7 +171,6 @@
   .cell {
     width: var(--cell);
     height: var(--cell);
-    border-radius: 2px;
     background: color-mix(in srgb, var(--line) 16%, transparent);
   }
 
@@ -157,5 +202,68 @@
   .legend .cell {
     width: 11px;
     height: 11px;
+  }
+
+  .years {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 2px;
+    /* Show ~5 years; the rest scroll. A reserved (stable) gutter keeps the thin
+       scrollbar from ever overlapping or clipping the labels, whether the OS
+       uses overlay or always-visible scrollbars. */
+    max-height: 8.5rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+
+  /* WebKit fallback (Safari / older Chrome) for the thin themed scrollbars. */
+  .years::-webkit-scrollbar,
+  .graph-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .years::-webkit-scrollbar-track,
+  .graph-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .years::-webkit-scrollbar-thumb,
+  .graph-scroll::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: var(--line);
+  }
+
+  .years::-webkit-scrollbar-thumb:hover,
+  .graph-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+  }
+
+  .years button {
+    min-height: 0;
+    /* Keep full height inside the capped, scrollable column (don't flex-shrink). */
+    flex: 0 0 auto;
+    padding: 3px 4px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .years button:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .years button.active {
+    background: var(--text);
+    color: var(--bg);
   }
 </style>

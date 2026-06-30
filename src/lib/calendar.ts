@@ -1,9 +1,10 @@
 import type { CalendarDay } from '$lib/types';
 
 /**
- * Builds the data for a GitHub-style contribution graph from a list of daily
- * listening totals. Pure and deterministic: pass `endDate` for stable output
- * (defaults to the most recent date present in `days`).
+ * Pure helpers for the GitHub-style listening calendar: a fixed Jan–Dec grid
+ * for a single year (`buildYearGrid`) plus the list of years to offer
+ * (`availableYears`). Deterministic — pass `endDate` to cap the current
+ * (partial) year so future days render as empty squares.
  */
 
 export type CalendarMetric = 'plays' | 'minutes';
@@ -36,14 +37,6 @@ export interface ContributionGrid {
   total: number;
 }
 
-export interface BuildGridOptions {
-  /** Number of week columns to render. */
-  weeks?: number;
-  /** ISO `YYYY-MM-DD` of the most recent day to show. Defaults to max date in `days`. */
-  endDate?: string;
-}
-
-export const DEFAULT_WEEKS = 53;
 const DAYS_PER_WEEK = 7;
 const MS_PER_DAY = 86_400_000;
 /** Minimum columns between month labels; closer ones overlap, so the earlier is dropped. */
@@ -93,26 +86,42 @@ function emptyGrid(): ContributionGrid {
   return { weeks: [], monthLabels: [], maxValue: 0, total: 0 };
 }
 
-export function buildContributionGrid(
+/** Distinct years that have any data, newest first — drives the year selector. */
+export function availableYears(days: CalendarDay[]): number[] {
+  const years = new Set<number>();
+  for (const day of days) {
+    years.add(Number(day.local_date.slice(0, 4)));
+  }
+  return [...years].sort((left, right) => right - left);
+}
+
+/**
+ * Builds a fixed Jan 1 → Dec 31 grid for a single calendar `year` (GitHub-style).
+ * Cells outside the year are padding (`inRange: false`); levels are relative to
+ * that year's own busiest day. Pass `endDate` to cap the current (partial) year
+ * so future days render blank.
+ */
+export function buildYearGrid(
   days: CalendarDay[],
+  year: number,
   metric: CalendarMetric,
-  options: BuildGridOptions = {}
+  options: { endDate?: string } = {}
 ): ContributionGrid {
   if (days.length === 0) return emptyGrid();
 
-  const weekCount = options.weeks ?? DEFAULT_WEEKS;
-
   const valueByDate = new Map<string, number>();
-  let maxDateMs = -Infinity;
   for (const day of days) {
     valueByDate.set(day.local_date, dayValue(day, metric));
-    maxDateMs = Math.max(maxDateMs, parseISODate(day.local_date));
   }
 
-  const endMs = options.endDate ? parseISODate(options.endDate) : maxDateMs;
-  // Align the rightmost column to the week containing endDate (Sunday-first).
-  const lastSundayMs = endMs - new Date(endMs).getUTCDay() * MS_PER_DAY;
-  const firstSundayMs = lastSundayMs - (weekCount - 1) * DAYS_PER_WEEK * MS_PER_DAY;
+  const jan1Ms = Date.UTC(year, 0, 1);
+  const dec31Ms = Date.UTC(year, 11, 31);
+  const capMs = options.endDate ? Math.min(dec31Ms, parseISODate(options.endDate)) : dec31Ms;
+
+  // Pad out to whole Sunday-first weeks around the year.
+  const gridStartMs = jan1Ms - new Date(jan1Ms).getUTCDay() * MS_PER_DAY;
+  const gridEndMs = dec31Ms + (6 - new Date(dec31Ms).getUTCDay()) * MS_PER_DAY;
+  const weekCount = Math.round((gridEndMs - gridStartMs) / MS_PER_DAY + 1) / DAYS_PER_WEEK;
 
   let maxValue = 0;
   let total = 0;
@@ -120,14 +129,18 @@ export function buildContributionGrid(
   for (let week = 0; week < weekCount; week += 1) {
     const column: Array<Omit<ContributionCell, 'level'>> = [];
     for (let row = 0; row < DAYS_PER_WEEK; row += 1) {
-      const ms = firstSundayMs + (week * DAYS_PER_WEEK + row) * MS_PER_DAY;
-      const inRange = ms <= endMs;
-      const value = inRange ? (valueByDate.get(toISODate(ms)) ?? 0) : 0;
-      if (inRange) {
+      const ms = gridStartMs + (week * DAYS_PER_WEEK + row) * MS_PER_DAY;
+      // Every day of the selected year gets a square; days outside it are grid
+      // padding. Future days of the current year render as empty (level 0)
+      // squares — only days up to the cap (today) carry real values/colour.
+      const inYear = ms >= jan1Ms && ms <= dec31Ms;
+      const counted = inYear && ms <= capMs;
+      const value = counted ? (valueByDate.get(toISODate(ms)) ?? 0) : 0;
+      if (counted) {
         total += value;
         maxValue = Math.max(maxValue, value);
       }
-      column.push({ date: toISODate(ms), value, inRange });
+      column.push({ date: toISODate(ms), value, inRange: inYear });
     }
     cellsByWeek.push(column);
   }
@@ -137,21 +150,35 @@ export function buildContributionGrid(
     column.map((cell) => ({ ...cell, level: cell.inRange ? levelFor(cell.value, safeMax) : 0 }))
   );
 
-  const rawMonthLabels: MonthLabel[] = [];
+  // Base labels on the first in-range cell of each column so the leading and
+  // trailing padding (Dec of the prior year / Jan of the next) never label.
+  const monthLabels = monthLabelsFor(weeks, (column) => column.find((cell) => cell.inRange)?.date);
+
+  return { weeks, monthLabels, maxValue, total };
+}
+
+/**
+ * Emits a month label at each column where a new month begins, dropping labels
+ * whose successor starts too soon to fit the text. `monthDate` returns the date
+ * a column should be attributed to (or undefined to skip the column entirely).
+ */
+function monthLabelsFor(
+  weeks: ContributionCell[][],
+  monthDate: (column: ContributionCell[]) => string | undefined
+): MonthLabel[] {
+  const raw: MonthLabel[] = [];
   let lastMonth = -1;
   weeks.forEach((column, index) => {
-    const month = new Date(parseISODate(column[0].date)).getUTCMonth();
+    const date = monthDate(column);
+    if (!date) return;
+    const month = new Date(parseISODate(date)).getUTCMonth();
     if (month !== lastMonth) {
-      rawMonthLabels.push({ column: index, label: MONTH_NAMES[month] });
+      raw.push({ column: index, label: MONTH_NAMES[month] });
       lastMonth = month;
     }
   });
-  // Drop a label when the next month starts too soon to fit the text — this
-  // removes the short leading partial month whose label would otherwise clash.
-  const monthLabels = rawMonthLabels.filter((label, index) => {
-    const next = rawMonthLabels[index + 1];
+  return raw.filter((label, index) => {
+    const next = raw[index + 1];
     return !next || next.column - label.column >= MIN_MONTH_LABEL_GAP;
   });
-
-  return { weeks, monthLabels, maxValue, total };
 }
