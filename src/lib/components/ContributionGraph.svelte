@@ -207,9 +207,12 @@
     flex: 0 0 auto;
     flex-direction: column;
     gap: 2px;
-    /* Cap to ~4 rows so many years don't stretch the panel; scroll for the rest. */
-    max-height: 7rem;
+    /* Show ~5 years; scroll the rest vertically only. The gutter is reserved so
+       the scrollbar never eats into (or clips) the year labels. */
+    max-height: 8.5rem;
+    overflow-x: hidden;
     overflow-y: auto;
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
   }
 
