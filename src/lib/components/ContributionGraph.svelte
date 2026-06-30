@@ -106,6 +106,8 @@
   }
 
   .calendar-main {
+    /* Take the leftover width and allow shrinking so the grid scrolls in place. */
+    flex: 1 1 0;
     min-width: 0;
   }
 
@@ -226,15 +228,5 @@
   .years button.active {
     background: var(--text);
     color: var(--bg);
-  }
-
-  @media (max-width: 800px) {
-    .calendar {
-      flex-direction: column-reverse;
-    }
-
-    .years {
-      flex-flow: row wrap;
-    }
   }
 </style>
