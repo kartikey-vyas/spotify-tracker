@@ -428,11 +428,19 @@
     flex-direction: column;
   }
 
-  /* Centre the grid vertically in the shared row height. */
+  /* Centre the grid vertically in the shared row height. min-width:0 (here and
+     on the calendar root) lets the grid scroll inside the panel instead of
+     overflowing it on cramped widths. */
   .cal-body {
     display: flex;
     flex: 1;
     align-items: center;
+    min-width: 0;
+  }
+
+  .cal-body :global(.calendar) {
+    flex: 1;
+    min-width: 0;
   }
 
   .time-row .clock-panel {
