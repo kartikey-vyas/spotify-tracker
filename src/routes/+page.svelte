@@ -4,6 +4,8 @@
   import MetricCard from '$lib/components/MetricCard.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
+  import ListeningClock from '$lib/components/ListeningClock.svelte';
+  import ReleaseYearChart from '$lib/components/ReleaseYearChart.svelte';
   import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import {
@@ -33,13 +35,11 @@
   const last30DaysRange = getPresetDateRange('last_30_days');
 
   $: todayDate = melbourneToday();
-  $: todayPlays = overview ? playsForDate(overview.calendar.last_365_days, todayDate) : 0;
-  $: last7DaysPlays = overview
-    ? playsForRange(overview.calendar.last_365_days, last7DaysRange.start, last7DaysRange.end)
-    : 0;
-  $: last30DaysPlays = overview
-    ? playsForRange(overview.calendar.last_365_days, last30DaysRange.start, last30DaysRange.end)
-    : 0;
+  // `daily` replaces the old `last_365_days`; fall back for caches not yet rebuilt.
+  $: calendarDays = overview ? (overview.calendar.daily ?? []) : [];
+  $: todayPlays = playsForDate(calendarDays, todayDate);
+  $: last7DaysPlays = playsForRange(calendarDays, last7DaysRange.start, last7DaysRange.end);
+  $: last30DaysPlays = playsForRange(calendarDays, last30DaysRange.start, last30DaysRange.end);
   $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
 
   onMount(async () => {
@@ -274,10 +274,30 @@
     <section class="panel section-gap">
       <div class="section-heading">
         <h2>Listening calendar</h2>
-        <span class="muted">Last 53 weeks by plays</span>
+        <span class="muted">Plays per day</span>
       </div>
-      <ContributionGraph days={overview.calendar.last_365_days} metric="plays" />
+      <ContributionGraph days={calendarDays} metric="plays" />
     </section>
+
+    {#if overview.clock && overview.clock.length > 0}
+      <section class="panel section-gap">
+        <div class="section-heading">
+          <h2>Listening clock</h2>
+          <span class="muted">Plays by hour, local time · all-time</span>
+        </div>
+        <ListeningClock buckets={overview.clock} />
+      </section>
+    {/if}
+
+    {#if overview.release_years && overview.release_years.length > 0}
+      <section class="panel section-gap">
+        <div class="section-heading">
+          <h2>The age of your music</h2>
+          <span class="muted">Plays by release year</span>
+        </div>
+        <ReleaseYearChart buckets={overview.release_years} />
+      </section>
+    {/if}
   {/if}
 </section>
 

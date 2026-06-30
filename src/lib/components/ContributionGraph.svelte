@@ -2,7 +2,8 @@
   import type { CalendarDay } from '$lib/types';
   import { melbourneToday } from '$lib/dateRanges';
   import {
-    buildContributionGrid,
+    availableYears,
+    buildYearGrid,
     WEEKDAY_LABELS,
     type CalendarMetric,
     type ContributionCell
@@ -11,7 +12,17 @@
   export let days: CalendarDay[];
   export let metric: CalendarMetric = 'plays';
 
-  $: grid = buildContributionGrid(days, metric, { endDate: melbourneToday() });
+  let selectedYear: number | null = null;
+
+  $: years = availableYears(days);
+  // Default to the newest year, and re-snap if the data set changes under us.
+  $: if (years.length > 0 && (selectedYear === null || !years.includes(selectedYear))) {
+    selectedYear = years[0];
+  }
+  $: grid =
+    selectedYear === null
+      ? null
+      : buildYearGrid(days, selectedYear, metric, { endDate: melbourneToday() });
 
   const noun = metric === 'plays' ? 'plays' : 'minutes';
   const amount = (value: number): string =>
@@ -29,45 +40,75 @@
   }
 </script>
 
-{#if grid.weeks.length > 0}
-  <div class="graph-scroll">
-    <div class="graph" style="--columns: {grid.weeks.length}">
-      <div class="months">
-        {#each grid.monthLabels as { column, label } (column)}
-          <span class="month" style="grid-column: {column + 1}">{label}</span>
-        {/each}
+{#if grid && grid.weeks.length > 0}
+  <div class="calendar">
+    <div class="calendar-main">
+      <div class="graph-scroll">
+        <div class="graph" style="--columns: {grid.weeks.length}">
+          <div class="months">
+            {#each grid.monthLabels as { column, label } (column)}
+              <span class="month" style="grid-column: {column + 1}">{label}</span>
+            {/each}
+          </div>
+
+          <div class="weekdays" aria-hidden="true">
+            {#each WEEKDAY_LABELS as label}
+              <span class="weekday">{label}</span>
+            {/each}
+          </div>
+
+          <div class="cells" role="img" aria-label="Listening activity in {selectedYear}">
+            {#each grid.weeks as week}
+              {#each week as cell (cell.date)}
+                {#if cell.inRange}
+                  <span class="cell" data-level={cell.level} title={tooltip(cell)}></span>
+                {:else}
+                  <span class="cell pad"></span>
+                {/if}
+              {/each}
+            {/each}
+          </div>
+        </div>
       </div>
 
-      <div class="weekdays" aria-hidden="true">
-        {#each WEEKDAY_LABELS as label}
-          <span class="weekday">{label}</span>
+      <div class="legend">
+        <span class="muted">Less</span>
+        {#each [0, 1, 2, 3, 4] as level}
+          <span class="cell" data-level={level}></span>
         {/each}
-      </div>
-
-      <div class="cells" role="img" aria-label="Listening activity over the last year">
-        {#each grid.weeks as week}
-          {#each week as cell (cell.date)}
-            {#if cell.inRange}
-              <span class="cell" data-level={cell.level} title={tooltip(cell)}></span>
-            {:else}
-              <span class="cell pad"></span>
-            {/if}
-          {/each}
-        {/each}
+        <span class="muted">More</span>
       </div>
     </div>
-  </div>
 
-  <div class="legend">
-    <span class="muted">Less</span>
-    {#each [0, 1, 2, 3, 4] as level}
-      <span class="cell" data-level={level}></span>
-    {/each}
-    <span class="muted">More</span>
+    {#if years.length > 1}
+      <div class="years" role="radiogroup" aria-label="Year">
+        {#each years as year}
+          <button
+            class:active={year === selectedYear}
+            type="button"
+            role="radio"
+            aria-checked={year === selectedYear}
+            on:click={() => (selectedYear = year)}
+          >
+            {year}
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
 {/if}
 
 <style>
+  .calendar {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .calendar-main {
+    min-width: 0;
+  }
+
   .graph-scroll {
     overflow-x: auto;
     padding-bottom: 4px;
@@ -157,5 +198,43 @@
   .legend .cell {
     width: 11px;
     height: 11px;
+  }
+
+  .years {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .years button {
+    min-height: 0;
+    padding: 3px 10px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    text-align: left;
+  }
+
+  .years button:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .years button.active {
+    background: var(--text);
+    color: var(--bg);
+  }
+
+  @media (max-width: 800px) {
+    .calendar {
+      flex-direction: column-reverse;
+    }
+
+    .years {
+      flex-flow: row wrap;
+    }
   }
 </style>

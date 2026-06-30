@@ -19,6 +19,19 @@ export type CalendarDay = {
   plays: number;
 };
 
+/** One non-empty cell of the listening clock: local weekday (0=Sun..6=Sat) × hour (0..23). */
+export type ClockBucket = {
+  dow: number;
+  hour: number;
+  plays: number;
+};
+
+/** Plays of music released in a given year (compilations excluded). */
+export type ReleaseYearBucket = {
+  year: number;
+  plays: number;
+};
+
 export type OverviewPayload = {
   generated_at: string;
   timezone: string;
@@ -46,8 +59,11 @@ export type OverviewPayload = {
     top_genres: RankingRow[];
   };
   calendar: {
-    last_365_days: CalendarDay[];
+    daily: CalendarDay[];
   };
+  /** Optional: absent on caches built before these viz shipped. */
+  clock?: ClockBucket[];
+  release_years?: ReleaseYearBucket[];
 };
 
 export type ActivityRow = {
