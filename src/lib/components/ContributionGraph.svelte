@@ -123,7 +123,7 @@
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto;
-    gap: 4px 6px;
+    gap: 7px 9px;
     width: max-content;
   }
 
@@ -168,7 +168,6 @@
   .cell {
     width: var(--cell);
     height: var(--cell);
-    border-radius: 2px;
     background: color-mix(in srgb, var(--line) 16%, transparent);
   }
 
@@ -207,13 +206,29 @@
     flex: 0 0 auto;
     flex-direction: column;
     gap: 2px;
-    /* Show ~5 years; scroll the rest vertically only. The gutter is reserved so
-       the scrollbar never eats into (or clips) the year labels. */
+    /* Show ~5 years; scroll the rest vertically only, with a thin themed bar. */
     max-height: 8.5rem;
     overflow-x: hidden;
     overflow-y: auto;
-    scrollbar-gutter: stable;
     scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+
+  .years::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .years::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .years::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: var(--line);
+  }
+
+  .years::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
   }
 
   .years button {

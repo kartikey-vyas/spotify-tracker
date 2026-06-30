@@ -69,7 +69,6 @@
 
   .bar {
     width: 100%;
-    border-radius: 1px;
     background: var(--accent);
   }
 

@@ -109,7 +109,6 @@
   .cell {
     width: var(--cell);
     height: var(--cell);
-    border-radius: 2px;
     background: color-mix(in srgb, var(--line) 16%, transparent);
   }
 
