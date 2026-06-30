@@ -107,8 +107,8 @@
     const albums = await getProfileRankings({
       slug,
       entityType: 'album',
-      start: last7DaysRange.start,
-      end: last7DaysRange.end,
+      start: last30DaysRange.start,
+      end: last30DaysRange.end,
       metric: 'plays',
       limit: 50
     });
@@ -237,7 +237,7 @@
     {#if topAlbums.length > 0}
       <section class="panel section-gap">
         <div class="section-heading">
-          <h2>Top albums last 7 days</h2>
+          <h2>Top albums last 30 days</h2>
           <span class="muted">Cover wall</span>
         </div>
         <CoverWall items={topAlbums} />
