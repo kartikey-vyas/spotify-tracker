@@ -207,6 +207,10 @@
     flex: 0 0 auto;
     flex-direction: column;
     gap: 2px;
+    /* Cap to ~4 rows so many years don't stretch the panel; scroll for the rest. */
+    max-height: 7rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
 
   .years button {
