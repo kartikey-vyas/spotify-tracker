@@ -286,7 +286,7 @@
       <section class="panel section-gap clock-panel">
         <div class="section-heading">
           <h2>Listening clock</h2>
-          <span class="muted">By hour · all-time</span>
+          <span class="muted">By hour · last 30 days</span>
         </div>
         <ListeningClock buckets={overview.clock} />
       </section>
