@@ -215,6 +215,8 @@
 
   .years button {
     min-height: 0;
+    /* Keep full height inside the capped, scrollable column (don't flex-shrink). */
+    flex: 0 0 auto;
     padding: 3px 10px;
     border: 0;
     background: transparent;
