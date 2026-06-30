@@ -296,7 +296,7 @@
           <span class="muted">Plays</span>
         </div>
         <ol class="stat-list">
-          {#each topArtists.slice(0, 8) as row}
+          {#each topArtists as row}
             <li>
               <span class="name">{row.entity_name}</span>
               <span class="count">{row.plays.toLocaleString()}</span>
@@ -311,7 +311,7 @@
           <span class="muted">Plays</span>
         </div>
         <ol class="stat-list">
-          {#each topTracks.slice(0, 8) as row}
+          {#each topTracks as row}
             <li>
               <span class="name">{row.entity_name}</span>
               <span class="count">{row.plays.toLocaleString()}</span>

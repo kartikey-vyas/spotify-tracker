@@ -33,10 +33,15 @@
     return () => observer.disconnect();
   });
 
-  // Show only complete rows so the wall is always a filled rectangle (no ragged
-  // last row); falls back to everything before the first measure / when there
-  // aren't even enough items for one full row.
-  $: visible = columns > 0 ? items.slice(0, Math.floor(items.length / columns) * columns || items.length) : items;
+  // How many items fill only complete rows at the current column count. Falls
+  // back to all items before the first measure (columns === 0) or when there
+  // aren't even enough for one full row, so the wall is always a filled rectangle.
+  function completeRowCount(itemCount: number, columnCount: number): number {
+    if (columnCount === 0) return itemCount;
+    return Math.floor(itemCount / columnCount) * columnCount || itemCount;
+  }
+
+  $: visible = items.slice(0, completeRowCount(items.length, columns));
 
   function markFailed(id: string): void {
     failed = { ...failed, [id]: true };
