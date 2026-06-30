@@ -115,9 +115,11 @@
     if (albums.length === 0) return [];
 
     const metric = bestAvailableMetric(albums, 'plays');
+    // Pool enough albums to fill complete rows at any width; CoverWall trims to
+    // whole rows for the current column count.
     const sorted = [...albums]
       .sort((left, right) => metricValue(right, metric) - metricValue(left, metric))
-      .slice(0, 24);
+      .slice(0, 36);
     const images = await fetchAlbumImages(sorted.map((row) => Number(row.entity_id)));
 
     return sorted.map((row) => {

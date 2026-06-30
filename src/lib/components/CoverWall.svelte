@@ -11,10 +11,32 @@
 
 <script lang="ts">
   import { base } from '$app/paths';
+  import { onMount } from 'svelte';
 
   export let items: CoverItem[] = [];
 
   let failed: Record<string, boolean> = {};
+  let grid: HTMLUListElement;
+  let columns = 0;
+
+  // Read the live column count from the resolved grid template (auto-fill).
+  function measureColumns(): void {
+    if (!grid) return;
+    const tracks = getComputedStyle(grid).gridTemplateColumns;
+    columns = tracks && tracks !== 'none' ? tracks.split(' ').filter(Boolean).length : 0;
+  }
+
+  onMount(() => {
+    measureColumns();
+    const observer = new ResizeObserver(measureColumns);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  });
+
+  // Show only complete rows so the wall is always a filled rectangle (no ragged
+  // last row); falls back to everything before the first measure / when there
+  // aren't even enough items for one full row.
+  $: visible = columns > 0 ? items.slice(0, Math.floor(items.length / columns) * columns || items.length) : items;
 
   function markFailed(id: string): void {
     failed = { ...failed, [id]: true };
@@ -26,8 +48,8 @@
 </script>
 
 {#if items.length > 0}
-  <ul class="cover-wall">
-    {#each items as item (item.id)}
+  <ul class="cover-wall" bind:this={grid}>
+    {#each visible as item (item.id)}
       <li>
         <svelte:element
           this={item.href ? 'a' : 'div'}
