@@ -2,6 +2,7 @@
   import type { CalendarDay } from '$lib/types';
   import { melbourneToday } from '$lib/dateRanges';
   import { formatPlays } from '$lib/metrics';
+  import { tooltip as tipAction } from '$lib/actions/tooltip';
   import {
     availableYears,
     buildYearGrid,
@@ -62,7 +63,7 @@
             {#each grid.weeks as week}
               {#each week as cell (cell.date)}
                 {#if cell.inRange}
-                  <span class="cell" data-level={cell.level} title={tooltip(cell)}></span>
+                  <span class="cell" data-level={cell.level} use:tipAction={tooltip(cell)}></span>
                 {:else}
                   <span class="cell pad"></span>
                 {/if}

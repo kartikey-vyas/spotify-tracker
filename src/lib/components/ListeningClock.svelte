@@ -2,6 +2,7 @@
   import type { ClockBucket } from '$lib/types';
   import { buildHourClock } from '$lib/clock';
   import { formatPlays } from '$lib/metrics';
+  import { tooltip as tipAction } from '$lib/actions/tooltip';
 
   export let buckets: ClockBucket[];
 
@@ -60,9 +61,7 @@
   <div class="clock">
     <svg viewBox="0 0 {SIZE} {SIZE}" role="img" aria-label="Plays by hour of day">
       {#each wedges as wedge (wedge.hour)}
-        <path class="track" d={wedge.track}>
-          <title>{tooltip(wedge.hour, wedge.value)}</title>
-        </path>
+        <path class="track" d={wedge.track} use:tipAction={tooltip(wedge.hour, wedge.value)} />
         {#if wedge.fill}
           <path class="value" d={wedge.fill} />
         {/if}

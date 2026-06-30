@@ -56,39 +56,6 @@ ready to light back up.
 **Removed-UI reference (commit that stripped it):** see git history for
 "Remove dead genre UI" — revert/adapt those hunks when re-adding.
 
-## Nice loading placeholder for the overview viz
-
-**Why:** The "top music" band (cover wall + artist/track lists) loads via live
-ranking queries (`loadRecent` in `src/routes/+page.svelte`) — on first paint and
-on every 7d/30d toggle. While those resolve the band is blank, which feels
-abrupt; the page only shows a plain "Loading overview..." line.
-
-**What to do:**
-- Add skeleton placeholders in the established terminal aesthetic (sharp, no
-  flashy gradients — faint `--surface-2`/`--line` blocks with a subtle pulse):
-  - Cover wall: a grid of blank square tiles (reuse `CoverWall`'s column-measure
-    + complete-rows trim so the skeleton fills whole rows too).
-  - Top artists/tracks: ~8 placeholder rows each.
-- Drive it off a `bandLoading` flag set around `loadRecent`. Decide whether a
-  toggle should swap to skeletons or keep the previous data visible until the new
-  window resolves (the latter may feel smoother — there's already a load token).
-- Consider the same treatment for the calendar/clock/histogram on first load.
-
-## Custom hover tooltip matching the design language
-
-**Why:** The viz use native `title=""` attributes (`ContributionGraph.svelte`,
-`ListeningClock.svelte`, `ReleaseYearChart.svelte`, `CoverWall.svelte`), so hovers
-show the slow, unstyled OS tooltip that clashes with the monospace/sharp theme.
-
-**What to do:**
-- Build one shared tooltip (a small Svelte action or component) styled with the
-  theme tokens: `--surface` background, 1px `--line` border, no radius, monospace,
-  small text; cursor-following or anchored to the target.
-- Replace the `title` attributes across those four components with it; keep the
-  existing `tooltip()` text builders as the content source.
-- Mind accessibility (keyboard focus + `aria-describedby`), touch (no hover), and
-  that the calendar/clock are SVG — it must work over `<path>` and `<span>` alike.
-
 ## Source the 7d/30d top lists from the cache (optional)
 
 **Why:** The 7d/30d toggle drives the top artist/track lists via live

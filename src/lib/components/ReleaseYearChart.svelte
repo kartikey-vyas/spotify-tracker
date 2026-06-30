@@ -2,6 +2,7 @@
   import type { ReleaseYearBucket } from '$lib/types';
   import { buildReleaseYearChart, type ReleaseYearBar } from '$lib/release-years';
   import { formatPlays } from '$lib/metrics';
+  import { tooltip as tipAction } from '$lib/actions/tooltip';
 
   export let buckets: ReleaseYearBucket[];
 
@@ -21,7 +22,7 @@
     <div class="histogram">
       <div class="bars" role="img" aria-label="Plays by release year">
         {#each chart.bars as bar (bar.year)}
-          <div class="col" title={tooltip(bar)}>
+          <div class="col" use:tipAction={tooltip(bar)}>
             <div
               class="bar"
               class:empty={bar.value === 0}
