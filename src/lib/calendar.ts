@@ -186,13 +186,17 @@ export function buildYearGrid(
     const column: Array<Omit<ContributionCell, 'level'>> = [];
     for (let row = 0; row < DAYS_PER_WEEK; row += 1) {
       const ms = gridStartMs + (week * DAYS_PER_WEEK + row) * MS_PER_DAY;
-      const inRange = ms >= jan1Ms && ms <= capMs;
-      const value = inRange ? (valueByDate.get(toISODate(ms)) ?? 0) : 0;
-      if (inRange) {
+      // Every day of the selected year gets a square; days outside it are grid
+      // padding. Future days of the current year render as empty (level 0)
+      // squares — only days up to the cap (today) carry real values/colour.
+      const inYear = ms >= jan1Ms && ms <= dec31Ms;
+      const counted = inYear && ms <= capMs;
+      const value = counted ? (valueByDate.get(toISODate(ms)) ?? 0) : 0;
+      if (counted) {
         total += value;
         maxValue = Math.max(maxValue, value);
       }
-      column.push({ date: toISODate(ms), value, inRange });
+      column.push({ date: toISODate(ms), value, inRange: inYear });
     }
     cellsByWeek.push(column);
   }

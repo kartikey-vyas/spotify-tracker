@@ -142,10 +142,15 @@ describe('buildYearGrid', () => {
     expect(cellByDate(grid, '2020-06-01')).toBeUndefined();
   });
 
-  it('caps the current year at the end date (future days are padding)', () => {
+  it('renders future days of the current year as empty (least-shade) squares', () => {
     const grid = buildYearGrid([day('2026-06-30', 4)], 2026, 'plays', { endDate: '2026-06-30' });
+    // Today carries its real value.
     expect(cellByDate(grid, '2026-06-30')).toMatchObject({ inRange: true, value: 4 });
-    expect(cellByDate(grid, '2026-07-01')).toMatchObject({ inRange: false });
+    // A future day still in 2026 is a square, but empty (level 0) and uncounted.
+    expect(cellByDate(grid, '2026-07-01')).toMatchObject({ inRange: true, value: 0, level: 0 });
+    expect(grid.total).toBe(4);
+    // A day outside the year stays grid padding (blank).
+    expect(cellByDate(grid, '2027-01-01')).toMatchObject({ inRange: false });
   });
 
   it('labels every month of a full year, starting at column 0', () => {
