@@ -120,12 +120,12 @@
 
   /* Two columns: weekday labels gutter + the cells. Months row spans the top. */
   .graph {
-    --cell: 11px;
-    --gap: 3px;
+    --cell: 10px;
+    --gap: 2px;
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto;
-    gap: 7px 9px;
+    gap: 6px 8px;
     width: max-content;
   }
 

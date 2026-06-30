@@ -274,23 +274,27 @@
       </div>
     </section>
 
-    <section class="panel section-gap">
-      <div class="section-heading">
-        <h2>Listening calendar</h2>
-        <span class="muted">Plays per day</span>
-      </div>
-      <ContributionGraph days={calendarDays} metric="plays" />
-    </section>
-
-    {#if overview.clock && overview.clock.length > 0}
-      <section class="panel section-gap clock-panel">
+    <div class="time-row section-gap">
+      <section class="panel calendar-panel">
         <div class="section-heading">
-          <h2>Listening clock</h2>
-          <span class="muted">By hour · last 30 days</span>
+          <h2>Listening calendar</h2>
+          <span class="muted">Plays per day</span>
         </div>
-        <ListeningClock buckets={overview.clock} />
+        <div class="cal-body">
+          <ContributionGraph days={calendarDays} metric="plays" />
+        </div>
       </section>
-    {/if}
+
+      {#if overview.clock && overview.clock.length > 0}
+        <section class="panel clock-panel">
+          <div class="section-heading">
+            <h2>Listening clock</h2>
+            <span class="muted">Last 30 days</span>
+          </div>
+          <ListeningClock buckets={overview.clock} />
+        </section>
+      {/if}
+    </div>
 
     {#if overview.release_years && overview.release_years.length > 0}
       <section class="panel section-gap">
@@ -409,9 +413,33 @@
     margin-top: 16px;
   }
 
-  /* The radial clock is squarish, so keep its panel to ~half width. */
-  .clock-panel {
-    max-width: 520px;
+  /* Calendar (wide) + clock (compact) share a row, wrapping on narrow screens. */
+  .time-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .time-row .calendar-panel {
+    display: flex;
+    flex: 1 1 560px;
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  /* Centre the grid vertically in the shared row height. */
+  .cal-body {
+    display: flex;
+    flex: 1;
+    align-items: center;
+  }
+
+  .time-row .clock-panel {
+    display: flex;
+    flex: 1 1 220px;
+    flex-direction: column;
+    max-width: 300px;
   }
 
   .stat-list {

@@ -83,13 +83,15 @@
 <style>
   .clock {
     display: flex;
+    flex: 1;
+    align-items: center;
     justify-content: center;
-    padding: 6px 0 2px;
+    padding: 2px 0;
   }
 
   svg {
     width: 100%;
-    max-width: 260px;
+    max-width: 230px;
     height: auto;
     font-family: inherit;
   }
