@@ -25,3 +25,6 @@ my_spotify_data.zip
 Spotify Extended Streaming History/
 analysis/
 *.ndjson
+
+# Local superpowers workspace (specs/plans) — keep out of the repo
+docs/superpowers/
