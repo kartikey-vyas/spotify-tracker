@@ -1,140 +1,130 @@
 <script lang="ts">
   import type { ClockBucket } from '$lib/types';
-  import { buildClockGrid, type ClockCell, type ClockRow } from '$lib/clock';
+  import { buildHourClock } from '$lib/clock';
 
   export let buckets: ClockBucket[];
 
-  $: grid = buildClockGrid(buckets);
+  $: clock = buildHourClock(buckets);
 
+  const SIZE = 200;
+  const C = SIZE / 2;
+  const R_OUTER = 80;
+  const R_INNER = 34;
+  const R_LABEL = 92;
+  const PAD_DEG = 1.4; // angular gap between hour wedges
   const HOUR_LABELS = [0, 6, 12, 18];
+
+  // 0deg = top (midnight), increasing clockwise.
+  function polar(r: number, deg: number): [number, number] {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    return [C + r * Math.cos(rad), C + r * Math.sin(rad)];
+  }
+
+  function sector(rIn: number, rOut: number, a0: number, a1: number): string {
+    const [x0o, y0o] = polar(rOut, a0);
+    const [x1o, y1o] = polar(rOut, a1);
+    const [x1i, y1i] = polar(rIn, a1);
+    const [x0i, y0i] = polar(rIn, a0);
+    const large = a1 - a0 > 180 ? 1 : 0;
+    return `M ${x0o} ${y0o} A ${rOut} ${rOut} 0 ${large} 1 ${x1o} ${y1o} ` +
+      `L ${x1i} ${y1i} A ${rIn} ${rIn} 0 ${large} 0 ${x0i} ${y0i} Z`;
+  }
+
   const hourText = (hour: number): string => `${String(hour).padStart(2, '0')}:00`;
 
-  function tooltip(row: ClockRow, cell: ClockCell): string {
-    const when = `${row.label} ${hourText(cell.hour)}`;
-    return cell.value > 0
-      ? `${cell.value} ${cell.value === 1 ? 'play' : 'plays'} · ${when}`
-      : `No plays · ${when}`;
+  function tooltip(hour: number, value: number): string {
+    return value > 0
+      ? `${value.toLocaleString()} ${value === 1 ? 'play' : 'plays'} · ${hourText(hour)}`
+      : `No plays · ${hourText(hour)}`;
   }
+
+  $: wedges = clock.hours.map((slice) => {
+    const a0 = slice.hour * 15 + PAD_DEG;
+    const a1 = (slice.hour + 1) * 15 - PAD_DEG;
+    const rValue = R_INNER + slice.fraction * (R_OUTER - R_INNER);
+    return {
+      hour: slice.hour,
+      value: slice.value,
+      track: sector(R_INNER, R_OUTER, a0, a1),
+      fill: slice.fraction > 0 ? sector(R_INNER, rValue, a0, a1) : ''
+    };
+  });
+
+  $: labels = HOUR_LABELS.map((hour) => {
+    const [x, y] = polar(R_LABEL, hour * 15);
+    return { hour, x, y };
+  });
 </script>
 
-{#if grid.rows.length > 0}
-  <div class="clock-scroll">
-    <div class="clock">
-      <div class="days" aria-hidden="true">
-        {#each grid.rows as row (row.dayIndex)}
-          <span class="day">{row.label}</span>
-        {/each}
-      </div>
+{#if clock.total > 0}
+  <div class="clock">
+    <svg viewBox="0 0 {SIZE} {SIZE}" role="img" aria-label="Plays by hour of day">
+      {#each wedges as wedge (wedge.hour)}
+        <path class="track" d={wedge.track}>
+          <title>{tooltip(wedge.hour, wedge.value)}</title>
+        </path>
+        {#if wedge.fill}
+          <path class="value" d={wedge.fill} />
+        {/if}
+      {/each}
 
-      <div class="cells" role="img" aria-label="Listening activity by hour of day and weekday">
-        {#each grid.rows as row (row.dayIndex)}
-          {#each row.cells as cell (cell.hour)}
-            <span class="cell" data-level={cell.level} title={tooltip(row, cell)}></span>
-          {/each}
-        {/each}
-      </div>
+      {#each labels as label (label.hour)}
+        <text class="label" x={label.x} y={label.y}>{String(label.hour).padStart(2, '0')}</text>
+      {/each}
 
-      <div class="hours" aria-hidden="true">
-        {#each HOUR_LABELS as hour}
-          <span class="hour" style="grid-column: {hour + 1}">{hourText(hour)}</span>
-        {/each}
-      </div>
-    </div>
-  </div>
-
-  <div class="legend">
-    <span class="muted">Less</span>
-    {#each [0, 1, 2, 3, 4] as level}
-      <span class="cell" data-level={level}></span>
-    {/each}
-    <span class="muted">More</span>
+      {#if clock.peakHour !== null}
+        <text class="peak-value" x={C} y={C - 4}>{hourText(clock.peakHour)}</text>
+        <text class="peak-label" x={C} y={C + 11}>peak</text>
+      {/if}
+    </svg>
   </div>
 {/if}
 
 <style>
-  .clock-scroll {
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
-
-  /* Day-label gutter + 24 hour columns; hour labels sit on the bottom row. */
   .clock {
-    --cell: 13px;
-    --gap: 3px;
-    display: grid;
-    grid-template-columns: auto 1fr;
-    grid-template-rows: auto auto;
-    gap: 4px 6px;
-    width: max-content;
-  }
-
-  .days {
-    grid-column: 1;
-    grid-row: 1;
-    display: grid;
-    grid-template-rows: repeat(7, var(--cell));
-    gap: var(--gap);
-    font-size: 0.68rem;
-    color: var(--muted);
-  }
-
-  .day {
-    line-height: var(--cell);
-  }
-
-  .cells {
-    grid-column: 2;
-    grid-row: 1;
-    display: grid;
-    grid-template-columns: repeat(24, var(--cell));
-    grid-auto-rows: var(--cell);
-    gap: var(--gap);
-  }
-
-  .hours {
-    grid-column: 2;
-    grid-row: 2;
-    display: grid;
-    grid-template-columns: repeat(24, var(--cell));
-    gap: var(--gap);
-    font-size: 0.68rem;
-    color: var(--muted);
-  }
-
-  .hour {
-    grid-row: 1;
-    white-space: nowrap;
-  }
-
-  .cell {
-    width: var(--cell);
-    height: var(--cell);
-    background: color-mix(in srgb, var(--line) 16%, transparent);
-  }
-
-  .cell[data-level='1'] {
-    background: color-mix(in srgb, var(--accent) 28%, transparent);
-  }
-  .cell[data-level='2'] {
-    background: color-mix(in srgb, var(--accent) 48%, transparent);
-  }
-  .cell[data-level='3'] {
-    background: color-mix(in srgb, var(--accent) 72%, transparent);
-  }
-  .cell[data-level='4'] {
-    background: var(--accent);
-  }
-
-  .legend {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 10px;
-    font-size: 0.72rem;
+    justify-content: center;
+    padding: 6px 0 2px;
   }
 
-  .legend .cell {
-    width: 13px;
-    height: 13px;
+  svg {
+    width: 100%;
+    max-width: 260px;
+    height: auto;
+    font-family: inherit;
+  }
+
+  .track {
+    fill: color-mix(in srgb, var(--line) 16%, transparent);
+  }
+
+  .value {
+    fill: var(--accent);
+    pointer-events: none;
+  }
+
+  .label {
+    fill: var(--muted);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+
+  .peak-value {
+    fill: var(--text);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+
+  .peak-label {
+    fill: var(--muted);
+    font-size: 7.5px;
+    letter-spacing: 0.12em;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    text-transform: uppercase;
   }
 </style>

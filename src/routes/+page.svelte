@@ -283,10 +283,10 @@
     </section>
 
     {#if overview.clock && overview.clock.length > 0}
-      <section class="panel section-gap">
+      <section class="panel section-gap clock-panel">
         <div class="section-heading">
           <h2>Listening clock</h2>
-          <span class="muted">Plays by hour, local time · all-time</span>
+          <span class="muted">By hour · all-time</span>
         </div>
         <ListeningClock buckets={overview.clock} />
       </section>
@@ -407,6 +407,11 @@
 
   .section-gap {
     margin-top: 16px;
+  }
+
+  /* The radial clock is squarish, so keep its panel to ~half width. */
+  .clock-panel {
+    max-width: 520px;
   }
 
   .stat-list {
