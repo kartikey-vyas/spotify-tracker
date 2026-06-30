@@ -114,6 +114,8 @@
   .graph-scroll {
     overflow-x: auto;
     padding-bottom: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
   }
 
   /* Two columns: weekday labels gutter + the cells. Months row spans the top. */
@@ -206,13 +208,39 @@
     flex: 0 0 auto;
     flex-direction: column;
     gap: 2px;
-    /* Show ~5 years; the rest scroll under the browser's native (overlay)
-       scrollbar. padding-right keeps the year labels clear of it. */
+    /* Show ~5 years; the rest scroll. A reserved (stable) gutter keeps the thin
+       scrollbar from ever overlapping or clipping the labels, whether the OS
+       uses overlay or always-visible scrollbars. */
     max-height: 8.5rem;
-    padding-right: 10px;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+
+  /* WebKit fallback (Safari / older Chrome) for the thin themed scrollbars. */
+  .years::-webkit-scrollbar,
+  .graph-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .years::-webkit-scrollbar-track,
+  .graph-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .years::-webkit-scrollbar-thumb,
+  .graph-scroll::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: var(--line);
+  }
+
+  .years::-webkit-scrollbar-thumb:hover,
+  .graph-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
   }
 
   .years button {
