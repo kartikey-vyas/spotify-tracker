@@ -6,6 +6,7 @@
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
   import ListeningClock from '$lib/components/ListeningClock.svelte';
   import ReleaseYearChart from '$lib/components/ReleaseYearChart.svelte';
+  import StatList from '$lib/components/StatList.svelte';
   import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import {
@@ -81,13 +82,7 @@
       loading = false;
     }
 
-    if (overview && !error) {
-      try {
-        await loadRecent(selectedSlug, rangeFor(listWindow));
-      } catch (caught) {
-        error = caught instanceof Error ? caught.message : String(caught);
-      }
-    }
+    await loadBand();
   });
 
   onMount(() => {
@@ -130,12 +125,18 @@
       loading = false;
     }
 
-    if (overview && !error) {
-      try {
-        await loadRecent(selectedSlug, rangeFor(listWindow));
-      } catch (caught) {
-        error = caught instanceof Error ? caught.message : String(caught);
-      }
+    await loadBand();
+  }
+
+  // Loads the band rankings once the page chrome is up. Kept separate so the
+  // cards/calendar/clock can paint from the overview cache while the band's live
+  // queries resolve behind a skeleton.
+  async function loadBand(): Promise<void> {
+    if (!overview || error) return;
+    try {
+      await loadRecent(selectedSlug, rangeFor(listWindow));
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
     }
   }
 
@@ -326,22 +327,7 @@
           <h2>Top artists {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        {#if bandSkeleton}
-          <ol class="stat-list skeleton-list" aria-hidden="true">
-            {#each Array(8) as _, index (index)}
-              <li><span class="skeleton skeleton-line"></span></li>
-            {/each}
-          </ol>
-        {:else}
-          <ol class="stat-list">
-            {#each topArtists as row}
-              <li>
-                <span class="name">{row.entity_name}</span>
-                <span class="count">{row.plays.toLocaleString()}</span>
-              </li>
-            {/each}
-          </ol>
-        {/if}
+        <StatList rows={topArtists} loading={bandSkeleton} />
       </div>
 
       <div class="panel">
@@ -349,22 +335,7 @@
           <h2>Top tracks {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        {#if bandSkeleton}
-          <ol class="stat-list skeleton-list" aria-hidden="true">
-            {#each Array(8) as _, index (index)}
-              <li><span class="skeleton skeleton-line"></span></li>
-            {/each}
-          </ol>
-        {:else}
-          <ol class="stat-list">
-            {#each topTracks as row}
-              <li>
-                <span class="name">{row.entity_name}</span>
-                <span class="count">{row.plays.toLocaleString()}</span>
-              </li>
-            {/each}
-          </ol>
-        {/if}
+        <StatList rows={topTracks} loading={bandSkeleton} />
       </div>
     </section>
 
@@ -578,63 +549,6 @@
     flex: 1 1 220px;
     flex-direction: column;
     max-width: 300px;
-  }
-
-  .stat-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    counter-reset: rank;
-  }
-
-  .stat-list li {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 5px 0;
-    border-bottom: 1px solid var(--line);
-    counter-increment: rank;
-  }
-
-  .stat-list li:last-child {
-    border-bottom: 0;
-  }
-
-  .stat-list li::before {
-    content: counter(rank);
-    min-width: 1.4em;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .stat-list .name {
-    flex: 1 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .stat-list .count {
-    margin-left: auto;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Skeleton rows reuse the .stat-list scaffold (rank number + border) so the
-     placeholder reads like the real list. Widths vary so the bars look like
-     names rather than a uniform block. */
-  .skeleton-line {
-    display: block;
-    width: 62%;
-    height: 0.82rem;
-  }
-
-  .skeleton-list li:nth-child(3n) .skeleton-line {
-    width: 46%;
-  }
-
-  .skeleton-list li:nth-child(4n + 1) .skeleton-line {
-    width: 74%;
   }
 
   /* Window toggle: ease the band down while the new window loads, then back up

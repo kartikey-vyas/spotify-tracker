@@ -28,9 +28,19 @@ function ensureTip(): HTMLDivElement {
 
 export function tooltip(node: HTMLElement | SVGElement, text: TooltipText) {
   let current = text;
+  // Cached tooltip size, refreshed only when the text/visibility changes, so the
+  // hot pointermove path never reads layout.
+  let tipWidth = 0;
+  let tipHeight = 0;
 
   function owns(): boolean {
     return node.getAttribute('aria-describedby') === TIP_ID;
+  }
+
+  function measure(el: HTMLDivElement): void {
+    const rect = el.getBoundingClientRect();
+    tipWidth = rect.width;
+    tipHeight = rect.height;
   }
 
   function show(): boolean {
@@ -39,6 +49,7 @@ export function tooltip(node: HTMLElement | SVGElement, text: TooltipText) {
     el.textContent = String(current);
     el.hidden = false;
     node.setAttribute('aria-describedby', TIP_ID);
+    measure(el);
     return true;
   }
 
@@ -51,11 +62,10 @@ export function tooltip(node: HTMLElement | SVGElement, text: TooltipText) {
   // the right/bottom edges so the box never overflows the viewport.
   function placeAtCursor(clientX: number, clientY: number): void {
     if (!tip || tip.hidden) return;
-    const { width, height } = tip.getBoundingClientRect();
     let left = clientX + CURSOR_OFFSET_X;
     let top = clientY + CURSOR_OFFSET_Y;
-    if (left + width > window.innerWidth - EDGE) left = clientX - width - CURSOR_OFFSET_X;
-    if (top + height > window.innerHeight - EDGE) top = clientY - height - CURSOR_OFFSET_Y;
+    if (left + tipWidth > window.innerWidth - EDGE) left = clientX - tipWidth - CURSOR_OFFSET_X;
+    if (top + tipHeight > window.innerHeight - EDGE) top = clientY - tipHeight - CURSOR_OFFSET_Y;
     tip.style.left = `${Math.max(EDGE, left)}px`;
     tip.style.top = `${Math.max(EDGE, top)}px`;
   }
@@ -76,35 +86,35 @@ export function tooltip(node: HTMLElement | SVGElement, text: TooltipText) {
   function onFocus(): void {
     if (!show() || !tip) return;
     const anchor = node.getBoundingClientRect();
-    const { width, height } = tip.getBoundingClientRect();
     let left = anchor.left;
-    let top = anchor.top - height - 6;
+    let top = anchor.top - tipHeight - 6;
     if (top < EDGE) top = anchor.bottom + 6;
-    if (left + width > window.innerWidth - EDGE) left = window.innerWidth - width - EDGE;
+    if (left + tipWidth > window.innerWidth - EDGE) left = window.innerWidth - tipWidth - EDGE;
     tip.style.left = `${Math.max(EDGE, left)}px`;
     tip.style.top = `${top}px`;
   }
 
-  node.addEventListener('pointerenter', onEnter as EventListener);
-  node.addEventListener('pointermove', onMove as EventListener);
-  node.addEventListener('pointerleave', hide);
-  node.addEventListener('focus', onFocus);
-  node.addEventListener('blur', hide);
+  const listeners: Array<[string, EventListener]> = [
+    ['pointerenter', onEnter as EventListener],
+    ['pointermove', onMove as EventListener],
+    ['pointerleave', hide],
+    ['focus', onFocus],
+    ['blur', hide]
+  ];
+  for (const [type, handler] of listeners) node.addEventListener(type, handler);
 
   return {
     update(next: TooltipText): void {
       current = next;
-      if (owns()) {
-        if (!current) hide();
-        else if (tip) tip.textContent = String(current);
+      if (!owns()) return;
+      if (!current) hide();
+      else if (tip) {
+        tip.textContent = String(current);
+        measure(tip);
       }
     },
     destroy(): void {
-      node.removeEventListener('pointerenter', onEnter as EventListener);
-      node.removeEventListener('pointermove', onMove as EventListener);
-      node.removeEventListener('pointerleave', hide);
-      node.removeEventListener('focus', onFocus);
-      node.removeEventListener('blur', hide);
+      for (const [type, handler] of listeners) node.removeEventListener(type, handler);
       if (owns()) hide();
     }
   };
