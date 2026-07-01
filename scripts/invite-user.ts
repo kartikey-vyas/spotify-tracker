@@ -44,12 +44,15 @@ async function main(): Promise<void> {
   }
 
   const invitedUserId = data.user?.id;
-  if (invitedUserId) {
-    const { error: markError } = await supabase.auth.admin.updateUserById(invitedUserId, {
-      app_metadata: { invited: true }
-    });
-    throwIfSupabaseError(markError, 'Marking invited user failed');
+  if (!invitedUserId) {
+    throw new Error(
+      'Invite call succeeded but returned no user ID — cannot stamp invited marker. Verify user state in the Supabase dashboard before resending.'
+    );
   }
+  const { error: markError } = await supabase.auth.admin.updateUserById(invitedUserId, {
+    app_metadata: { invited: true }
+  });
+  throwIfSupabaseError(markError, 'Marking invited user failed');
 
   console.log(JSON.stringify({ invited: data.user?.email ?? email, redirectTo }, null, 2));
 }
