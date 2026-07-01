@@ -26,6 +26,7 @@
   let message = '';
   let error = '';
   let recovery = false;
+  let resolvingUser = false;
 
   type AuthAction = 'login' | 'reset' | 'setup' | 'recover' | 'change';
   let authSubmitting = false;
@@ -39,6 +40,10 @@
   let isPublic = false;
   const slugPattern = '[a-z0-9][a-z0-9-]{1,38}[a-z0-9]';
   const MIN_PASSWORD = 8;
+
+  let showChangePassword = false;
+  let newPassword = '';
+  let newPasswordConfirm = '';
 
   $: view = authView({ hasSession: Boolean(session), hasProfile: Boolean(profile), recovery });
   $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists, 'plays') : 'plays';
@@ -94,12 +99,18 @@
       profile = null;
       connection = null;
       overview = null;
+      resolvingUser = false;
       return;
     }
 
-    profile = await getCurrentProfile(session.user.id);
-    connection = profile ? await getSpotifyConnectionStatus() : null;
-    overview = profile ? await getUserOverview(session.user.id) : null;
+    resolvingUser = true;
+    try {
+      profile = await getCurrentProfile(session.user.id);
+      connection = profile ? await getSpotifyConnectionStatus() : null;
+      overview = profile ? await getUserOverview(session.user.id) : null;
+    } finally {
+      resolvingUser = false;
+    }
   }
 
   // Owns the in-flight guard and reset; the callback runs the actual auth call
@@ -127,9 +138,9 @@
     }
   }
 
-  function passwordProblem(): string | null {
-    if (password.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters.`;
-    if (password !== confirmPassword) return 'Passwords do not match.';
+  function passwordProblem(pw: string, confirm: string): string | null {
+    if (pw.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters.`;
+    if (pw !== confirm) return 'Passwords do not match.';
     return null;
   }
 
@@ -164,7 +175,7 @@
 
   function submitSetup(): Promise<void> {
     return runAuth('setup', async (client) => {
-      const problem = passwordProblem();
+      const problem = passwordProblem(password, confirmPassword);
       if (problem) return problem;
 
       message = '';
@@ -187,7 +198,7 @@
 
   function submitRecovery(): Promise<void> {
     return runAuth('recover', async (client) => {
-      const problem = passwordProblem();
+      const problem = passwordProblem(password, confirmPassword);
       if (problem) return problem;
 
       const { error: pwError } = await client.auth.updateUser({ password });
@@ -204,14 +215,15 @@
 
   function submitChangePassword(): Promise<void> {
     return runAuth('change', async (client) => {
-      const problem = passwordProblem();
+      const problem = passwordProblem(newPassword, newPasswordConfirm);
       if (problem) return problem;
 
-      const { error: pwError } = await client.auth.updateUser({ password });
+      const { error: pwError } = await client.auth.updateUser({ password: newPassword });
       if (pwError) return friendlyAuthError(pwError.message);
 
-      password = '';
-      confirmPassword = '';
+      newPassword = '';
+      newPasswordConfirm = '';
+      showChangePassword = false;
       message = 'Password updated.';
       return null;
     });
@@ -260,6 +272,9 @@
     recovery = false;
     password = '';
     confirmPassword = '';
+    showChangePassword = false;
+    newPassword = '';
+    newPasswordConfirm = '';
   }
 </script>
 
@@ -331,6 +346,8 @@
           </button>
         </form>
       </section>
+    {:else if resolvingUser && !profile}
+      <section class="panel"><p class="muted">Loading...</p></section>
     {:else if view === 'setup'}
       <section class="panel auth-panel">
         <h2>Set up your account</h2>
@@ -381,20 +398,29 @@
       </section>
 
       <section class="panel section-gap">
-        <h2>Password</h2>
-        <form on:submit|preventDefault={submitChangePassword}>
-          <label>
-            new password
-            <input bind:value={password} type="password" autocomplete="new-password" disabled={authSubmitting} required />
-          </label>
-          <label>
-            confirm password
-            <input bind:value={confirmPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
-          </label>
-          <button type="submit" disabled={authSubmitting}>
-            {authSubmitting && authAction === 'change' ? 'saving...' : 'change password'}
-          </button>
-        </form>
+        <div class="account-row">
+          <div><h2>Password</h2></div>
+          <div class="actions">
+            <button type="button" on:click={() => (showChangePassword = !showChangePassword)}>
+              {showChangePassword ? 'cancel' : 'change password'}
+            </button>
+          </div>
+        </div>
+        {#if showChangePassword}
+          <form class="change-password-form" on:submit|preventDefault={submitChangePassword}>
+            <label>
+              new password
+              <input bind:value={newPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
+            </label>
+            <label>
+              confirm password
+              <input bind:value={newPasswordConfirm} type="password" autocomplete="new-password" disabled={authSubmitting} required />
+            </label>
+            <button type="submit" disabled={authSubmitting}>
+              {authSubmitting && authAction === 'change' ? 'saving...' : 'save password'}
+            </button>
+          </form>
+        {/if}
       </section>
 
       <section class="panel section-gap">
@@ -516,6 +542,10 @@
 
   .section-gap {
     margin-top: 16px;
+  }
+
+  .change-password-form {
+    margin-top: 12px;
   }
 
   .notice {
