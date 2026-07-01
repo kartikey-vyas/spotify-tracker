@@ -134,40 +134,36 @@ Apply migrations, deploy Edge Functions, and set Edge Function secrets:
 ```bash
 supabase db push
 supabase secrets set SPOTIFY_CLIENT_ID=... SPOTIFY_CLIENT_SECRET=... SPOTIFY_TOKEN_ENCRYPTION_KEY=... SITE_URL=https://kartikey-vyas.github.io/spotify-tracker/app/
-supabase functions deploy accept-invite --no-verify-jwt
 supabase functions deploy complete-onboarding
 supabase functions deploy spotify-connect
 supabase functions deploy spotify-callback --no-verify-jwt
 supabase functions deploy sync-due-users --no-verify-jwt
+supabase functions delete accept-invite
 ```
 
-`accept-invite` is public at the JWT layer because the invite token is the credential. `spotify-connect` requires a logged-in Supabase user. `spotify-callback` is public because Spotify redirects to it. `sync-due-users` is public at the JWT layer but checks the service key itself. `complete-onboarding` remains deployed for legacy/manual recovery only.
+`spotify-connect` requires a logged-in Supabase user. `spotify-callback` is public because Spotify redirects to it. `sync-due-users` is public at the JWT layer but checks the service key itself. `complete-onboarding` is the authenticated onboarding function; the session is the gate.
 
 The checked-in local Supabase config has email signups disabled for local development. Hosted Auth provider settings are managed separately in the Supabase dashboard; do not use `supabase config push` unless the hosted Auth URLs and provider settings have been reviewed.
 
-Create an invite link locally:
+Invite a new user:
 
 ```bash
-pnpm invite:create --label=friend --max-uses=1
+pnpm invite friend@example.com --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
 ```
 
-Invite tokens are stored as SHA-256 hashes in Supabase. The plaintext token and invite URL are only printed by the creation command, so copy the URL when it is generated. Set `SITE_URL=https://kartikey-vyas.github.io/spotify-tracker/app/` locally, or pass `--site-url=...`, so the command can print the full URL.
-
-Send the invite URL to the user. They choose an email, display name, slug, and public/private profile setting from `/app/invite/`. The app creates their Auth user, profile, and sync state, then sends a magic sign-in link. After signing in, they connect Spotify from `/app/`.
+Supabase emails the invitee a sign-up link via custom SMTP (Resend on `krtky.dev`). They click it, land signed-in at `/app/`, and set a password and profile. After that, they connect Spotify from `/app/`.
 
 ### How it works
 
 The browser is still a static SvelteKit app. It only receives `PUBLIC_SUPABASE_URL` and a public Supabase key. All writes and all Spotify secrets stay behind Supabase RLS or Edge Functions.
 
-1. The site owner creates an invite link with `pnpm invite:create`.
-2. The friend opens `/app/invite/?code=...` and submits email, display name, slug, and public/private choice.
-3. The `accept-invite` Edge Function validates the token, creates the Supabase Auth user, creates `profiles`, creates initial `sync_state`, and consumes the invite.
-4. The invite page sends a magic sign-in link with `shouldCreateUser: false`.
-5. The friend signs in from email and lands at `/app/`.
-6. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
-7. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
-8. Supabase Cron calls `sync-due-users` every 15 minutes using the service key stored in Supabase Vault.
-9. `sync-due-users` finds stale enabled users, decrypts each refresh token, fetches recently played tracks, inserts `listening_events` with that user's `user_id`, refreshes that user's rollups, and updates their overview cache.
+1. The site owner runs `pnpm invite <email>`. Supabase (custom SMTP via Resend on `krtky.dev`) emails an invite link; accounts are created server-side, so hosted signups stay disabled — invite-only holds.
+2. The invitee clicks the link, lands signed-in at `/app/` with no profile yet, and sets a password + display name, slug, and visibility. The client calls `auth.updateUser({ password })` then the `complete-onboarding` Edge Function (authenticated; the session is the gate).
+3. Returning users sign in with email + password. "Forgot password?" uses `resetPasswordForEmail`; a `PASSWORD_RECOVERY` session shows the set-new-password form. Logged-in users can also change their password in-app.
+4. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
+5. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
+6. Supabase Cron calls `sync-due-users` every 15 minutes using the service key stored in Supabase Vault.
+7. `sync-due-users` finds stale enabled users, decrypts each refresh token, fetches recently played tracks, inserts `listening_events` with that user's `user_id`, refreshes that user's rollups, and updates their overview cache.
 
 User-specific rows live under `user_id`:
 
@@ -308,7 +304,7 @@ pnpm typecheck
 uv run pytest
 uv run marimo edit notebooks/spotify_extended_history_explore.py
 uv run python -m backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
-pnpm invite:create --label=friend --max-uses=1 --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
+pnpm invite friend@example.com --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
 pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
 pnpm db:size
 ```
