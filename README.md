@@ -72,11 +72,11 @@ The local Supabase stack is configured for Vite's default dev origin. Auth email
 are captured by Mailpit/Inbucket at `http://127.0.0.1:54324`; they are not sent
 externally.
 
-Local `supabase/config.toml` enables Auth signups so the OTP/magic-link endpoint
-will issue emails. The app still passes `shouldCreateUser: false` on sign-in, so
-new app users are created through the invite flow rather than by typing any
-email into `/app/`. Hosted Auth signup policy is managed in the Supabase
-dashboard; do not run `supabase config push` without reviewing it.
+Local `supabase/config.toml` enables Auth signups so auth emails (password reset,
+invite) are issued and captured by Mailpit rather than sent externally. Accounts
+are only ever created via the admin invite path (`pnpm invite`), never by typing
+an email into `/app/`. Hosted Auth signup policy is managed separately in the
+Supabase dashboard; do not run `supabase config push` without reviewing it.
 
 For local Edge Functions, create the gitignored file `supabase/functions/.env`
 with the same local secret key:
@@ -99,18 +99,18 @@ profile: /local-admin
 To test admin auth locally:
 
 1. Start Supabase and the app: `supabase start`, then `pnpm dev`.
-2. Open `/app/`, sign in with `admin@local.test`.
-3. Open `http://127.0.0.1:54324`, click the magic link email, and return to the app.
-4. Open `/admin/`; the seeded user is in `admin_users`.
+2. Open `/app/`, enter `admin@local.test`, and use "forgot password?" (the seeded admin has no password).
+3. Open Mailpit at `http://127.0.0.1:54324`, click the password-reset link, and set a password.
+4. You are now signed in; open `/admin/` — the seeded user is in `admin_users`.
 
-To test the invite flow end to end, open:
+To test the invite flow end to end:
 
-```text
-http://127.0.0.1:5173/app/invite/?code=local-invite
+```bash
+pnpm invite <email> --site-url=http://127.0.0.1:5173/app/
 ```
 
-Use any test email and profile details. The seeded invite has 20 uses and the
-magic sign-in email will appear in Mailpit. Local users can also be inspected or
+The invite email appears in Mailpit at `http://127.0.0.1:54324`; click it to land
+signed-in and set a password + profile. Local users can also be inspected or
 deleted in Supabase Studio at `http://127.0.0.1:54323`.
 
 ## Current Public Flow
@@ -143,7 +143,7 @@ supabase functions delete accept-invite
 
 `spotify-connect` requires a logged-in Supabase user. `spotify-callback` is public because Spotify redirects to it. `sync-due-users` is public at the JWT layer but checks the service key itself. `complete-onboarding` is the authenticated onboarding function; the session is the gate.
 
-The checked-in local Supabase config has email signups disabled for local development. Hosted Auth provider settings are managed separately in the Supabase dashboard; do not use `supabase config push` unless the hosted Auth URLs and provider settings have been reviewed.
+The checked-in local Supabase config enables email signups for local development so Mailpit captures auth emails. Hosted Auth signups stay disabled via the Supabase dashboard; do not use `supabase config push` unless the hosted Auth URLs and provider settings have been reviewed.
 
 Invite a new user:
 
@@ -158,7 +158,7 @@ Supabase emails the invitee a sign-up link via custom SMTP (Resend on `krtky.dev
 The browser is still a static SvelteKit app. It only receives `PUBLIC_SUPABASE_URL` and a public Supabase key. All writes and all Spotify secrets stay behind Supabase RLS or Edge Functions.
 
 1. The site owner runs `pnpm invite <email>`. Supabase (custom SMTP via Resend on `krtky.dev`) emails an invite link; accounts are created server-side, so hosted signups stay disabled — invite-only holds.
-2. The invitee clicks the link, lands signed-in at `/app/` with no profile yet, and sets a password + display name, slug, and visibility. The client calls `auth.updateUser({ password })` then the `complete-onboarding` Edge Function (authenticated; the session is the gate).
+2. The invitee clicks the link, lands signed-in at `/app/` with no profile yet, and sets a password + display name, slug, and visibility. The client calls `auth.updateUser({ password })` then the `complete-onboarding` Edge Function (authenticated; the session is the gate — no invite code).
 3. Returning users sign in with email + password. "Forgot password?" uses `resetPasswordForEmail`; a `PASSWORD_RECOVERY` session shows the set-new-password form. Logged-in users can also change their password in-app.
 4. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
 5. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
