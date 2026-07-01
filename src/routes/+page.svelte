@@ -16,18 +16,17 @@
     summaryValue,
     topArtistDetail
   } from '$lib/metrics';
+  import { defaultProfileSlug } from '$lib/profileDefaults';
   import { getPublicProfileOverview } from '$lib/queries/overview';
   import { getProfileRankings } from '$lib/queries/rankings';
   import { fetchAlbumArtists, fetchAlbumImages } from '$lib/queries/images';
   import { listPublicProfiles } from '$lib/queries/profile';
   import type { CalendarDay, OverviewPayload, PublicProfileOption, RankingRow } from '$lib/types';
 
-  const defaultSlug = 'kartikey';
-
   type ListWindow = '7d' | '30d';
 
   let profiles: PublicProfileOption[] = [];
-  let selectedSlug = defaultSlug;
+  let selectedSlug = defaultProfileSlug;
   let overview: OverviewPayload | null = null;
   let topAlbums: CoverItem[] = [];
   let topArtists: RankingRow[] = [];
@@ -66,12 +65,13 @@
 
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
-    selectedSlug = params.get('slug') ?? defaultSlug;
+    selectedSlug = params.get('slug') ?? defaultProfileSlug;
 
     try {
       profiles = await listPublicProfiles();
       if (!profiles.some((profile) => profile.slug === selectedSlug)) {
-        selectedSlug = profiles.find((profile) => profile.slug === defaultSlug)?.slug ?? profiles[0]?.slug ?? defaultSlug;
+        selectedSlug =
+          profiles.find((profile) => profile.slug === defaultProfileSlug)?.slug ?? profiles[0]?.slug ?? defaultProfileSlug;
       }
       overview = profiles.length > 0 ? await getPublicProfileOverview(selectedSlug) : null;
     } catch (caught) {
@@ -113,7 +113,7 @@
     try {
       overview = await getPublicProfileOverview(selectedSlug);
       const url = new URL(window.location.href);
-      if (selectedSlug === defaultSlug) {
+      if (selectedSlug === defaultProfileSlug) {
         url.searchParams.delete('slug');
       } else {
         url.searchParams.set('slug', selectedSlug);
@@ -183,7 +183,7 @@
         subtitle: artists.get(Number(row.entity_id)) ?? null,
         value: formatMetric(metricValue(row, metric), metric),
         imageUrl: art?.image_url ?? null,
-        href: `/explore/?entity=album&id=${encodeURIComponent(row.entity_id)}`
+        href: `/explore/?profile=${encodeURIComponent(selectedSlug)}&entity=album&id=${encodeURIComponent(row.entity_id)}`
       } satisfies CoverItem;
     });
   }

@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
-  import { glyphTimeline } from '$lib/glyphs';
   import {
     bestAvailableMetric,
     disabledMetricLabel,
@@ -12,9 +13,21 @@
     metricOptions,
     metricValue
   } from '$lib/metrics';
-  import { getEntityTimeline, getRankings } from '$lib/queries/rankings';
-  import { fetchAlbumArtists } from '$lib/queries/images';
-  import type { CalendarDay, EntityType, Metric, RankingRow } from '$lib/types';
+  import { formatMonthLabel, monthlyBarWidth } from '$lib/monthlyTimeline';
+  import { defaultProfileSlug } from '$lib/profileDefaults';
+  import { getProfileArtistDetail, getProfileDateSpan, getProfileRankings } from '$lib/queries/rankings';
+  import { listPublicProfiles } from '$lib/queries/profile';
+  import type {
+    ArtistDetail,
+    EntityType,
+    Metric,
+    MonthlyTimelineBucket,
+    ProfileDateSpan,
+    PublicProfileOption,
+    RankingRow
+  } from '$lib/types';
+
+  type ExploreDateRangePreset = DateRangePreset | 'all_time';
 
   const entityOptions: Array<{ value: EntityType; label: string }> = [
     { value: 'artist', label: 'Artist' },
@@ -22,193 +35,643 @@
     { value: 'album', label: 'Album' }
   ];
 
+  const exploreDateRangeOptions: Array<{ value: ExploreDateRangePreset; label: string }> = [
+    ...dateRangeOptions,
+    { value: 'all_time', label: 'All time' }
+  ];
+
+  const emptyArtistDetail = (): ArtistDetail => ({
+    summary: null,
+    albums: [],
+    tracks: [],
+    monthly: []
+  });
+
   let mounted = false;
-  let preset: DateRangePreset = 'last_30_days';
+  let syncingUrl = false;
+  let preset: ExploreDateRangePreset = 'last_30_days';
+  let selectedSlug = defaultProfileSlug;
   let entityType: EntityType = 'artist';
   let metric: Metric = 'plays';
   let entityId = '';
+  let profiles: PublicProfileOption[] = [];
+  let profileDateSpan: ProfileDateSpan | null = null;
   let rankings: RankingRow[] = [];
-  let timeline: CalendarDay[] = [];
-  let selectedAlbumArtist = '';
+  let artistDetail: ArtistDetail = emptyArtistDetail();
   let loading = false;
   let error = '';
-  let lastKey = '';
+  let detailError = '';
+  let lastLoadKey = '';
+  let lastSyncedSearch = '';
+  let loadToken = 0;
+  let profileMenu: HTMLDetailsElement | null = null;
+  let rangeMenu: HTMLDetailsElement | null = null;
+  let entityMenu: HTMLDetailsElement | null = null;
+  let metricMenu: HTMLDetailsElement | null = null;
 
-  $: range = getPresetDateRange(preset);
-  $: selectedRow = entityId ? rankings.find((row) => row.entity_id === entityId) ?? null : null;
-  $: selectedValue = selectedRow ? metricValue(selectedRow, metric) : 0;
-  $: timelineMetric = timelineDisplayMetric(rankings, metric);
+  $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
+  $: range = preset === 'all_time' ? profileDateSpan : getPresetDateRange(preset);
+  $: selectedArtistName = artistDetail.summary?.entity_name ?? selectedRankingRow?.entity_name ?? '';
+  $: selectedRankingRow = entityId ? rankings.find((row) => row.entity_id === entityId) ?? null : null;
+  $: detailMetric = artistDetail.summary ? bestAvailableMetric([artistDetail.summary], metric) : metric;
+  $: selectedMetricValue = artistDetail.summary ? metricValue(artistDetail.summary, detailMetric) : 0;
+  $: monthlyMaxValue = Math.max(0, ...artistDetail.monthly.map((bucket) => monthlyMetricValue(bucket, detailMetric)));
   $: if (mounted && !loading && !isMetricAvailable(rankings, metric)) {
     metric = 'plays';
   }
-  $: queryKey = `${preset}:${entityType}:${metric}:${entityId}`;
-  $: if (mounted && queryKey !== lastKey) {
+  $: loadKey = `${selectedSlug}:${preset}:${range?.start ?? ''}:${range?.end ?? ''}:${entityType}:${metric}:${entityId}`;
+  $: if (mounted && !syncingUrl && loadKey !== lastLoadKey) {
     void loadExplorer();
   }
+  $: pageSearch = browser ? $page.url.search : '';
+  $: if (mounted && pageSearch !== lastSyncedSearch) {
+    void syncFromUrl($page.url);
+  }
 
-  onMount(() => {
-    const entityParam = $page.url.searchParams.get('entity');
-    const idParam = $page.url.searchParams.get('id');
-    if (entityParam && ['artist', 'track', 'album'].includes(entityParam)) {
-      entityType = entityParam as EntityType;
+  onMount(async () => {
+    try {
+      profiles = await listPublicProfiles();
+      await syncFromUrl($page.url);
+      mounted = true;
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+      mounted = true;
     }
-    if (idParam) entityId = idParam;
-    mounted = true;
-    void loadExplorer();
   });
 
-  async function loadExplorer(): Promise<void> {
-    lastKey = queryKey;
-    loading = true;
-    error = '';
+  onMount(() => {
+    const closeMenusOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const menus = [profileMenu, rangeMenu, entityMenu, metricMenu].filter(
+        (menu): menu is HTMLDetailsElement => menu !== null
+      );
+      if (menus.some((menu) => menu.contains(target))) return;
+      for (const menu of menus) menu.open = false;
+    };
+
+    document.addEventListener('click', closeMenusOnOutsideClick);
+    return () => document.removeEventListener('click', closeMenusOnOutsideClick);
+  });
+
+  async function syncFromUrl(url: URL): Promise<void> {
+    syncingUrl = true;
+    lastSyncedSearch = url.search;
 
     try {
-      rankings = await getRankings({
+      const requestedSlug = url.searchParams.get('profile') ?? defaultProfileSlug;
+      const nextSlug = publicProfileSlug(requestedSlug);
+      const slugChanged = nextSlug !== selectedSlug;
+      selectedSlug = nextSlug;
+      if (slugChanged || !profileDateSpan) {
+        profileDateSpan = await getProfileDateSpan(selectedSlug);
+      }
+
+      const rangeParam = url.searchParams.get('range');
+      preset = isExploreDateRangePreset(rangeParam) ? rangeParam : 'last_30_days';
+
+      const entityParam = url.searchParams.get('entity');
+      entityType = isEntityType(entityParam) ? entityParam : 'artist';
+      entityId = entityType === 'artist' ? (url.searchParams.get('id') ?? '') : (url.searchParams.get('id') ?? '');
+      if (requestedSlug !== nextSlug) entityId = '';
+    } finally {
+      syncingUrl = false;
+    }
+  }
+
+  function publicProfileSlug(requestedSlug: string): string {
+    if (profiles.length === 0) return requestedSlug || defaultProfileSlug;
+    if (profiles.some((profile) => profile.slug === requestedSlug)) return requestedSlug;
+    return profiles.find((profile) => profile.slug === defaultProfileSlug)?.slug ?? profiles[0].slug;
+  }
+
+  function isExploreDateRangePreset(value: string | null): value is ExploreDateRangePreset {
+    return exploreDateRangeOptions.some((option) => option.value === value);
+  }
+
+  function isEntityType(value: string | null): value is EntityType {
+    return value === 'artist' || value === 'track' || value === 'album';
+  }
+
+  async function setUrlState(changes: {
+    profile?: string;
+    range?: ExploreDateRangePreset;
+    entity?: EntityType;
+    id?: string | null;
+  }): Promise<void> {
+    const url = new URL($page.url);
+    if (changes.profile !== undefined) {
+      url.searchParams.set('profile', changes.profile);
+      url.searchParams.delete('id');
+    }
+    if (changes.range !== undefined) {
+      url.searchParams.set('range', changes.range);
+    }
+    if (changes.entity !== undefined) {
+      url.searchParams.set('entity', changes.entity);
+      url.searchParams.delete('id');
+    }
+    if (changes.id !== undefined) {
+      if (changes.id) {
+        url.searchParams.set('id', changes.id);
+      } else {
+        url.searchParams.delete('id');
+      }
+    }
+
+    await goto(`${url.pathname}${url.search}`, {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true
+    });
+  }
+
+  function closeMenus(): void {
+    for (const menu of [profileMenu, rangeMenu, entityMenu, metricMenu]) {
+      if (menu) menu.open = false;
+    }
+  }
+
+  async function chooseProfile(slug: string): Promise<void> {
+    closeMenus();
+    await setUrlState({ profile: slug });
+  }
+
+  async function chooseRange(next: ExploreDateRangePreset): Promise<void> {
+    closeMenus();
+    await setUrlState({ range: next });
+  }
+
+  async function chooseEntity(next: EntityType): Promise<void> {
+    closeMenus();
+    await setUrlState({ entity: next });
+  }
+
+  function chooseMetric(next: Metric): void {
+    metric = next;
+    closeMenus();
+  }
+
+  async function loadExplorer(): Promise<void> {
+    const activeRange = range;
+    lastLoadKey = loadKey;
+    error = '';
+    detailError = '';
+    loading = true;
+    const token = ++loadToken;
+
+    try {
+      if (!activeRange || profiles.length === 0) {
+        rankings = [];
+        artistDetail = emptyArtistDetail();
+        return;
+      }
+
+      const rows = await getProfileRankings({
+        slug: selectedSlug,
         entityType,
-        start: range.start,
-        end: range.end,
+        start: activeRange.start,
+        end: activeRange.end,
         metric,
         limit: 100
       });
+      if (token !== loadToken) return;
+      rankings = rows;
 
-      timeline = entityId
-        ? await getEntityTimeline({
-            entityType,
-            entityId,
-            start: range.start,
-            end: range.end
-          })
-        : [];
-
-      // Albums don't carry an artist in the rollups; resolve it for the drilldown.
-      selectedAlbumArtist =
-        entityType === 'album' && entityId
-          ? ((await fetchAlbumArtists([Number(entityId)])).get(Number(entityId)) ?? '')
-          : '';
+      if (entityType === 'artist' && entityId) {
+        try {
+          const detail = await getProfileArtistDetail({
+            slug: selectedSlug,
+            artistId: entityId,
+            start: activeRange.start,
+            end: activeRange.end,
+            metric,
+            limit: 12
+          });
+          if (token !== loadToken) return;
+          artistDetail = detail;
+        } catch (caught) {
+          if (token !== loadToken) return;
+          artistDetail = emptyArtistDetail();
+          detailError = caught instanceof Error ? caught.message : String(caught);
+        }
+      } else {
+        artistDetail = emptyArtistDetail();
+      }
     } catch (caught) {
+      if (token !== loadToken) return;
       error = caught instanceof Error ? caught.message : String(caught);
+      rankings = [];
+      artistDetail = emptyArtistDetail();
     } finally {
-      loading = false;
+      if (token === loadToken) loading = false;
     }
   }
 
-  function timelineDisplayMetric(rows: RankingRow[], selectedMetric: Metric): 'minutes' | 'plays' {
-    return selectedMetric === 'plays' || bestAvailableMetric(rows) === 'plays' ? 'plays' : 'minutes';
+  function monthlyMetricValue(bucket: MonthlyTimelineBucket, selectedMetric: Metric): number {
+    if (selectedMetric === 'skip_rate') {
+      return bucket.known_skip_count > 0 ? bucket.skipped_count / bucket.known_skip_count : 0;
+    }
+    return bucket[selectedMetric];
   }
 
-  function asciiBarRows(rows: RankingRow[], selectedMetric: Metric, limit = 12): string[] {
-    const chartRows = rows.slice(0, limit);
-    const maxValue = Math.max(1, ...chartRows.map((row) => metricValue(row, selectedMetric)));
+  function rangeLabel(value: ExploreDateRangePreset): string {
+    return exploreDateRangeOptions.find((option) => option.value === value)?.label ?? 'Date range';
+  }
 
-    return chartRows.map((row, index) => {
-      const value = metricValue(row, selectedMetric);
-      const filled = Math.max(0, Math.round((value / maxValue) * 24));
-      const bar = '#'.repeat(filled).padEnd(24, '-');
-      return `${String(index + 1).padStart(2, '0')} ${row.entity_name} [${bar}] ${formatMetric(value, selectedMetric)}`;
-    });
+  function entityLabel(value: EntityType): string {
+    return entityOptions.find((option) => option.value === value)?.label ?? 'Entity';
+  }
+
+  function metricLabel(value: Metric): string {
+    return metricOptions.find((option) => option.value === value)?.label ?? 'Metric';
   }
 </script>
 
 <section class="page">
   <div class="page-header">
     <span class="eyebrow">Explorer</span>
-    <h1>Compare listening windows</h1>
-    <p class="lede">Use daily rollups for fast rankings by artist, track, and album.</p>
+    <h1>Explore a public profile</h1>
+    <p class="lede">Rank artists, tracks, and albums for one profile at a time.</p>
   </div>
 
   <div class="toolbar">
-    <div class="field">
-      <label for="range">Date range</label>
-      <select id="range" bind:value={preset}>
-        {#each dateRangeOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
+    <div class="picker-field">
+      <span class="picker-label">Profile</span>
+      <details bind:this={profileMenu} class="picker-menu">
+        <summary>{selectedProfile?.display_name ?? 'Choose profile'}</summary>
+        <div class="picker-options" role="radiogroup" aria-label="Profile">
+          {#each profiles as profile}
+            <button
+              class:active={profile.slug === selectedSlug}
+              type="button"
+              role="radio"
+              aria-checked={profile.slug === selectedSlug}
+              on:click={() => chooseProfile(profile.slug)}
+            >
+              <span>{profile.display_name}</span>
+            </button>
+          {:else}
+            <button type="button" disabled>No public profiles</button>
+          {/each}
+        </div>
+      </details>
     </div>
 
-    <div class="field">
-      <label for="entity">Entity</label>
-      <select id="entity" bind:value={entityType} on:change={() => (entityId = '')}>
-        {#each entityOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
+    <div class="picker-field">
+      <span class="picker-label">Date range</span>
+      <details bind:this={rangeMenu} class="picker-menu">
+        <summary>{rangeLabel(preset)}</summary>
+        <div class="picker-options" role="radiogroup" aria-label="Date range">
+          {#each exploreDateRangeOptions as option}
+            <button
+              class:active={option.value === preset}
+              type="button"
+              role="radio"
+              aria-checked={option.value === preset}
+              on:click={() => chooseRange(option.value)}
+            >
+              <span>{option.label}</span>
+            </button>
+          {/each}
+        </div>
+      </details>
     </div>
 
-    <div class="field">
-      <label for="metric">Metric</label>
-      <select id="metric" bind:value={metric}>
-        {#each metricOptions as option}
-          {@const disabled = !isMetricAvailable(rankings, option.value)}
-          <option value={option.value} {disabled}>
-            {disabled ? disabledMetricLabel(option.value) : option.label}
-          </option>
-        {/each}
-      </select>
+    <div class="picker-field">
+      <span class="picker-label">Entity</span>
+      <details bind:this={entityMenu} class="picker-menu">
+        <summary>{entityLabel(entityType)}</summary>
+        <div class="picker-options" role="radiogroup" aria-label="Entity">
+          {#each entityOptions as option}
+            <button
+              class:active={option.value === entityType}
+              type="button"
+              role="radio"
+              aria-checked={option.value === entityType}
+              on:click={() => chooseEntity(option.value)}
+            >
+              <span>{option.label}</span>
+            </button>
+          {/each}
+        </div>
+      </details>
     </div>
 
-    <div class="field grow">
-      <label for="entity-id">Drilldown ID</label>
-      <input id="entity-id" bind:value={entityId} placeholder="Optional entity_id" />
+    <div class="picker-field">
+      <span class="picker-label">Metric</span>
+      <details bind:this={metricMenu} class="picker-menu">
+        <summary>{metricLabel(metric)}</summary>
+        <div class="picker-options" role="radiogroup" aria-label="Metric">
+          {#each metricOptions as option}
+            {@const disabled = !isMetricAvailable(rankings, option.value)}
+            <button
+              class:active={option.value === metric}
+              type="button"
+              role="radio"
+              aria-checked={option.value === metric}
+              {disabled}
+              on:click={() => !disabled && chooseMetric(option.value)}
+            >
+              <span>{disabled ? disabledMetricLabel(option.value) : option.label}</span>
+            </button>
+          {/each}
+        </div>
+      </details>
     </div>
   </div>
 
-  {#if loading}
+  {#if loading && rankings.length === 0}
     <section class="panel section-gap"><p class="muted">Loading explorer data...</p></section>
   {:else if error}
     <section class="panel section-gap"><p class="error">{error}</p></section>
   {:else}
-    {#if selectedRow}
-      <section class="grid cols-3 section-gap">
-        <div class="panel metric">
-          <span class="muted">Selected</span>
-          <strong>{selectedRow.entity_name}</strong>
-          {#if selectedAlbumArtist}<span class="muted">{selectedAlbumArtist}</span>{/if}
-        </div>
-        <div class="panel metric">
-          <span class="muted">Metric</span>
-          <strong>{formatMetric(selectedValue, metric)}</strong>
-        </div>
-        <div class="panel metric">
-          <span class="muted">Plays</span>
-          <strong>{selectedRow.plays.toLocaleString()}</strong>
-        </div>
-      </section>
-
-      <section class="panel section-gap">
-        <h2>Listening over time</h2>
-        <pre class="ascii-list">{glyphTimeline(timeline, timelineMetric, ' ')}</pre>
-      </section>
-    {/if}
-
-    <section class="grid cols-2 section-gap">
+    <section class="explorer-layout section-gap">
       <div class="panel">
-        <h2>Ranking</h2>
-        <RankingTable rows={rankings} {entityType} {metric} />
+        <div class="section-heading">
+          <h2>Ranking</h2>
+          {#if selectedProfile}<span class="muted">{selectedProfile.display_name}</span>{/if}
+        </div>
+        <RankingTable rows={rankings} {entityType} {metric} profileSlug={selectedSlug} rangePreset={preset} />
       </div>
-      <div class="panel">
-        <h2>Distribution</h2>
-        <pre class="ascii-list">{asciiBarRows(rankings, metric).join('\n')}</pre>
-      </div>
+
+      {#if entityType === 'artist'}
+        <aside class="panel detail-panel">
+          {#if detailError}
+            <p class="error">{detailError}</p>
+          {:else if !entityId}
+            <div class="empty-detail">
+              <h2>Artist detail</h2>
+              <p class="muted">Select an artist from the ranking.</p>
+            </div>
+          {:else if artistDetail.summary}
+            <div class="section-heading">
+              <h2>{selectedArtistName}</h2>
+              <span class="muted">{preset === 'all_time' ? 'All time' : range?.start + ' to ' + range?.end}</span>
+            </div>
+
+            <div class="summary-strip">
+              <div class="metric compact">
+                <span class="muted">{metricOptions.find((option) => option.value === detailMetric)?.label ?? 'Metric'}</span>
+                <strong>{formatMetric(selectedMetricValue, detailMetric)}</strong>
+              </div>
+              <div class="metric compact">
+                <span class="muted">Plays</span>
+                <strong>{artistDetail.summary.plays.toLocaleString()}</strong>
+              </div>
+              <div class="metric compact">
+                <span class="muted">Unique tracks</span>
+                <strong>{artistDetail.summary.unique_tracks.toLocaleString()}</strong>
+              </div>
+            </div>
+
+            <section class="detail-section">
+              <h3>Monthly timeline</h3>
+              <div class="month-list">
+                {#each artistDetail.monthly as bucket}
+                  {@const value = monthlyMetricValue(bucket, detailMetric)}
+                  <div class="month-row">
+                    <span class="month-label">{formatMonthLabel(bucket.month_start)}</span>
+                    <div class="bar-track" aria-hidden="true">
+                      <div class="bar-fill" style:width={`${monthlyBarWidth(value, monthlyMaxValue)}%`}></div>
+                    </div>
+                    <span class="month-value">{formatMetric(value, detailMetric)}</span>
+                  </div>
+                {:else}
+                  <p class="muted">No monthly data for this range.</p>
+                {/each}
+              </div>
+            </section>
+
+            <section class="detail-grid">
+              <div>
+                <h3>Top albums</h3>
+                <RankingTable
+                  rows={artistDetail.albums}
+                  entityType="album"
+                  metric={detailMetric}
+                  profileSlug={selectedSlug}
+                  rangePreset={preset}
+                />
+              </div>
+              <div>
+                <h3>Top tracks</h3>
+                <RankingTable
+                  rows={artistDetail.tracks}
+                  entityType="track"
+                  metric={detailMetric}
+                  profileSlug={selectedSlug}
+                  rangePreset={preset}
+                />
+              </div>
+            </section>
+          {:else}
+            <div class="empty-detail">
+              <h2>Artist detail</h2>
+              <p class="muted">No plays for this artist in the selected range.</p>
+            </div>
+          {/if}
+        </aside>
+      {/if}
     </section>
   {/if}
 </section>
 
 <style>
-  .grow {
-    flex: 1;
-    min-width: 220px;
-  }
-
   .section-gap {
     margin-top: 16px;
   }
 
-  .ascii-list {
-    margin: 0;
-    overflow-x: auto;
+  .picker-field {
+    display: grid;
+    gap: 4px;
+    min-width: 160px;
+  }
+
+  .picker-label {
     color: var(--muted);
-    white-space: pre-wrap;
-    word-break: break-word;
+  }
+
+  .picker-menu {
+    position: relative;
+    min-width: 160px;
+  }
+
+  .picker-menu summary {
+    min-height: 32px;
+    padding: 5px 28px 5px 9px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .picker-menu summary::after {
+    position: absolute;
+    top: 13px;
+    right: 9px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid var(--muted);
+    border-right: 4px solid transparent;
+    border-left: 4px solid transparent;
+    content: "";
+  }
+
+  .picker-menu[open] summary::after {
+    transform: rotate(180deg);
+  }
+
+  .picker-menu summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .picker-menu summary:hover {
+    background: var(--surface-2);
+  }
+
+  .picker-options {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 10;
+    display: grid;
+    min-width: 100%;
+    border: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .picker-options button {
+    display: block;
+    width: 100%;
+    min-height: 32px;
+    padding: 7px 9px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .picker-options button:last-child {
+    border-bottom: 0;
+  }
+
+  .picker-options button:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+
+  .picker-options button.active {
+    background: var(--text);
+    color: var(--bg);
+  }
+
+  .section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .section-heading h2,
+  .detail-section h3,
+  .detail-grid h3 {
+    margin: 0;
+  }
+
+  .explorer-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .detail-panel {
+    display: grid;
+    gap: 16px;
+  }
+
+  .empty-detail {
+    display: grid;
+    align-content: center;
+    min-height: 220px;
+  }
+
+  .summary-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .compact {
+    min-height: 76px;
+    padding: 10px;
+    border: 1px solid var(--line);
+  }
+
+  .detail-section {
+    display: grid;
+    gap: 10px;
+  }
+
+  .month-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .month-row {
+    display: grid;
+    grid-template-columns: 76px minmax(80px, 1fr) minmax(70px, max-content);
+    gap: 10px;
+    align-items: center;
+    min-height: 28px;
+  }
+
+  .month-label,
+  .month-value {
+    color: var(--muted);
+    font-size: 0.92rem;
+    white-space: nowrap;
+  }
+
+  .month-value {
+    text-align: right;
+  }
+
+  .bar-track {
+    height: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+  }
+
+  .bar-fill {
+    height: 100%;
+    background: var(--text);
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  @media (max-width: 900px) {
+    .explorer-layout,
+    .detail-grid,
+    .summary-strip {
+      grid-template-columns: 1fr;
+    }
+
+    .month-row {
+      grid-template-columns: 70px minmax(80px, 1fr);
+    }
+
+    .month-value {
+      grid-column: 2;
+      text-align: left;
+    }
   }
 </style>

@@ -1,6 +1,6 @@
 import { supabase } from '$lib/supabase';
 import { metricValue } from '$lib/metrics';
-import type { CalendarDay, EntityType, Metric, RankingRow } from '$lib/types';
+import type { ArtistDetail, CalendarDay, EntityType, Metric, MonthlyTimelineBucket, ProfileDateSpan, RankingRow } from '$lib/types';
 
 type RollupRow = {
   local_date: string;
@@ -8,6 +8,29 @@ type RollupRow = {
   entity_name: string;
   minutes_exact: number | string;
   minutes_inferred: number | string;
+  plays: number;
+  qualified_plays: number;
+  unique_tracks: number;
+  skipped_count: number | null;
+  known_skip_count: number | null;
+  unknown_duration_plays: number;
+};
+
+type RpcRankingRow = {
+  entity_id: string;
+  entity_name: string;
+  minutes: number | string;
+  plays: number;
+  qualified_plays: number;
+  unique_tracks: number;
+  skipped_count: number | null;
+  known_skip_count: number | null;
+  unknown_duration_plays: number;
+};
+
+type RpcMonthlyTimelineRow = {
+  month_start: string;
+  minutes: number | string;
   plays: number;
   qualified_plays: number;
   unique_tracks: number;
@@ -54,6 +77,33 @@ function aggregateRows(rows: RollupRow[]): RankingRow[] {
   }
 
   return [...byEntity.values()];
+}
+
+function mapRpcRankingRow(row: RpcRankingRow): RankingRow {
+  return {
+    entity_id: row.entity_id,
+    entity_name: row.entity_name,
+    minutes: numberValue(row.minutes),
+    plays: row.plays ?? 0,
+    qualified_plays: row.qualified_plays ?? 0,
+    unique_tracks: row.unique_tracks ?? 0,
+    skipped_count: row.skipped_count ?? 0,
+    known_skip_count: row.known_skip_count ?? 0,
+    unknown_duration_plays: row.unknown_duration_plays ?? 0
+  };
+}
+
+function mapRpcMonthlyRow(row: RpcMonthlyTimelineRow): MonthlyTimelineBucket {
+  return {
+    month_start: row.month_start,
+    minutes: numberValue(row.minutes),
+    plays: row.plays ?? 0,
+    qualified_plays: row.qualified_plays ?? 0,
+    unique_tracks: row.unique_tracks ?? 0,
+    skipped_count: row.skipped_count ?? 0,
+    known_skip_count: row.known_skip_count ?? 0,
+    unknown_duration_plays: row.unknown_duration_plays ?? 0
+  };
 }
 
 export async function getRankings(params: {
@@ -124,6 +174,85 @@ export async function getProfileRankings(params: {
   return aggregateRows(data)
     .sort((left, right) => metricValue(right, params.metric) - metricValue(left, params.metric))
     .slice(0, params.limit ?? 50);
+}
+
+export async function getProfileDateSpan(slug: string): Promise<ProfileDateSpan | null> {
+  if (!supabase) return null;
+
+  const [firstResult, lastResult] = await Promise.all([
+    supabase
+      .from('public_profile_rollup_daily_entity_stats')
+      .select('local_date')
+      .eq('slug', slug)
+      .order('local_date', { ascending: true })
+      .limit(1)
+      .returns<Array<{ local_date: string }>>(),
+    supabase
+      .from('public_profile_rollup_daily_entity_stats')
+      .select('local_date')
+      .eq('slug', slug)
+      .order('local_date', { ascending: false })
+      .limit(1)
+      .returns<Array<{ local_date: string }>>()
+  ]);
+
+  if (firstResult.error) throw new Error(firstResult.error.message);
+  if (lastResult.error) throw new Error(lastResult.error.message);
+
+  const start = firstResult.data?.[0]?.local_date;
+  const end = lastResult.data?.[0]?.local_date;
+  return start && end ? { start, end } : null;
+}
+
+export async function getProfileArtistDetail(params: {
+  slug: string;
+  artistId: string;
+  start: string;
+  end: string;
+  metric: Metric;
+  limit?: number;
+}): Promise<ArtistDetail> {
+  const empty: ArtistDetail = { summary: null, albums: [], tracks: [], monthly: [] };
+  if (!supabase) return empty;
+
+  const numericArtistId = Number(params.artistId);
+  if (!Number.isInteger(numericArtistId) || numericArtistId <= 0) return empty;
+
+  const baseArgs = {
+    p_slug: params.slug,
+    p_artist_id: numericArtistId,
+    p_start_date: params.start,
+    p_end_date: params.end
+  };
+  const rankedArgs = {
+    ...baseArgs,
+    p_sort_metric: params.metric,
+    p_limit: params.limit ?? 12
+  };
+
+  const [summaryResult, albumsResult, tracksResult, monthlyResult] = await Promise.all([
+    supabase.rpc('public_profile_artist_summary', baseArgs).returns<RpcRankingRow[]>(),
+    supabase.rpc('public_profile_artist_top_albums', rankedArgs).returns<RpcRankingRow[]>(),
+    supabase.rpc('public_profile_artist_top_tracks', rankedArgs).returns<RpcRankingRow[]>(),
+    supabase.rpc('public_profile_artist_monthly_timeline', baseArgs).returns<RpcMonthlyTimelineRow[]>()
+  ]);
+
+  if (summaryResult.error) throw new Error(summaryResult.error.message);
+  if (albumsResult.error) throw new Error(albumsResult.error.message);
+  if (tracksResult.error) throw new Error(tracksResult.error.message);
+  if (monthlyResult.error) throw new Error(monthlyResult.error.message);
+
+  const summaryRows = (summaryResult.data ?? []) as unknown as RpcRankingRow[];
+  const albumRows = (albumsResult.data ?? []) as unknown as RpcRankingRow[];
+  const trackRows = (tracksResult.data ?? []) as unknown as RpcRankingRow[];
+  const monthlyRows = (monthlyResult.data ?? []) as unknown as RpcMonthlyTimelineRow[];
+
+  return {
+    summary: summaryRows[0] ? mapRpcRankingRow(summaryRows[0]) : null,
+    albums: albumRows.map(mapRpcRankingRow),
+    tracks: trackRows.map(mapRpcRankingRow),
+    monthly: monthlyRows.map(mapRpcMonthlyRow)
+  };
 }
 
 export async function getEntityTimeline(params: {

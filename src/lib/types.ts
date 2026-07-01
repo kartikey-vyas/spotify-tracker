@@ -19,6 +19,29 @@ export type CalendarDay = {
   plays: number;
 };
 
+export type ProfileDateSpan = {
+  start: string;
+  end: string;
+};
+
+export type MonthlyTimelineBucket = {
+  month_start: string;
+  minutes: number;
+  plays: number;
+  qualified_plays: number;
+  unique_tracks: number;
+  skipped_count: number;
+  known_skip_count: number;
+  unknown_duration_plays: number;
+};
+
+export type ArtistDetail = {
+  summary: RankingRow | null;
+  albums: RankingRow[];
+  tracks: RankingRow[];
+  monthly: MonthlyTimelineBucket[];
+};
+
 /** One non-empty hour of the listening clock: local hour (0..23) and its plays. */
 export type ClockBucket = {
   hour: number;

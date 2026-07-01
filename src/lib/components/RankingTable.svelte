@@ -7,9 +7,21 @@
   export let entityType: EntityType;
   export let metric: Metric = 'minutes';
   export let showLinks = true;
+  export let profileSlug: string | null = null;
+  export let rangePreset: string | null = null;
 
   $: showPlaysColumn = metric !== 'plays';
   $: columnCount = showPlaysColumn ? 4 : 3;
+
+  function entityHref(row: RankingRow): string {
+    const params = new URLSearchParams({
+      entity: entityType,
+      id: row.entity_id
+    });
+    if (profileSlug) params.set('profile', profileSlug);
+    if (rangePreset) params.set('range', rangePreset);
+    return `${base}/explore/?${params.toString()}`;
+  }
 </script>
 
 <div class="table-wrap">
@@ -30,10 +42,7 @@
           <td>{index + 1}</td>
           <td>
             {#if showLinks}
-              <a
-                class="entity-link"
-                href="{base}/explore/?entity={entityType}&id={encodeURIComponent(row.entity_id)}"
-              >
+              <a class="entity-link" href={entityHref(row)}>
                 {row.entity_name}
               </a>
             {:else}
