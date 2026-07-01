@@ -28,7 +28,6 @@
 
   $: system = dashboard?.system ?? null;
   $: users = dashboard?.users ?? [];
-  $: invites = dashboard?.invites ?? [];
   $: systemStatus = system ? classifySystemHealth(system) : 'paused';
 
   onMount(async () => {
@@ -56,7 +55,7 @@
     <div>
       <span class="eyebrow">admin</span>
       <h1>Data health</h1>
-      <p class="lede">Read-only operational status for sync coverage, invites, and catalog freshness.</p>
+      <p class="lede">Read-only operational status for sync coverage and catalog freshness.</p>
     </div>
     {#if isAdmin}
       <button type="button" on:click={loadDashboard}>refresh</button>
@@ -103,10 +102,6 @@
       <article class="panel metric">
         <span class="muted">Sync errors</span>
         <strong>{formatCount(system.sync_error_user_count)}</strong>
-      </article>
-      <article class="panel metric">
-        <span class="muted">Pending invites</span>
-        <strong>{formatCount(system.pending_invite_count)}</strong>
       </article>
       <article class="panel metric">
         <span class="muted">Catalog</span>
@@ -179,80 +174,45 @@
       </div>
     </section>
 
-    <section class="grid cols-2 section-gap">
-      <section class="panel">
-        <div class="section-heading">
-          <h2>Invites</h2>
-          <span class="muted">{formatCount(system.total_invite_count)} total</span>
+    <section class="panel catalog-panel section-gap">
+      <h2>Catalog/Data quality</h2>
+      <dl>
+        <div>
+          <dt>Artists</dt>
+          <dd>{formatCount(system.artist_count)}</dd>
         </div>
-        <div class="table-wrap compact-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Invite</th>
-                <th>Status</th>
-                <th>Uses</th>
-                <th>Expiry</th>
-                <th>Accepted email</th>
-                <th>Accepted</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each invites as invite}
-                <tr>
-                  <td>{invite.label ?? 'unlabeled'}</td>
-                  <td><span class={statusClass(invite.status)}>{invite.status}</span></td>
-                  <td>{formatCount(invite.use_count)} / {formatCount(invite.max_uses)}</td>
-                  <td>{formatDateTime(invite.expires_at)}</td>
-                  <td>{invite.accepted_email ?? 'n/a'}</td>
-                  <td>{formatDateTime(invite.accepted_at)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+        <div>
+          <dt>Albums</dt>
+          <dd>{formatCount(system.album_count)}</dd>
         </div>
-      </section>
-
-      <section class="panel catalog-panel">
-        <h2>Catalog/Data quality</h2>
-        <dl>
-          <div>
-            <dt>Artists</dt>
-            <dd>{formatCount(system.artist_count)}</dd>
-          </div>
-          <div>
-            <dt>Albums</dt>
-            <dd>{formatCount(system.album_count)}</dd>
-          </div>
-          <div>
-            <dt>Tracks</dt>
-            <dd>{formatCount(system.track_count)}</dd>
-          </div>
-          <div>
-            <dt>Tracks missing duration</dt>
-            <dd>{formatCount(system.tracks_missing_duration)}</dd>
-          </div>
-          <div>
-            <dt>Albums missing image</dt>
-            <dd>{formatCount(system.albums_missing_image)}</dd>
-          </div>
-          <div>
-            <dt>Stale/unrefreshed artists</dt>
-            <dd>{formatCount(system.artists_stale_or_unrefreshed)}</dd>
-          </div>
-          <div>
-            <dt>Metadata last success</dt>
-            <dd>{formatDateTime(system.metadata_last_success_at)}</dd>
-          </div>
-          <div>
-            <dt>Metadata last error</dt>
-            <dd>{formatDateTime(system.metadata_last_error_at)}</dd>
-          </div>
-        </dl>
-        {#if system.metadata_last_error}
-          <p class="error metadata-error">{system.metadata_last_error}</p>
-        {/if}
-      </section>
+        <div>
+          <dt>Tracks</dt>
+          <dd>{formatCount(system.track_count)}</dd>
+        </div>
+        <div>
+          <dt>Tracks missing duration</dt>
+          <dd>{formatCount(system.tracks_missing_duration)}</dd>
+        </div>
+        <div>
+          <dt>Albums missing image</dt>
+          <dd>{formatCount(system.albums_missing_image)}</dd>
+        </div>
+        <div>
+          <dt>Stale/unrefreshed artists</dt>
+          <dd>{formatCount(system.artists_stale_or_unrefreshed)}</dd>
+        </div>
+        <div>
+          <dt>Metadata last success</dt>
+          <dd>{formatDateTime(system.metadata_last_success_at)}</dd>
+        </div>
+        <div>
+          <dt>Metadata last error</dt>
+          <dd>{formatDateTime(system.metadata_last_error_at)}</dd>
+        </div>
+      </dl>
+      {#if system.metadata_last_error}
+        <p class="error metadata-error">{system.metadata_last_error}</p>
+      {/if}
     </section>
   {/if}
 </section>
@@ -279,7 +239,7 @@
 
   .health-strip {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 12px;
   }
 
@@ -296,19 +256,15 @@
     overflow-wrap: anywhere;
   }
 
-  .status.healthy,
-  .status.accepted {
+  .status.healthy {
     color: var(--text);
   }
 
-  .status.warning,
-  .status.pending,
-  .status.expired {
+  .status.warning {
     color: var(--amber);
   }
 
-  .status.critical,
-  .status.exhausted {
+  .status.critical {
     color: var(--red);
   }
 
