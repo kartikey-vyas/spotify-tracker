@@ -18,7 +18,7 @@
   } from '$lib/metrics';
   import { getPublicProfileOverview } from '$lib/queries/overview';
   import { getProfileRankings } from '$lib/queries/rankings';
-  import { fetchAlbumImages } from '$lib/queries/images';
+  import { fetchAlbumArtists, fetchAlbumImages } from '$lib/queries/images';
   import { listPublicProfiles } from '$lib/queries/profile';
   import type { CalendarDay, OverviewPayload, PublicProfileOption, RankingRow } from '$lib/types';
 
@@ -172,14 +172,15 @@
     const sorted = [...albums]
       .sort((left, right) => metricValue(right, metric) - metricValue(left, metric))
       .slice(0, 36);
-    const images = await fetchAlbumImages(sorted.map((row) => Number(row.entity_id)));
+    const ids = sorted.map((row) => Number(row.entity_id));
+    const [images, artists] = await Promise.all([fetchAlbumImages(ids), fetchAlbumArtists(ids)]);
 
     return sorted.map((row) => {
       const art = images.get(Number(row.entity_id));
       return {
         id: row.entity_id,
         title: row.entity_name,
-        subtitle: null,
+        subtitle: artists.get(Number(row.entity_id)) ?? null,
         value: formatMetric(metricValue(row, metric), metric),
         imageUrl: art?.image_url ?? null,
         href: `/explore/?entity=album&id=${encodeURIComponent(row.entity_id)}`
