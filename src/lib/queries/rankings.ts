@@ -16,10 +16,9 @@ type RollupRow = {
   unknown_duration_plays: number;
 };
 
-// Daily rollup rows are aggregated client-side across the date range, so we
-// fetch the per-day rows and reduce them here. This caps how many we pull in a
-// single query; a year of multi-entity rollups stays well under this bound.
-const MAX_ROLLUP_ROWS = 5000;
+// Daily rollup rows are aggregated client-side across the date range, so long
+// windows must be paged instead of capped at one PostgREST response.
+const ROLLUP_PAGE_SIZE = 1000;
 
 function numberValue(value: number | string | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -66,20 +65,27 @@ export async function getRankings(params: {
 }): Promise<RankingRow[]> {
   if (!supabase) return [];
 
-  const { data, error } = await supabase
-    .from('rollup_daily_entity_stats')
-    .select(
-      'local_date,entity_id,entity_name,minutes_exact,minutes_inferred,plays,qualified_plays,unique_tracks,skipped_count,known_skip_count,unknown_duration_plays'
-    )
-    .eq('entity_type', params.entityType)
-    .gte('local_date', params.start)
-    .lte('local_date', params.end)
-    .limit(MAX_ROLLUP_ROWS)
-    .returns<RollupRow[]>();
+  const data: RollupRow[] = [];
+  for (let from = 0; ; from += ROLLUP_PAGE_SIZE) {
+    const { data: page, error } = await supabase
+      .from('rollup_daily_entity_stats')
+      .select(
+        'local_date,entity_id,entity_name,minutes_exact,minutes_inferred,plays,qualified_plays,unique_tracks,skipped_count,known_skip_count,unknown_duration_plays'
+      )
+      .eq('entity_type', params.entityType)
+      .gte('local_date', params.start)
+      .lte('local_date', params.end)
+      .order('local_date', { ascending: true })
+      .order('entity_id', { ascending: true })
+      .range(from, from + ROLLUP_PAGE_SIZE - 1)
+      .returns<RollupRow[]>();
 
-  if (error) throw new Error(error.message);
+    if (error) throw new Error(error.message);
+    data.push(...(page ?? []));
+    if (!page || page.length < ROLLUP_PAGE_SIZE) break;
+  }
 
-  return aggregateRows(data ?? [])
+  return aggregateRows(data)
     .sort((left, right) => metricValue(right, params.metric) - metricValue(left, params.metric))
     .slice(0, params.limit ?? 50);
 }
@@ -94,21 +100,28 @@ export async function getProfileRankings(params: {
 }): Promise<RankingRow[]> {
   if (!supabase) return [];
 
-  const { data, error } = await supabase
-    .from('public_profile_rollup_daily_entity_stats')
-    .select(
-      'local_date,entity_id,entity_name,minutes_exact,minutes_inferred,plays,qualified_plays,unique_tracks,skipped_count,known_skip_count,unknown_duration_plays'
-    )
-    .eq('slug', params.slug)
-    .eq('entity_type', params.entityType)
-    .gte('local_date', params.start)
-    .lte('local_date', params.end)
-    .limit(MAX_ROLLUP_ROWS)
-    .returns<RollupRow[]>();
+  const data: RollupRow[] = [];
+  for (let from = 0; ; from += ROLLUP_PAGE_SIZE) {
+    const { data: page, error } = await supabase
+      .from('public_profile_rollup_daily_entity_stats')
+      .select(
+        'local_date,entity_id,entity_name,minutes_exact,minutes_inferred,plays,qualified_plays,unique_tracks,skipped_count,known_skip_count,unknown_duration_plays'
+      )
+      .eq('slug', params.slug)
+      .eq('entity_type', params.entityType)
+      .gte('local_date', params.start)
+      .lte('local_date', params.end)
+      .order('local_date', { ascending: true })
+      .order('entity_id', { ascending: true })
+      .range(from, from + ROLLUP_PAGE_SIZE - 1)
+      .returns<RollupRow[]>();
 
-  if (error) throw new Error(error.message);
+    if (error) throw new Error(error.message);
+    data.push(...(page ?? []));
+    if (!page || page.length < ROLLUP_PAGE_SIZE) break;
+  }
 
-  return aggregateRows(data ?? [])
+  return aggregateRows(data)
     .sort((left, right) => metricValue(right, params.metric) - metricValue(left, params.metric))
     .slice(0, params.limit ?? 50);
 }
@@ -143,20 +156,26 @@ export async function getEntityTimeline(params: {
 export async function getCalendar(start: string, end: string): Promise<CalendarDay[]> {
   if (!supabase) return [];
 
-  const { data, error } = await supabase
-    .from('rollup_daily_entity_stats')
-    .select('local_date,minutes_exact,minutes_inferred,plays')
-    .eq('entity_type', 'artist')
-    .gte('local_date', start)
-    .lte('local_date', end)
-    .order('local_date', { ascending: true })
-    .limit(MAX_ROLLUP_ROWS)
-    .returns<Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>>>();
+  const data: Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>> = [];
+  for (let from = 0; ; from += ROLLUP_PAGE_SIZE) {
+    const { data: page, error } = await supabase
+      .from('rollup_daily_entity_stats')
+      .select('local_date,minutes_exact,minutes_inferred,plays')
+      .eq('entity_type', 'artist')
+      .gte('local_date', start)
+      .lte('local_date', end)
+      .order('local_date', { ascending: true })
+      .order('entity_id', { ascending: true })
+      .range(from, from + ROLLUP_PAGE_SIZE - 1)
+      .returns<Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>>>();
 
-  if (error) throw new Error(error.message);
+    if (error) throw new Error(error.message);
+    data.push(...(page ?? []));
+    if (!page || page.length < ROLLUP_PAGE_SIZE) break;
+  }
 
   const byDate = new Map<string, CalendarDay>();
-  for (const row of data ?? []) {
+  for (const row of data) {
     const current = byDate.get(row.local_date) ?? {
       local_date: row.local_date,
       minutes: 0,
