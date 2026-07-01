@@ -13,6 +13,7 @@
     metricValue
   } from '$lib/metrics';
   import { getEntityTimeline, getRankings } from '$lib/queries/rankings';
+  import { fetchAlbumArtists } from '$lib/queries/images';
   import type { CalendarDay, EntityType, Metric, RankingRow } from '$lib/types';
 
   const entityOptions: Array<{ value: EntityType; label: string }> = [
@@ -28,6 +29,7 @@
   let entityId = '';
   let rankings: RankingRow[] = [];
   let timeline: CalendarDay[] = [];
+  let selectedAlbumArtist = '';
   let loading = false;
   let error = '';
   let lastKey = '';
@@ -77,6 +79,12 @@
             end: range.end
           })
         : [];
+
+      // Albums don't carry an artist in the rollups; resolve it for the drilldown.
+      selectedAlbumArtist =
+        entityType === 'album' && entityId
+          ? ((await fetchAlbumArtists([Number(entityId)])).get(Number(entityId)) ?? '')
+          : '';
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -155,6 +163,7 @@
         <div class="panel metric">
           <span class="muted">Selected</span>
           <strong>{selectedRow.entity_name}</strong>
+          {#if selectedAlbumArtist}<span class="muted">{selectedAlbumArtist}</span>{/if}
         </div>
         <div class="panel metric">
           <span class="muted">Metric</span>
