@@ -282,6 +282,41 @@ export async function getEntityTimeline(params: {
   }));
 }
 
+export async function getProfileEntityTimeline(params: {
+  slug: string;
+  entityType: EntityType;
+  entityId: string;
+  start: string;
+  end: string;
+}): Promise<CalendarDay[]> {
+  if (!supabase) return [];
+
+  const data: Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>> = [];
+  for (let from = 0; ; from += ROLLUP_PAGE_SIZE) {
+    const { data: page, error } = await supabase
+      .from('public_profile_rollup_daily_entity_stats')
+      .select('local_date,minutes_exact,minutes_inferred,plays')
+      .eq('slug', params.slug)
+      .eq('entity_type', params.entityType)
+      .eq('entity_id', params.entityId)
+      .gte('local_date', params.start)
+      .lte('local_date', params.end)
+      .order('local_date', { ascending: true })
+      .range(from, from + ROLLUP_PAGE_SIZE - 1)
+      .returns<Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>>>();
+
+    if (error) throw new Error(error.message);
+    data.push(...(page ?? []));
+    if (!page || page.length < ROLLUP_PAGE_SIZE) break;
+  }
+
+  return data.map((row) => ({
+    local_date: row.local_date,
+    minutes: numberValue(row.minutes_exact) + numberValue(row.minutes_inferred),
+    plays: row.plays
+  }));
+}
+
 export async function getCalendar(start: string, end: string): Promise<CalendarDay[]> {
   if (!supabase) return [];
 

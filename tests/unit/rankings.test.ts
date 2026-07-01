@@ -94,7 +94,7 @@ class FakeQuery {
     });
 
     const start = this.start ?? 0;
-    const end = this.end ?? (this.limitCount === null ? ordered.length - 1 : this.limitCount - 1);
+    const end = this.end ?? (this.limitCount === null ? Math.min(ordered.length - 1, 999) : this.limitCount - 1);
     return Promise.resolve({ data: ordered.slice(start, end + 1), error: null }) as Promise<{
       data: T;
       error: null;
@@ -369,5 +369,104 @@ describe('getRankings', () => {
       p_end_date: '2026-06-30'
     });
     expect(rpcCalls[1].args).toEqual(expect.objectContaining({ p_sort_metric: 'plays', p_limit: 12 }));
+  });
+
+  it('loads a profile-scoped entity timeline from public profile rollups', async () => {
+    const { getProfileEntityTimeline } = await import('../../src/lib/queries/rankings.js');
+    rowsByTable.set('public_profile_rollup_daily_entity_stats', [
+      {
+        slug: 'kartikey',
+        local_date: '2026-06-01',
+        entity_type: 'artist',
+        entity_id: '10',
+        entity_name: 'Radiohead',
+        minutes_exact: 2,
+        minutes_inferred: 3,
+        plays: 4,
+        qualified_plays: 0,
+        unique_tracks: 1,
+        skipped_count: null,
+        known_skip_count: null,
+        unknown_duration_plays: 0
+      },
+      {
+        slug: 'friend',
+        local_date: '2026-06-01',
+        entity_type: 'artist',
+        entity_id: '10',
+        entity_name: 'Radiohead',
+        minutes_exact: 100,
+        minutes_inferred: 0,
+        plays: 99,
+        qualified_plays: 0,
+        unique_tracks: 1,
+        skipped_count: null,
+        known_skip_count: null,
+        unknown_duration_plays: 0
+      },
+      {
+        slug: 'kartikey',
+        local_date: '2026-06-02',
+        entity_type: 'album',
+        entity_id: '10',
+        entity_name: 'Not an artist',
+        minutes_exact: 100,
+        minutes_inferred: 0,
+        plays: 99,
+        qualified_plays: 0,
+        unique_tracks: 1,
+        skipped_count: null,
+        known_skip_count: null,
+        unknown_duration_plays: 0
+      }
+    ]);
+
+    await expect(
+      getProfileEntityTimeline({
+        slug: 'kartikey',
+        entityType: 'artist',
+        entityId: '10',
+        start: '2026-06-01',
+        end: '2026-06-30'
+      })
+    ).resolves.toEqual([{ local_date: '2026-06-01', minutes: 5, plays: 4 }]);
+  });
+
+  it('pages profile-scoped entity timelines beyond Supabase response limits', async () => {
+    const { getProfileEntityTimeline } = await import('../../src/lib/queries/rankings.js');
+    const rows = Array.from({ length: 1005 }, (_, index) => {
+      const localDate = new Date(Date.UTC(2023, 0, index + 1)).toISOString().slice(0, 10);
+      return {
+        slug: 'kartikey',
+        local_date: localDate,
+        entity_type: 'artist',
+        entity_id: '10',
+        entity_name: 'Radiohead',
+        minutes_exact: 1,
+        minutes_inferred: 0,
+        plays: 1,
+        qualified_plays: 0,
+        unique_tracks: 1,
+        skipped_count: null,
+        known_skip_count: null,
+        unknown_duration_plays: 0
+      };
+    });
+    rowsByTable.set('public_profile_rollup_daily_entity_stats', rows);
+
+    const timeline = await getProfileEntityTimeline({
+      slug: 'kartikey',
+      entityType: 'artist',
+      entityId: '10',
+      start: '2023-01-01',
+      end: '2025-10-01'
+    });
+
+    expect(timeline).toHaveLength(1005);
+    expect(timeline.at(-1)).toEqual({
+      local_date: '2025-10-01',
+      minutes: 1,
+      plays: 1
+    });
   });
 });

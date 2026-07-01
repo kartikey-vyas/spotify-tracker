@@ -13,15 +13,25 @@
     metricOptions,
     metricValue
   } from '$lib/metrics';
-  import { formatMonthLabel, monthlyBarWidth } from '$lib/monthlyTimeline';
+  import {
+    buildTimelineHistogram,
+    monthlyBarWidth,
+    timelineBucketMode,
+    type TimelineHistogramBucket
+  } from '$lib/monthlyTimeline';
   import { defaultProfileSlug } from '$lib/profileDefaults';
-  import { getProfileArtistDetail, getProfileDateSpan, getProfileRankings } from '$lib/queries/rankings';
+  import {
+    getProfileArtistDetail,
+    getProfileDateSpan,
+    getProfileEntityTimeline,
+    getProfileRankings
+  } from '$lib/queries/rankings';
   import { listPublicProfiles } from '$lib/queries/profile';
   import type {
     ArtistDetail,
+    CalendarDay,
     EntityType,
     Metric,
-    MonthlyTimelineBucket,
     ProfileDateSpan,
     PublicProfileOption,
     RankingRow
@@ -58,6 +68,8 @@
   let profileDateSpan: ProfileDateSpan | null = null;
   let rankings: RankingRow[] = [];
   let artistDetail: ArtistDetail = emptyArtistDetail();
+  let artistTimeline: CalendarDay[] = [];
+  let timelineMetric: 'minutes' | 'plays' = 'plays';
   let loading = false;
   let error = '';
   let detailError = '';
@@ -75,7 +87,11 @@
   $: selectedRankingRow = entityId ? rankings.find((row) => row.entity_id === entityId) ?? null : null;
   $: detailMetric = artistDetail.summary ? bestAvailableMetric([artistDetail.summary], metric) : metric;
   $: selectedMetricValue = artistDetail.summary ? metricValue(artistDetail.summary, detailMetric) : 0;
-  $: monthlyMaxValue = Math.max(0, ...artistDetail.monthly.map((bucket) => monthlyMetricValue(bucket, detailMetric)));
+  $: timelineBuckets = range ? buildTimelineHistogram(artistTimeline, range.start, range.end) : [];
+  $: histogramBucketMode = range ? timelineBucketMode(range.start, range.end) : 'day';
+  $: timelineMetric = detailMetric === 'minutes' ? 'minutes' : 'plays';
+  $: timelineMetricLabel = timelineMetric === 'minutes' ? 'Minutes' : 'Plays';
+  $: timelineMaxValue = Math.max(0, ...timelineBuckets.map((bucket) => bucket[timelineMetric]));
   $: if (mounted && !loading && !isMetricAvailable(rankings, metric)) {
     metric = 'plays';
   }
@@ -224,6 +240,7 @@
       if (!activeRange || profiles.length === 0) {
         rankings = [];
         artistDetail = emptyArtistDetail();
+        artistTimeline = [];
         return;
       }
 
@@ -240,39 +257,50 @@
 
       if (entityType === 'artist' && entityId) {
         try {
-          const detail = await getProfileArtistDetail({
-            slug: selectedSlug,
-            artistId: entityId,
-            start: activeRange.start,
-            end: activeRange.end,
-            metric,
-            limit: 12
-          });
+          const [detail, timeline] = await Promise.all([
+            getProfileArtistDetail({
+              slug: selectedSlug,
+              artistId: entityId,
+              start: activeRange.start,
+              end: activeRange.end,
+              metric,
+              limit: 12
+            }),
+            getProfileEntityTimeline({
+              slug: selectedSlug,
+              entityType: 'artist',
+              entityId,
+              start: activeRange.start,
+              end: activeRange.end
+            })
+          ]);
           if (token !== loadToken) return;
           artistDetail = detail;
+          artistTimeline = timeline;
         } catch (caught) {
           if (token !== loadToken) return;
           artistDetail = emptyArtistDetail();
+          artistTimeline = [];
           detailError = caught instanceof Error ? caught.message : String(caught);
         }
       } else {
         artistDetail = emptyArtistDetail();
+        artistTimeline = [];
       }
     } catch (caught) {
       if (token !== loadToken) return;
       error = caught instanceof Error ? caught.message : String(caught);
       rankings = [];
       artistDetail = emptyArtistDetail();
+      artistTimeline = [];
     } finally {
       if (token === loadToken) loading = false;
     }
   }
 
-  function monthlyMetricValue(bucket: MonthlyTimelineBucket, selectedMetric: Metric): number {
-    if (selectedMetric === 'skip_rate') {
-      return bucket.known_skip_count > 0 ? bucket.skipped_count / bucket.known_skip_count : 0;
-    }
-    return bucket[selectedMetric];
+  function timelineBucketTitle(bucket: TimelineHistogramBucket): string {
+    const value = bucket[timelineMetric];
+    return `${bucket.key}: ${formatMetric(value, timelineMetric)}`;
   }
 
   function rangeLabel(value: ExploreDateRangePreset): string {
@@ -392,7 +420,9 @@
           <h2>Ranking</h2>
           {#if selectedProfile}<span class="muted">{selectedProfile.display_name}</span>{/if}
         </div>
-        <RankingTable rows={rankings} {entityType} {metric} profileSlug={selectedSlug} rangePreset={preset} />
+        <div class="ranking-scroll" class:is-artist-ranking={entityType === 'artist'}>
+          <RankingTable rows={rankings} {entityType} {metric} profileSlug={selectedSlug} rangePreset={preset} />
+        </div>
       </div>
 
       {#if entityType === 'artist'}
@@ -426,19 +456,29 @@
             </div>
 
             <section class="detail-section">
-              <h3>Monthly timeline</h3>
-              <div class="month-list">
-                {#each artistDetail.monthly as bucket}
-                  {@const value = monthlyMetricValue(bucket, detailMetric)}
-                  <div class="month-row">
-                    <span class="month-label">{formatMonthLabel(bucket.month_start)}</span>
-                    <div class="bar-track" aria-hidden="true">
-                      <div class="bar-fill" style:width={`${monthlyBarWidth(value, monthlyMaxValue)}%`}></div>
-                    </div>
-                    <span class="month-value">{formatMetric(value, detailMetric)}</span>
+              <div class="detail-subheading">
+                <h3>Timeline</h3>
+                <span class="muted">{timelineMetricLabel}</span>
+              </div>
+              <div
+                class="histogram"
+                class:is-daily={histogramBucketMode === 'day'}
+                aria-label={`${selectedArtistName} timeline by ${timelineMetricLabel.toLowerCase()}`}
+              >
+                {#each timelineBuckets as bucket}
+                  {@const value = bucket[timelineMetric]}
+                  <div class="histogram-column" title={timelineBucketTitle(bucket)}>
+                    <div
+                      class="histogram-bar"
+                      class:is-empty={value <= 0}
+                      style:height={`${monthlyBarWidth(value, timelineMaxValue)}%`}
+                    ></div>
+                    {#if bucket.label}
+                      <span class="histogram-label">{bucket.label}</span>
+                    {/if}
                   </div>
                 {:else}
-                  <p class="muted">No monthly data for this range.</p>
+                  <p class="muted">No timeline data for this range.</p>
                 {/each}
               </div>
             </section>
@@ -617,39 +657,78 @@
     gap: 10px;
   }
 
-  .month-list {
-    display: grid;
-    gap: 8px;
+  .ranking-scroll.is-artist-ranking {
+    max-height: 876px;
+    overflow: auto;
+    scrollbar-gutter: stable;
   }
 
-  .month-row {
-    display: grid;
-    grid-template-columns: 76px minmax(80px, 1fr) minmax(70px, max-content);
-    gap: 10px;
-    align-items: center;
-    min-height: 28px;
+  .ranking-scroll.is-artist-ranking :global(.table-wrap) {
+    overflow: visible;
   }
 
-  .month-label,
-  .month-value {
-    color: var(--muted);
-    font-size: 0.92rem;
+  .ranking-scroll.is-artist-ranking :global(th) {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg);
+  }
+
+  .ranking-scroll.is-artist-ranking :global(td:nth-child(2)) {
     white-space: nowrap;
   }
 
-  .month-value {
-    text-align: right;
+  .detail-subheading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
   }
 
-  .bar-track {
-    height: 10px;
-    border: 1px solid var(--line);
-    background: var(--surface);
+  .histogram {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    min-height: 118px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px 0 24px;
+    border-bottom: 1px solid var(--line);
+    scrollbar-gutter: stable;
   }
 
-  .bar-fill {
-    height: 100%;
+  .histogram-column {
+    position: relative;
+    display: flex;
+    flex: 0 0 10px;
+    align-items: flex-end;
+    height: 86px;
+  }
+
+  .histogram.is-daily .histogram-column {
+    flex-basis: 4px;
+    gap: 1px;
+  }
+
+  .histogram-bar {
+    width: 100%;
+    min-height: 1px;
     background: var(--text);
+  }
+
+  .histogram-bar.is-empty {
+    min-height: 0;
+    background: transparent;
+  }
+
+  .histogram-label {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    color: var(--muted);
+    font-size: 0.74rem;
+    line-height: 1;
+    white-space: nowrap;
   }
 
   .detail-grid {
@@ -663,15 +742,6 @@
     .detail-grid,
     .summary-strip {
       grid-template-columns: 1fr;
-    }
-
-    .month-row {
-      grid-template-columns: 70px minmax(80px, 1fr);
-    }
-
-    .month-value {
-      grid-column: 2;
-      text-align: left;
     }
   }
 </style>
