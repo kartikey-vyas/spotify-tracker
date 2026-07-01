@@ -18,8 +18,17 @@ create policy "Admins read own marker"
   to authenticated
   using (user_id = (select auth.uid()));
 
+-- Seed the production owner as an admin, but only if that auth user exists.
+-- Migrations run before seed.sql, so on a fresh `supabase db reset` (empty
+-- auth.users) an unconditional insert would violate the FK to auth.users and
+-- abort the reset. The guard makes this replayable in any fresh environment;
+-- on production (where the owner exists) it still seeds, and locally the admin
+-- marker for admin@local.test is handled by seed.sql.
 insert into public.admin_users (user_id)
-values ('6873a96d-3c4a-49a2-b487-1e7a78226280')
+select '6873a96d-3c4a-49a2-b487-1e7a78226280'::uuid
+where exists (
+  select 1 from auth.users where id = '6873a96d-3c4a-49a2-b487-1e7a78226280'
+)
 on conflict (user_id) do nothing;
 
 notify pgrst, 'reload schema';
