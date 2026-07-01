@@ -43,6 +43,14 @@ async function main(): Promise<void> {
     throwIfSupabaseError(error, 'Inviting user failed');
   }
 
+  const invitedUserId = data.user?.id;
+  if (invitedUserId) {
+    const { error: markError } = await supabase.auth.admin.updateUserById(invitedUserId, {
+      app_metadata: { invited: true }
+    });
+    throwIfSupabaseError(markError, 'Marking invited user failed');
+  }
+
   console.log(JSON.stringify({ invited: data.user?.email ?? email, redirectTo }, null, 2));
 }
 

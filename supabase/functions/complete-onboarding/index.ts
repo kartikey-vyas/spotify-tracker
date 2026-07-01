@@ -43,6 +43,10 @@ Deno.serve(async (req) => {
       return json({ profile: existingProfile, alreadyOnboarded: true });
     }
 
+    if (!user.app_metadata?.invited) {
+      return errorJson('This account was not invited', 403);
+    }
+
     const { data: slugOwner, error: slugError } = await supabase
       .from('profiles')
       .select('user_id')
