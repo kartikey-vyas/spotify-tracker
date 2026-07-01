@@ -1,5 +1,4 @@
 export type HealthStatus = 'healthy' | 'warning' | 'critical' | 'paused';
-export type InviteHealthStatus = 'pending' | 'accepted' | 'expired' | 'exhausted';
 
 export type AdminSystemHealth = {
   total_profiles: number;
@@ -9,11 +8,6 @@ export type AdminSystemHealth = {
   sync_enabled_user_count: number;
   stale_sync_user_count: number;
   sync_error_user_count: number;
-  total_invite_count: number;
-  pending_invite_count: number;
-  accepted_invite_count: number;
-  expired_invite_count: number;
-  exhausted_invite_count: number;
   artist_count: number;
   album_count: number;
   track_count: number;
@@ -58,23 +52,9 @@ export type AdminUserHealth = {
   latest_rollup_updated_at: string | null;
 };
 
-export type AdminInviteHealth = {
-  label: string | null;
-  created_at: string;
-  expires_at: string | null;
-  last_used_at: string | null;
-  accepted_at: string | null;
-  accepted_email: string | null;
-  accepted_user_id: string | null;
-  use_count: number;
-  max_uses: number;
-  status: InviteHealthStatus;
-};
-
 export type AdminDashboard = {
   system: AdminSystemHealth;
   users: AdminUserHealth[];
-  invites: AdminInviteHealth[];
 };
 
 export const CRON_WARNING_MINUTES = 30;
@@ -154,7 +134,7 @@ export function formatRelativeAge(value: string | null, now = new Date()): strin
   return `${days}d ${suffix}`;
 }
 
-export function statusClass(status: HealthStatus | InviteHealthStatus): string {
+export function statusClass(status: HealthStatus): string {
   return `status ${status}`;
 }
 

@@ -15,6 +15,8 @@
     updateSpotifySyncEnabled
   } from '$lib/queries/profile';
   import type { OverviewPayload, Profile, SpotifyConnectionStatus } from '$lib/types';
+  import { authView } from '$lib/auth/view';
+  import { friendlyAuthError, friendlyLinkError } from '$lib/auth/errors';
 
   let session: Session | null = null;
   let profile: Profile | null = null;
@@ -23,18 +25,22 @@
   let loading = true;
   let message = '';
   let error = '';
-  type AuthAction = 'password' | 'link';
+  let recovery = false;
+
+  type AuthAction = 'login' | 'reset' | 'setup' | 'recover' | 'change';
   let authSubmitting = false;
   let authAction: AuthAction | null = null;
 
   let email = '';
   let password = '';
-  let inviteCode = '';
+  let confirmPassword = '';
   let slug = '';
   let displayName = '';
   let isPublic = false;
   const slugPattern = '[a-z0-9][a-z0-9-]{1,38}[a-z0-9]';
+  const MIN_PASSWORD = 8;
 
+  $: view = authView({ hasSession: Boolean(session), hasProfile: Boolean(profile), recovery });
   $: artistMetric = overview ? bestAvailableMetric(overview.this_week.top_artists, 'plays') : 'plays';
   $: summaryCards = overview ? overviewSummaryCards(overview) : [];
   $: publicUrl = profile ? `${locationOrigin()}${base}/profile/?slug=${profile.slug}` : '';
@@ -49,20 +55,25 @@
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     if (params.get('spotify') === 'connected') message = 'Spotify connected.';
     if (params.get('spotify') === 'error') error = params.get('message') ?? 'Spotify connection failed.';
-    if (hashParams.get('error')) {
-      error = hashParams.get('error_description') ?? hashParams.get('error') ?? 'Authentication failed.';
-    }
+
+    const linkError = friendlyLinkError(hashParams.get('error'), hashParams.get('error_description'));
 
     supabase.auth.getSession().then(async ({ data }) => {
       session = data.session;
+      if (linkError && !session) error = linkError;
       await loadUserData();
       loading = false;
     });
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       session = nextSession;
+      if (event === 'PASSWORD_RECOVERY') {
+        recovery = true;
+        error = '';
+        message = 'Set a new password below.';
+      }
       await loadUserData();
     });
 
@@ -116,14 +127,20 @@
     }
   }
 
-  function submitPasswordAuth(): Promise<void> {
-    return runAuth('password', async (client, trimmedEmail) => {
+  function passwordProblem(): string | null {
+    if (password.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters.`;
+    if (password !== confirmPassword) return 'Passwords do not match.';
+    return null;
+  }
+
+  function submitLogin(): Promise<void> {
+    return runAuth('login', async (client, trimmedEmail) => {
       message = '';
       const { data, error: authError } = await client.auth.signInWithPassword({
         email: trimmedEmail,
         password
       });
-      if (authError) return authError.message;
+      if (authError) return friendlyAuthError(authError.message);
 
       session = data.session;
       await loadUserData();
@@ -132,45 +149,72 @@
     });
   }
 
-  function sendSignInLink(): Promise<void> {
-    return runAuth('link', async (client, trimmedEmail) => {
-      message = `Sending sign-in link to ${trimmedEmail}...`;
-      const { error: authError } = await client.auth.signInWithOtp({
-        email: trimmedEmail,
-        options: {
-          shouldCreateUser: false,
-          emailRedirectTo: appUrl()
-        }
+  function sendResetLink(): Promise<void> {
+    return runAuth('reset', async (client, trimmedEmail) => {
+      message = `Sending a reset link to ${trimmedEmail}...`;
+      const { error: authError } = await client.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: appUrl()
       });
-      if (authError) return authError.message;
+      if (authError) return friendlyAuthError(authError.message);
 
-      message = `Sign-in link sent to ${trimmedEmail}. Check your email.`;
+      message = `Password reset link sent to ${trimmedEmail}. Check your email.`;
       return null;
     });
   }
 
-  async function completeOnboarding(): Promise<void> {
-    if (!supabase) return;
-    error = '';
-    message = '';
+  function submitSetup(): Promise<void> {
+    return runAuth('setup', async (client) => {
+      const problem = passwordProblem();
+      if (problem) return problem;
 
-    const { data, error: invokeError } = await supabase.functions.invoke('complete-onboarding', {
-      body: {
-        inviteCode,
-        slug,
-        displayName,
-        isPublic
-      }
+      message = '';
+      const { error: pwError } = await client.auth.updateUser({ password });
+      if (pwError) return friendlyAuthError(pwError.message);
+
+      const { data, error: invokeError } = await client.functions.invoke('complete-onboarding', {
+        body: { slug, displayName, isPublic }
+      });
+      if (invokeError) return invokeError.message;
+
+      profile = data.profile;
+      password = '';
+      confirmPassword = '';
+      message = 'Account ready.';
+      await loadUserData();
+      return null;
     });
+  }
 
-    if (invokeError) {
-      error = invokeError.message;
-      return;
-    }
+  function submitRecovery(): Promise<void> {
+    return runAuth('recover', async (client) => {
+      const problem = passwordProblem();
+      if (problem) return problem;
 
-    profile = data.profile;
-    message = 'Onboarding complete.';
-    await loadUserData();
+      const { error: pwError } = await client.auth.updateUser({ password });
+      if (pwError) return friendlyAuthError(pwError.message);
+
+      recovery = false;
+      password = '';
+      confirmPassword = '';
+      message = 'Password updated.';
+      await loadUserData();
+      return null;
+    });
+  }
+
+  function submitChangePassword(): Promise<void> {
+    return runAuth('change', async (client) => {
+      const problem = passwordProblem();
+      if (problem) return problem;
+
+      const { error: pwError } = await client.auth.updateUser({ password });
+      if (pwError) return friendlyAuthError(pwError.message);
+
+      password = '';
+      confirmPassword = '';
+      message = 'Password updated.';
+      return null;
+    });
   }
 
   async function connectSpotify(): Promise<void> {
@@ -213,6 +257,9 @@
     profile = null;
     connection = null;
     overview = null;
+    recovery = false;
+    password = '';
+    confirmPassword = '';
   }
 </script>
 
@@ -234,12 +281,29 @@
     {#if message}<p class="notice">{message}</p>{/if}
     {#if error}<p class="error">{error}</p>{/if}
 
-    {#if !session}
+    {#if view === 'recovery'}
+      <section class="panel auth-panel">
+        <h2>Set a new password</h2>
+        <form on:submit|preventDefault={submitRecovery}>
+          <label>
+            new password
+            <input bind:value={password} type="password" autocomplete="new-password" disabled={authSubmitting} required />
+          </label>
+          <label>
+            confirm password
+            <input bind:value={confirmPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
+          </label>
+          <button type="submit" disabled={authSubmitting}>
+            {authSubmitting && authAction === 'recover' ? 'saving...' : 'save password'}
+          </button>
+        </form>
+      </section>
+    {:else if view === 'login'}
       <section class="panel auth-panel">
         <h2>Sign in</h2>
         <p class="muted">Invite-only access.</p>
 
-        <form on:submit|preventDefault={submitPasswordAuth}>
+        <form on:submit|preventDefault={submitLogin}>
           <label>
             email
             <input bind:value={email} type="email" autocomplete="email" disabled={authSubmitting} required />
@@ -255,37 +319,49 @@
             />
           </label>
           <button type="submit" disabled={authSubmitting}>
-            {authSubmitting && authAction === 'password' ? 'signing in...' : 'sign in'}
+            {authSubmitting && authAction === 'login' ? 'signing in...' : 'sign in'}
           </button>
-          <button type="button" disabled={authSubmitting || !email.trim()} on:click={sendSignInLink}>
-            {authSubmitting && authAction === 'link' ? 'sending...' : 'send sign-in link'}
+          <button
+            type="button"
+            class="link-button"
+            disabled={authSubmitting || !email.trim()}
+            on:click={sendResetLink}
+          >
+            {authSubmitting && authAction === 'reset' ? 'sending...' : 'forgot password?'}
           </button>
         </form>
       </section>
-    {:else if !profile}
+    {:else if view === 'setup'}
       <section class="panel auth-panel">
-        <h2>Complete onboarding</h2>
-        <form on:submit|preventDefault={completeOnboarding}>
+        <h2>Set up your account</h2>
+        <p class="muted">Choose a password and your profile details.</p>
+        <form on:submit|preventDefault={submitSetup}>
           <label>
-            invite code
-            <input bind:value={inviteCode} autocomplete="one-time-code" required />
+            password
+            <input bind:value={password} type="password" autocomplete="new-password" disabled={authSubmitting} required />
+          </label>
+          <label>
+            confirm password
+            <input bind:value={confirmPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
           </label>
           <label>
             display name
-            <input bind:value={displayName} required />
+            <input bind:value={displayName} disabled={authSubmitting} required />
           </label>
           <label>
             profile slug
-            <input bind:value={slug} pattern={slugPattern} required />
+            <input bind:value={slug} pattern={slugPattern} disabled={authSubmitting} required />
           </label>
           <label class="check-row">
-            <input bind:checked={isPublic} type="checkbox" />
+            <input bind:checked={isPublic} type="checkbox" disabled={authSubmitting} />
             public profile
           </label>
-          <button type="submit">finish onboarding</button>
+          <button type="submit" disabled={authSubmitting}>
+            {authSubmitting && authAction === 'setup' ? 'creating...' : 'create account'}
+          </button>
         </form>
       </section>
-    {:else}
+    {:else if profile}
       <section class="panel">
         <div class="account-row">
           <div>
@@ -302,6 +378,23 @@
             <button type="button" on:click={signOut}>sign out</button>
           </div>
         </div>
+      </section>
+
+      <section class="panel section-gap">
+        <h2>Password</h2>
+        <form on:submit|preventDefault={submitChangePassword}>
+          <label>
+            new password
+            <input bind:value={password} type="password" autocomplete="new-password" disabled={authSubmitting} required />
+          </label>
+          <label>
+            confirm password
+            <input bind:value={confirmPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
+          </label>
+          <button type="submit" disabled={authSubmitting}>
+            {authSubmitting && authAction === 'change' ? 'saving...' : 'change password'}
+          </button>
+        </form>
       </section>
 
       <section class="panel section-gap">
@@ -365,6 +458,21 @@
 <style>
   .auth-panel {
     max-width: 460px;
+  }
+
+  .link-button {
+    justify-self: start;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--muted);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .link-button:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
 
   form,

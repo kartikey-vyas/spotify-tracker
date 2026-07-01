@@ -1,5 +1,5 @@
 import { supabase } from '$lib/supabase';
-import type { AdminDashboard, AdminInviteHealth, AdminSystemHealth, AdminUserHealth } from '$lib/adminHealth';
+import type { AdminDashboard, AdminSystemHealth, AdminUserHealth } from '$lib/adminHealth';
 
 type AdminMarker = {
   user_id: string;
@@ -30,30 +30,22 @@ export async function getAdminDashboard(): Promise<AdminDashboard | null> {
 
   const [
     { data: system, error: systemError },
-    { data: users, error: usersError },
-    { data: invites, error: invitesError }
+    { data: users, error: usersError }
   ] = await Promise.all([
     supabase.from('admin_system_health').select('*').maybeSingle<AdminSystemHealth>(),
     supabase
       .from('admin_user_health')
       .select('*')
       .order('display_name', { ascending: true })
-      .returns<AdminUserHealth[]>(),
-    supabase
-      .from('admin_invite_health')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .returns<AdminInviteHealth[]>()
+      .returns<AdminUserHealth[]>()
   ]);
 
   if (systemError) throw new Error(systemError.message);
   if (usersError) throw new Error(usersError.message);
-  if (invitesError) throw new Error(invitesError.message);
   if (!system) return null;
 
   return {
     system,
-    users: users ?? [],
-    invites: invites ?? []
+    users: users ?? []
   };
 }

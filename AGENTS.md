@@ -24,7 +24,7 @@ Run a single test: `pnpm vitest run tests/unit/dates.test.ts` (or `pnpm vitest -
 Operational CLIs (require `.env.local` with `SUPABASE_URL` + `SUPABASE_SECRET_KEY`):
 
 ```bash
-pnpm invite:create --label=friend --max-uses=1 --site-url=https://.../app/
+pnpm invite friend@example.com --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
 uv run marimo edit notebooks/spotify_extended_history_explore.py
 uv run python -m backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
 pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
@@ -75,13 +75,11 @@ The TypeScript importer requires `--user-id`; do not add back the null-user path
 
 ## Auth & sync flow (invite-only)
 
-1. Owner runs `pnpm invite:create`; the **plaintext token is printed once** (stored only as a SHA-256 hash in Supabase).
-2. Friend opens `/app/invite/?code=...`, submits email/display name/slug/visibility.
-3. `accept-invite` Edge Function (public at the JWT layer — the invite token *is* the credential) creates the Auth user, `profiles`, and `sync_state`, then consumes the invite. The invite page sends a magic link (`shouldCreateUser: false`).
+1. Owner runs `pnpm invite <email>`; the script admin-invites the user and stamps `app_metadata.invited = true` on the account, and Supabase (custom SMTP via Resend on `krtky.dev`) emails an invite link. Accounts are only ever created server-side, so hosted signups stay disabled — invite-only holds.
+2. Invitee clicks the link, lands signed-in at `/app/` with no profile yet, and sets a password + display name/slug/visibility. The client calls `auth.updateUser({ password })` then the `complete-onboarding` Edge Function (authenticated; the session is the gate — no invite code). As defense-in-depth, `complete-onboarding` also requires `app_metadata.invited` before creating a new profile, so invite-only is enforced in code and not only by the disabled-signups dashboard toggle. An account without the marker (e.g. invited via the Supabase dashboard button instead of `pnpm invite`) gets a 403 — resolve by re-inviting via `pnpm invite`. (Existing users who already have a profile are unaffected: they short-circuit as `alreadyOnboarded` before the check.)
+3. Returning users sign in with email + password. "Forgot password?" uses `resetPasswordForEmail`; a `PASSWORD_RECOVERY` session shows the set-new-password form. Logged-in users can change their password in-app.
 4. After sign-in at `/app/`, the user connects Spotify. `spotify-connect` (requires logged-in user) returns an auth URL; `spotify-callback` (public — Spotify redirects to it) exchanges the code, encrypts the refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, stores it in `spotify_connections`.
 5. **`sync-due-users`** (public at JWT layer but gates itself via `assertServiceRequest` checking the `apikey` header) finds stale enabled users, decrypts each token, fetches recently played, inserts `listening_events`, and refreshes that user's rollups + overview cache.
-
-`complete-onboarding` is deployed for legacy/manual recovery only.
 
 ### What drives the sync cron
 
@@ -91,14 +89,14 @@ Sync scheduling has **moved from GitHub Actions into the database** (pg_cron + p
 
 ```bash
 supabase db push
-supabase functions deploy accept-invite --no-verify-jwt
 supabase functions deploy spotify-callback --no-verify-jwt
 supabase functions deploy sync-due-users --no-verify-jwt
 supabase functions deploy spotify-connect          # requires JWT
 supabase functions deploy complete-onboarding
+supabase functions delete accept-invite
 ```
 
-The `--no-verify-jwt` functions enforce their own credential checks (invite token / Spotify redirect / service `apikey`).
+The `--no-verify-jwt` functions enforce their own credential checks (Spotify redirect / service `apikey`).
 
 **Do not run `supabase config push`** unless hosted Auth URLs and provider settings have been reviewed in the dashboard. The checked-in `supabase/config.toml` disables email signups for local dev; hosted Auth provider settings (public signups disabled, redirect URLs) are managed separately in the Supabase dashboard.
 

@@ -1,9 +1,7 @@
 import { adminClient, authenticatedUser } from '../_shared/supabase.ts';
 import { errorJson, json } from '../_shared/http.ts';
-import { sha256Hex } from '../_shared/crypto.ts';
 
 type Body = {
-  inviteCode?: string;
   slug?: string;
   displayName?: string;
   isPublic?: boolean;
@@ -24,11 +22,9 @@ Deno.serve(async (req) => {
   try {
     const user = await authenticatedUser(req);
     const body = (await req.json()) as Body;
-    const inviteCode = (body.inviteCode ?? '').trim().toLowerCase();
     const slug = normalizeSlug(body.slug);
     const displayName = normalizeDisplayName(body.displayName);
 
-    if (!inviteCode) return errorJson('Invite code is required');
     if (!slug.match(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/)) {
       return errorJson('Slug must be 3-40 chars: lowercase letters, numbers, and hyphens');
     }
@@ -47,28 +43,17 @@ Deno.serve(async (req) => {
       return json({ profile: existingProfile, alreadyOnboarded: true });
     }
 
-    const codeHash = await sha256Hex(inviteCode);
-    const { data: invite, error: inviteError } = await supabase
-      .from('invite_codes')
-      .select('code_hash,max_uses,use_count,expires_at')
-      .eq('code_hash', codeHash)
-      .maybeSingle<{ code_hash: string; max_uses: number; use_count: number; expires_at: string | null }>();
-    if (inviteError) throw inviteError;
-    if (!invite) return errorJson('Invite code is not valid', 403);
-    if (invite.expires_at && Date.parse(invite.expires_at) <= Date.now()) {
-      return errorJson('Invite code has expired', 403);
+    if (!user.app_metadata?.invited) {
+      return errorJson('This account was not invited', 403);
     }
-    if (invite.use_count >= invite.max_uses) return errorJson('Invite code has already been used', 403);
 
-    const { error: claimError } = await supabase
-      .from('invite_codes')
-      .update({
-        use_count: invite.use_count + 1,
-        last_used_at: new Date().toISOString()
-      })
-      .eq('code_hash', invite.code_hash)
-      .eq('use_count', invite.use_count);
-    if (claimError) throw claimError;
+    const { data: slugOwner, error: slugError } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('slug', slug)
+      .maybeSingle<{ user_id: string }>();
+    if (slugError) throw slugError;
+    if (slugOwner) return errorJson('Profile slug is already taken', 409);
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -99,4 +84,3 @@ Deno.serve(async (req) => {
     return errorJson(message, message === 'Not authenticated' ? 401 : 400);
   }
 });
-

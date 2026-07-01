@@ -19,7 +19,7 @@
     "sync:recently-played": "tsx scripts/sync-recently-played.ts",
     "enrich:metadata": "tsx scripts/enrich-metadata.ts",
     "enrich:backfill": "tsx scripts/enrich-backfill.ts",
-    "invite:create": "tsx scripts/create-invite-code.ts",
+    "invite": "tsx scripts/invite-user.ts",
     "db:size": "tsx scripts/db-size.ts"
   },
   "dependencies": {

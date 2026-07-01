@@ -129,22 +129,3 @@ values (
 )
 on conflict (user_id) do nothing;
 
--- Plaintext local invite code: local-invite
-insert into public.invite_codes (
-  code_hash,
-  label,
-  max_uses,
-  use_count,
-  expires_at
-)
-values (
-  'eebd127073acce790d0796a66fc4b5718299ddf16d9a1a8020e62326d520b079',
-  'local-seed',
-  20,
-  0,
-  null
-)
-on conflict (code_hash) do update
-set label = excluded.label,
-    max_uses = excluded.max_uses,
-    expires_at = excluded.expires_at;
