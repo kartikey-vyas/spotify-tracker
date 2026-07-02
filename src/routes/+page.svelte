@@ -6,6 +6,7 @@
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
   import ListeningClock from '$lib/components/ListeningClock.svelte';
   import ReleaseYearChart from '$lib/components/ReleaseYearChart.svelte';
+  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
   import StatList from '$lib/components/StatList.svelte';
   import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
   import { publicSupabaseConfigured } from '$lib/supabase';
@@ -250,7 +251,7 @@
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY to load public dashboard data.</p>
     </section>
   {:else if loading}
-    <section class="panel"><p class="muted">Loading overview...</p></section>
+    <section class="panel panel-loading"><SpotifyLoader size="lg" label="Loading overview..." /></section>
   {:else if error}
     <section class="panel"><p class="error">{error}</p></section>
   {:else if profiles.length === 0}

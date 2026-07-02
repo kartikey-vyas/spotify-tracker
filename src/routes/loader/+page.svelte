@@ -1,22 +1,9 @@
 <script lang="ts">
   import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
-
-  const themes = [
-    { value: 'warm-dark', label: 'dark' },
-    { value: 'kanagawa', label: 'kanagawa' },
-    { value: 'light', label: 'light' },
-    { value: 'blush', label: 'blush' },
-    { value: 'rose', label: 'rose' },
-    { value: 'black', label: 'black' }
-  ] as const;
+  import { applyTheme, themes } from '$lib/theme';
 
   const sizes = ['sm', 'md', 'lg'] as const;
   const anims = ['ripple', 'radar', 'pulse'] as const;
-
-  function setTheme(value: string) {
-    if (value === 'light') document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.dataset.theme = value;
-  }
 </script>
 
 <section class="page">
@@ -25,14 +12,14 @@
     <h1>SpotifyLoader</h1>
     <p class="lede">
       Braille Spotify-mark loading animation. Sound-wave arcs ripple outward, inheriting the theme
-      accent. Dev-only preview for iterating on the art — not wired into the app.
+      accent. Dev-only preview for iterating on the art.
     </p>
   </div>
 
   <div class="themebar">
     <span class="muted">theme:</span>
     {#each themes as t (t.value)}
-      <button type="button" onclick={() => setTheme(t.value)}>{t.label}</button>
+      <button type="button" onclick={() => applyTheme(t.value)}>{t.label}</button>
     {/each}
   </div>
 

@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { browser, dev } from '$app/environment';
+  import { dev } from '$app/environment';
   import '../styles.css';
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { isCurrentUserAdmin } from '$lib/queries/admin';
   import { supabase } from '$lib/supabase';
+  import { THEME_KEY, applyTheme, isTheme, themes, type Theme } from '$lib/theme';
 
   const links = [
     { href: '/', label: 'overview' },
@@ -14,18 +15,6 @@
     { href: '/about/', label: 'about' }
   ];
 
-  const themeKey = 'spotify-history-theme';
-  const themes = [
-    { value: 'warm-dark', label: 'dark' },
-    { value: 'kanagawa', label: 'kanagawa' },
-    { value: 'light', label: 'light' },
-    { value: 'blush', label: 'blush' },
-    { value: 'rose', label: 'rose' },
-    { value: 'black', label: 'black' }
-  ] as const;
-
-  type Theme = (typeof themes)[number]['value'];
-
   let theme: Theme = 'warm-dark';
   let themeMenu: HTMLDetailsElement | null = null;
   let showAdmin = dev;
@@ -34,7 +23,7 @@
     let storedTheme: string | null = null;
 
     try {
-      storedTheme = localStorage.getItem(themeKey);
+      storedTheme = localStorage.getItem(THEME_KEY);
     } catch {
       storedTheme = null;
     }
@@ -63,26 +52,6 @@
       subscription?.unsubscribe();
     };
   });
-
-  function isTheme(value: string | undefined | null): value is Theme {
-    return themes.some((option) => option.value === value);
-  }
-
-  function applyTheme(nextTheme: Theme): void {
-    if (!browser) return;
-
-    if (nextTheme === 'light') {
-      document.documentElement.removeAttribute('data-theme');
-    } else {
-      document.documentElement.dataset.theme = nextTheme;
-    }
-
-    try {
-      localStorage.setItem(themeKey, nextTheme);
-    } catch {
-      // Keep the applied theme even when storage is unavailable.
-    }
-  }
 
   function selectTheme(nextTheme: Theme): void {
     theme = nextTheme;

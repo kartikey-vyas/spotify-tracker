@@ -3,6 +3,7 @@
   import RankingTable from '$lib/components/RankingTable.svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
+  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
   import { bestAvailableMetric, metricLabel, overviewSummaryCards } from '$lib/metrics';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import { getPublicProfileOverview } from '$lib/queries/overview';
@@ -49,7 +50,7 @@
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY.</p>
     </section>
   {:else if loading}
-    <section class="panel"><p class="muted">Loading profile...</p></section>
+    <section class="panel panel-loading"><SpotifyLoader label="Loading profile..." /></section>
   {:else if error}
     <section class="panel"><p class="error">{error}</p></section>
   {:else if !slug}

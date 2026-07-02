@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
+  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
   import { qualityLabel, sourceLabel } from '$lib/metrics';
   import { getRecentActivity } from '$lib/queries/activity';
   import type { ActivityRow } from '$lib/types';
@@ -34,7 +35,7 @@
   </div>
 
   {#if loading}
-    <section class="panel"><p class="muted">Loading activity...</p></section>
+    <section class="panel panel-loading"><SpotifyLoader label="Loading activity..." /></section>
   {:else if error}
     <section class="panel"><p class="error">{error}</p></section>
   {:else}
