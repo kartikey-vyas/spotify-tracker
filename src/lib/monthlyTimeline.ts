@@ -12,6 +12,9 @@ const dayFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC'
 });
 
+const MIN_DAYS_BETWEEN_LABELS = 21;
+const MIN_MONTHS_BETWEEN_LABELS = 6;
+
 export type TimelineBucketMode = 'day' | 'month';
 
 export type TimelineHistogramBucket = {
@@ -60,7 +63,46 @@ export function buildTimelineHistogram(days: CalendarDay[], start: string, end: 
     .map((bucket, index, buckets) => ({
       ...bucket,
       label: sparseLabel(bucket.key, index, buckets, mode)
+    }))
+    .map((bucket, index, buckets) => ({
+      ...bucket,
+      label: labelIsTooClose(bucket, index, buckets, mode) ? '' : bucket.label
     }));
+}
+
+function labelIsTooClose(
+  bucket: TimelineHistogramBucket,
+  index: number,
+  buckets: TimelineHistogramBucket[],
+  mode: TimelineBucketMode
+): boolean {
+  if (!bucket.label) return false;
+
+  const previousLabeled = buckets
+    .slice(0, index)
+    .reverse()
+    .find((candidate) => candidate.label);
+  if (!previousLabeled) return false;
+
+  if (mode === 'month') {
+    return monthsBetween(previousLabeled.key, bucket.key) < MIN_MONTHS_BETWEEN_LABELS;
+  }
+
+  return daysBetween(previousLabeled.key, bucket.key) < MIN_DAYS_BETWEEN_LABELS;
+}
+
+function monthsBetween(start: string, end: string): number {
+  return (
+    (Number(end.slice(0, 4)) - Number(start.slice(0, 4))) * 12 +
+    Number(end.slice(5, 7)) -
+    Number(start.slice(5, 7))
+  );
+}
+
+function daysBetween(start: string, end: string): number {
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  return Math.floor((endMs - startMs) / 86_400_000);
 }
 
 function sparseLabel(

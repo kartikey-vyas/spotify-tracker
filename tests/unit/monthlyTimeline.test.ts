@@ -59,4 +59,24 @@ describe('monthly timeline helpers', () => {
       { key: '2026-01-01', label: 'Jan 2026', minutes: 30, plays: 6 }
     ]);
   });
+
+  it('does not label adjacent December and January monthly buckets', () => {
+    expect(
+      buildTimelineHistogram(
+        [
+          { local_date: '2016-12-15', minutes: 10, plays: 2 },
+          { local_date: '2017-01-01', minutes: 15, plays: 3 },
+          { local_date: '2017-02-01', minutes: 20, plays: 4 },
+          { local_date: '2018-01-01', minutes: 25, plays: 5 }
+        ],
+        '2016-12-01',
+        '2018-01-31'
+      ).map((bucket) => ({ key: bucket.key, label: bucket.label }))
+    ).toEqual([
+      { key: '2016-12-01', label: 'Dec 2016' },
+      { key: '2017-01-01', label: '' },
+      { key: '2017-02-01', label: '' },
+      { key: '2018-01-01', label: 'Jan 2018' }
+    ]);
+  });
 });
