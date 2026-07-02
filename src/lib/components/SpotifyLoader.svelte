@@ -21,12 +21,12 @@
   //
   //  Real Spotify centres its waves to the lower-left, hence these defaults.
   // ───────────────────────────────────────────────────────────────────────
-  const FOCAL_X = -6;
-  const FOCAL_Y = 40;
-  const BAND = 4;
+  const FOCAL_X = -5;
+  const FOCAL_Y = 30;
+  const BAND = 3;
   const WAVES = 3;
-  const FRAMES = 60;
-  const INTERVAL = 30;
+  const FRAMES = 360;
+  const INTERVAL = 5;
   const DIRECTION = 1;
 
   const BLANK = '⠀';
