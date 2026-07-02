@@ -14,8 +14,8 @@
   //              bigger-radius arcs.
   //    BAND      arc half-thickness in dots (bigger = fatter waves).
   //    WAVES     how many arcs are on screen at once.
-  //    FRAMES    steps per full sweep.   ┐ together set speed
-  //    INTERVAL  ms per step.            ┘ (smaller INTERVAL = faster).
+  //    FRAMES    steps per full sweep.   ┐ together set speed: one sweep takes
+  //    INTERVAL  ms per step.            ┘ FRAMES x INTERVAL ms (1800ms now).
   //    DIRECTION  1 = emanate outward from the focal point (with the defaults:
   //              lower-left -> upper-right); -1 = sweep the other way.
   //
@@ -71,6 +71,51 @@
     });
     return { LO: lo - BAND, SPAN: hi - lo + 2 * BAND, RIPPLE_ROWS: ripple };
   })();
+
+  const SWEEP_MS = FRAMES * INTERVAL;
+
+  // WAVES arcs spread evenly across the sweep, so one is always emanating.
+  function overlayAt(frame: number): string {
+    const base = frame / FRAMES;
+    const radii = Array.from({ length: WAVES }, (_, k) => {
+      let p = (base + k / WAVES) % 1;
+      if (DIRECTION < 0) p = 1 - p;
+      return LO + p * SPAN;
+    });
+    return RIPPLE_ROWS.map(({ len, cells }) => {
+      const out = new Array<string>(len).fill(BLANK);
+      for (const { c, ch, d } of cells) {
+        if (radii.some((rr) => Math.abs(d - rr) <= BAND)) out[c] = ch;
+      }
+      return out.join('');
+    }).join('\n');
+  }
+
+  // One shared rAF ticker drives every mounted ripple instance: the overlay is
+  // identical for all of them, so it is computed once per painted frame here
+  // and every instance just renders it. Time-based phase keeps the sweep at
+  // SWEEP_MS regardless of display refresh rate, and rAF pauses in background
+  // tabs for free.
+  let rippleOverlay = $state(overlayAt(0));
+  let rippleUsers = 0;
+  let rafId = 0;
+  let lastFrame = 0;
+
+  function tick(now: number) {
+    const frame = Math.floor(((now % SWEEP_MS) / SWEEP_MS) * FRAMES);
+    if (frame !== lastFrame) {
+      lastFrame = frame;
+      rippleOverlay = overlayAt(frame);
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function startRipple() {
+    if (rippleUsers++ === 0) rafId = requestAnimationFrame(tick);
+    return () => {
+      if (--rippleUsers === 0) cancelAnimationFrame(rafId);
+    };
+  }
 </script>
 
 <script lang="ts">
@@ -88,33 +133,11 @@
     label?: string;
   } = $props();
 
-  let frame = $state(0);
-
   $effect(() => {
     if (anim !== 'ripple') return;
     if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
       return;
-    const id = setInterval(() => {
-      frame = (frame + 1) % FRAMES;
-    }, INTERVAL);
-    return () => clearInterval(id);
-  });
-
-  // WAVES arcs spread evenly across the sweep, so one is always emanating.
-  const rippleOverlay = $derived.by(() => {
-    const base = frame / FRAMES;
-    const radii = Array.from({ length: WAVES }, (_, k) => {
-      let p = (base + k / WAVES) % 1;
-      if (DIRECTION < 0) p = 1 - p;
-      return LO + p * SPAN;
-    });
-    return RIPPLE_ROWS.map(({ len, cells }) => {
-      const out = new Array<string>(len).fill(BLANK);
-      for (const { c, ch, d } of cells) {
-        if (radii.some((rr) => Math.abs(d - rr) <= BAND)) out[c] = ch;
-      }
-      return out.join('');
-    }).join('\n');
+    return startRipple();
   });
 </script>
 
@@ -160,6 +183,10 @@
   }
   .fill-base {
     color: var(--muted);
+  }
+  /* Blush: darken the resting disc a touch (toward the theme text colour). */
+  :global(html[data-theme='blush']) .fill-base {
+    color: color-mix(in oklab, var(--muted) 75%, var(--text));
   }
   /* Ripple: bright ring of real glyphs sweeping outward, over the dim disc. */
   .fill-ripple {
