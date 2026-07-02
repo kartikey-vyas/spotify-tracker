@@ -174,36 +174,17 @@ describe('getRankings', () => {
 
   it('filters public profile rankings by slug', async () => {
     const { getProfileRankings } = await import('../../src/lib/queries/rankings.js');
-    rowsByTable.set('public_profile_rollup_daily_entity_stats', [
+    rpcRowsByName.set('public_profile_rankings', [
       {
-        slug: 'kartikey',
-        local_date: '2026-06-01',
-        entity_type: 'artist',
         entity_id: '1',
         entity_name: 'Radiohead',
-        minutes_exact: 0,
-        minutes_inferred: 0,
+        minutes: 0,
         plays: 5,
         qualified_plays: 0,
         unique_tracks: 2,
         skipped_count: null,
         known_skip_count: null,
         unknown_duration_plays: 5
-      },
-      {
-        slug: 'friend',
-        local_date: '2026-06-01',
-        entity_type: 'artist',
-        entity_id: '1',
-        entity_name: 'Radiohead',
-        minutes_exact: 0,
-        minutes_inferred: 0,
-        plays: 99,
-        qualified_plays: 0,
-        unique_tracks: 9,
-        skipped_count: null,
-        known_skip_count: null,
-        unknown_duration_plays: 99
       }
     ]);
 
@@ -218,6 +199,68 @@ describe('getRankings', () => {
 
     expect(rankings).toHaveLength(1);
     expect(rankings[0]).toEqual(expect.objectContaining({ entity_name: 'Radiohead', plays: 5 }));
+    expect(rpcCalls[0].args).toEqual(
+      expect.objectContaining({
+        p_slug: 'kartikey',
+        p_entity_type: 'artist',
+        p_start_date: '2026-06-01',
+        p_end_date: '2026-06-30'
+      })
+    );
+  });
+
+  it('loads public profile rankings from the grouped RPC', async () => {
+    const { getProfileRankings } = await import('../../src/lib/queries/rankings.js');
+    rpcRowsByName.set('public_profile_rankings', [
+      {
+        entity_id: '213',
+        entity_name: 'Radiohead',
+        minutes: '11397.4',
+        plays: 4173,
+        qualified_plays: 3000,
+        unique_tracks: 400,
+        skipped_count: 12,
+        known_skip_count: 100,
+        unknown_duration_plays: 20
+      }
+    ]);
+
+    await expect(
+      getProfileRankings({
+        slug: 'kartikey',
+        entityType: 'artist',
+        start: '2014-09-28',
+        end: '2026-07-02',
+        metric: 'plays',
+        limit: 25
+      })
+    ).resolves.toEqual([
+      {
+        entity_id: '213',
+        entity_name: 'Radiohead',
+        minutes: 11397.4,
+        plays: 4173,
+        qualified_plays: 3000,
+        unique_tracks: 400,
+        skipped_count: 12,
+        known_skip_count: 100,
+        unknown_duration_plays: 20
+      }
+    ]);
+
+    expect(rpcCalls).toEqual([
+      {
+        name: 'public_profile_rankings',
+        args: {
+          p_slug: 'kartikey',
+          p_entity_type: 'artist',
+          p_start_date: '2014-09-28',
+          p_end_date: '2026-07-02',
+          p_sort_metric: 'plays',
+          p_limit: 25
+        }
+      }
+    ]);
   });
 
   it('resolves the first and last public rollup dates for a profile', async () => {
@@ -276,7 +319,7 @@ describe('getRankings', () => {
     });
   });
 
-  it('maps selected artist detail RPC rows into summary, albums, tracks, and monthly buckets', async () => {
+  it('maps selected artist detail RPC rows into summary, albums, and tracks', async () => {
     const { getProfileArtistDetail } = await import('../../src/lib/queries/rankings.js');
     rpcRowsByName.set('public_profile_artist_summary', [
       {
@@ -317,19 +360,6 @@ describe('getRankings', () => {
         unknown_duration_plays: 0
       }
     ]);
-    rpcRowsByName.set('public_profile_artist_monthly_timeline', [
-      {
-        month_start: '2026-06-01',
-        minutes: '42.5',
-        plays: 12,
-        qualified_plays: 9,
-        unique_tracks: 4,
-        skipped_count: 1,
-        known_skip_count: 10,
-        unknown_duration_plays: 2
-      }
-    ]);
-
     await expect(
       getProfileArtistDetail({
         slug: 'kartikey',
@@ -342,25 +372,13 @@ describe('getRankings', () => {
       summary: expect.objectContaining({ entity_id: '10', minutes: 42.5, plays: 12 }),
       albums: [expect.objectContaining({ entity_id: '20', minutes: 30, plays: 8 })],
       tracks: [expect.objectContaining({ entity_id: '30', minutes: 9, plays: 3 })],
-      monthly: [
-        {
-          month_start: '2026-06-01',
-          minutes: 42.5,
-          plays: 12,
-          qualified_plays: 9,
-          unique_tracks: 4,
-          skipped_count: 1,
-          known_skip_count: 10,
-          unknown_duration_plays: 2
-        }
-      ]
+      monthly: []
     });
 
     expect(rpcCalls.map((call) => call.name)).toEqual([
       'public_profile_artist_summary',
       'public_profile_artist_top_albums',
-      'public_profile_artist_top_tracks',
-      'public_profile_artist_monthly_timeline'
+      'public_profile_artist_top_tracks'
     ]);
     expect(rpcCalls[0].args).toEqual({
       p_slug: 'kartikey',
