@@ -1,30 +1,48 @@
 <section class="page">
   <div class="page-header">
     <span class="eyebrow">About</span>
-    <h1>Data caveats</h1>
-    <p class="lede">This public dashboard keeps the browser read-only and reserves writes for local import scripts and scheduled GitHub Actions.</p>
+    <h1>What is this?</h1>
+    <p class="lede">
+      Spotify listening history for me and my friends. It's invite-only, and each member chooses
+      whether their profile is public.
+    </p>
   </div>
 
   <section class="grid cols-2">
     <div class="panel">
-      <h2>Quality labels</h2>
+      <h2>Where the data comes from</h2>
       <p class="muted">
-        Export rows are exact and include ms_played. Recently-played API rows count as plays but have unknown duration, so they are excluded from minute totals.
+        A sync job checks Spotify every 15 minutes for each member's recent plays. Members can
+        also import their Spotify Extended Streaming History export, which covers everything back
+        to their first listen.
       </p>
     </div>
 
     <div class="panel">
-      <h2>Timezone</h2>
+      <h2>Times and dates</h2>
       <p class="muted">
-        Dates are bucketed in Australia/Melbourne and weeks start on Monday.
+        Everything is counted in Melbourne time. Weeks start on Monday.
       </p>
     </div>
 
     <div class="panel">
-      <h2>Security</h2>
+      <h2>Privacy</h2>
       <p class="muted">
-        The frontend receives only the public Supabase URL and publishable key. Secret keys and Spotify refresh tokens are used only by local scripts or GitHub Actions.
+        Only profiles marked public show up here. The browser can read public stats and nothing
+        else; Spotify logins and tokens stay on the server.
       </p>
     </div>
   </section>
+
+  <p class="muted footnote">
+    Source and setup instructions:
+    <a href="https://github.com/kartikey-vyas/spotify-tracker">github.com/kartikey-vyas/spotify-tracker</a>
+  </p>
 </section>
+
+<style>
+  .footnote {
+    margin-top: 1.5rem;
+    font-size: 0.9em;
+  }
+</style>

@@ -1,6 +1,13 @@
-# musik
+```text
+                       _ _
+   _ __ ___  _   _ ___(_) | __
+  | '_ ` _ \| | | / __| | |/ /
+  | | | | | | |_| \__ \ |   <
+  |_| |_| |_|\__,_|___/_|_|\_\
 
-Cozy dashboard for exploring what you and your friends listen to on Spotify.
+  cozy dashboard for exploring what you
+  and your friends listen to on spotify
+```
 
 Members join by invite, connect their Spotify account once, and from then on their listening history syncs automatically every 15 minutes. Anyone can browse the profiles that members choose to make public — top artists, tracks, listening clocks, timelines — while each member keeps a private view of their own data. You can also import your full [Spotify Extended Streaming History](https://www.spotify.com/account/privacy/) to get stats going back years.
 
@@ -136,7 +143,7 @@ pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.jso
 
 The full walkthrough — including how to pick the cutoff timestamp so export rows don't double-count synced rows — is in [docs/extended-history-backfill-plan.md](docs/extended-history-backfill-plan.md). Keep raw exports in gitignored paths (`my_spotify_data.zip`, `Spotify Extended Streaming History/`, `analysis/`); they contain PII.
 
-After a large import, run `pnpm enrich:metadata` (or the long-running `pnpm enrich:backfill`) to fill in artist images and genres.
+After a large import, run `pnpm enrich:metadata` (or the long-running `pnpm enrich:backfill`) to fill in artist images.
 
 ## Everyday commands
 
