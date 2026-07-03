@@ -28,3 +28,4 @@ analysis/
 
 # Local superpowers workspace (specs/plans) — keep out of the repo
 docs/superpowers/
+.superpowers/

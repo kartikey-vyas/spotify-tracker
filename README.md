@@ -1,334 +1,158 @@
 # musik
 
-A static SvelteKit dashboard for public, read-only Spotify listening history exploration across selected public profiles.
+Cozy dashboard for exploring what you and your friends listen to on Spotify.
 
-The architecture follows one rule: public read, private write.
+Members join by invite, connect their Spotify account once, and from then on their listening history syncs automatically every 15 minutes. Anyone can browse the profiles that members choose to make public — top artists, tracks, listening clocks, timelines — while each member keeps a private view of their own data. You can also import your full [Spotify Extended Streaming History](https://www.spotify.com/account/privacy/) to get stats going back years.
 
-- Frontend: static SvelteKit app for GitHub Pages
-- Database: Supabase Postgres
-- Historical import: local Marimo/Polars exploration + cleaning, followed by a user-scoped TypeScript CLI import with service credentials
-- Forward sync: Supabase Cron calls a service-key-protected Supabase Edge Function every 15 minutes
-- Browser credentials: only `PUBLIC_SUPABASE_URL` and a public Supabase key
+Under the hood it is deliberately simple and cheap to run:
 
-## Setup
+- A **static SvelteKit site** deployed to GitHub Pages — no server to maintain
+- A **Supabase** project for the database, auth, and Edge Functions
+- One rule everywhere: **public read, private write**. The browser only ever gets a public Supabase key; every write and every Spotify secret stays behind row-level security or Edge Functions
 
-1. Create a Supabase project.
-2. Apply migrations with `supabase db push`.
-3. Add GitHub repository variables:
-   - `PUBLIC_SUPABASE_URL`
-   - `PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-   - Optional fallback: `PUBLIC_SUPABASE_ANON_KEY`
-   - Optional: `PUBLIC_BASE_PATH` if the GitHub Pages base path should not be `/${repo-name}`
-4. Add GitHub Actions secrets:
-   - `SUPABASE_URL`
-   - `SUPABASE_SECRET_KEY`
-5. Add Supabase Edge Function secrets:
-   - `SPOTIFY_CLIENT_ID`
-   - `SPOTIFY_CLIENT_SECRET`
-   - `SPOTIFY_TOKEN_ENCRYPTION_KEY`
-   - `SITE_URL`
-6. Configure Supabase Auth URL settings:
-   - Site URL: `https://kartikey-vyas.github.io/spotify-tracker/app/`
-   - Redirect URL: `https://kartikey-vyas.github.io/spotify-tracker/app/`
-7. In Supabase Auth email provider settings, disable public email signups. Create new Auth users manually from the Supabase dashboard invite flow or the Admin API.
-8. Configure the Spotify app redirect URI exactly:
-   - `https://<project-ref>.supabase.co/functions/v1/spotify-callback`
-9. Install dependencies:
+Curious about the details? See [docs/architecture.md](docs/architecture.md).
 
-```bash
-pnpm install
-uv sync
-```
+## Running it locally
 
-10. Run the app locally:
+You'll need:
 
-```bash
-pnpm dev
-```
+- **Node >= 22** and **pnpm**
+- **[Supabase CLI](https://supabase.com/docs/guides/cli)** for migrations and Edge Functions
+- **[uv](https://docs.astral.sh/uv/)** — only if you plan to import extended streaming history. I'm a python babby so used this but could have all been done in TS.
 
-## Local Auth Testing
+Then:
 
-Normal local app development can point at the hosted Supabase project via
-`.env.local`, which lets `pnpm dev` show live data:
+1. Clone the repo and install dependencies:
 
-```text
-PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-PUBLIC_SUPABASE_PUBLISHABLE_KEY=<hosted publishable key>
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_SECRET_KEY=<hosted secret key>
-```
+   ```bash
+   pnpm install
+   ```
 
-To test the full local Auth flow instead, add a gitignored
-`.env.development.local` override using values from `supabase status -o env`.
-Remove this file when you want the browser to use live hosted data again:
+2. Create a `.env.local` in the repo root pointing at a Supabase project (see the next section to create one):
 
-```text
-PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local PUBLISHABLE_KEY>
-SITE_URL=http://127.0.0.1:5173/app/
-```
+   ```text
+   PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+   PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable key>
+   SUPABASE_URL=https://<project-ref>.supabase.co
+   SUPABASE_SECRET_KEY=<secret key>
+   ```
 
-The local Supabase stack is configured for Vite's default dev origin. Auth emails
-are captured by Mailpit/Inbucket at `http://127.0.0.1:54324`; they are not sent
-externally.
+   The `PUBLIC_*` values are used by the browser app; the secret key is only used by the local CLI scripts (invites, imports) and never ships to the browser.
 
-Local `supabase/config.toml` enables Auth signups so auth emails (password reset,
-invite) are issued and captured by Mailpit rather than sent externally. Accounts
-are only ever created via the admin invite path (`pnpm invite`), never by typing
-an email into `/app/`. Hosted Auth signup policy is managed separately in the
-Supabase dashboard; do not run `supabase config push` without reviewing it.
+3. Start the dev server:
 
-For local Edge Functions, create the gitignored file `supabase/functions/.env`
-with the same local secret key:
+   ```bash
+   pnpm dev
+   ```
 
-```text
-SUPABASE_SECRET_KEY=<local SECRET_KEY>
-```
+   The app lives at `/app/`, public profiles at `/profile/?slug=<slug>`.
 
-`supabase start` loads this file automatically. If the stack is already
-running, restart it after creating or changing local Auth/function config.
+Pointing `.env.local` at the hosted project is the normal day-to-day setup — you get live data immediately. If you want a fully local Supabase stack (local auth, invite emails captured in Mailpit, a seeded admin user), see [docs/local-development.md](docs/local-development.md).
 
-`supabase/seed.sql` creates a local owner account and admin marker on
-`supabase db reset`:
+## Setting up the database
 
-```text
-email: admin@local.test
-profile: /local-admin
-```
+1. Create a project at [supabase.com](https://supabase.com), then link and push the schema:
 
-To test admin auth locally:
+   ```bash
+   supabase link --project-ref <project-ref>
+   supabase db push
+   ```
 
-1. Start Supabase and the app: `supabase start`, then `pnpm dev`.
-2. Open `/app/`, enter `admin@local.test`, and use "forgot password?" (the seeded admin has no password).
-3. Open Mailpit at `http://127.0.0.1:54324`, click the password-reset link, and set a password.
-4. You are now signed in; open `/admin/` — the seeded user is in `admin_users`.
+2. Create the two Vault secrets that drive the sync cron. The scheduled job (`pg_cron` + `pg_net`) reads these to call the sync Edge Function every 15 minutes — see the header of `supabase/migrations/20260619142000_schedule_sync_due_users_cron.sql` for the exact SQL:
 
-To test the invite flow end to end:
+   - `project_url` — your project URL
+   - `sync_secret_key` — your service (secret) key
 
-```bash
-pnpm invite <email> --site-url=http://127.0.0.1:5173/app/
-```
+3. Configure Auth in the Supabase dashboard:
 
-The invite email appears in Mailpit at `http://127.0.0.1:54324`; click it to land
-signed-in and set a password + profile. Local users can also be inspected or
-deleted in Supabase Studio at `http://127.0.0.1:54323`.
+   - Set the Site URL and Redirect URL to your deployed app URL, e.g. `https://kartikey-vyas.github.io/spotify-tracker/app/`
+   - In the email provider settings, **disable public signups**. Accounts are only ever created through the invite flow, which is what keeps the site invite-only.
 
-## Current Public Flow
+4. Deploy the Edge Functions and set their secrets (Spotify values come from the next section):
 
-The public homepage reads from `public_profile_overview`, not from the old anonymous `public_home` cache. It defaults to the `kartikey` slug and lets visitors switch between public profiles. A profile only appears there when `profiles.is_public = true` and a user-specific overview cache exists.
+   ```bash
+   supabase secrets set \
+     SPOTIFY_CLIENT_ID=... \
+     SPOTIFY_CLIENT_SECRET=... \
+     SPOTIFY_TOKEN_ENCRYPTION_KEY=... \
+     SITE_URL=https://kartikey-vyas.github.io/spotify-tracker/app/
 
-Public profile URLs still work directly:
+   supabase functions deploy complete-onboarding
+   supabase functions deploy spotify-connect
+   supabase functions deploy spotify-callback --no-verify-jwt
+   supabase functions deploy sync-due-users --no-verify-jwt
+   ```
 
-```text
-/profile/?slug=kartikey
-```
+   `SPOTIFY_TOKEN_ENCRYPTION_KEY` can be any long random string (`openssl rand -base64 32`); it encrypts Spotify refresh tokens before they are stored. The `--no-verify-jwt` functions enforce their own credential checks — `spotify-callback` is public because Spotify redirects to it, and `sync-due-users` verifies the service key itself.
 
-The default homepage slug is set in `src/routes/+page.svelte` as `defaultSlug`.
+## Setting up the Spotify app
 
-## Invite-only User Mode
+1. Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Register exactly one redirect URI:
 
-Invite-only mode adds private per-user data while keeping the site static and publicly readable where users opt in.
+   ```text
+   https://<project-ref>.supabase.co/functions/v1/spotify-callback
+   ```
 
-Apply migrations, deploy Edge Functions, and set Edge Function secrets:
+3. Copy the Client ID and Client Secret into the Edge Function secrets above.
 
-```bash
-supabase db push
-supabase secrets set SPOTIFY_CLIENT_ID=... SPOTIFY_CLIENT_SECRET=... SPOTIFY_TOKEN_ENCRYPTION_KEY=... SITE_URL=https://kartikey-vyas.github.io/spotify-tracker/app/
-supabase functions deploy complete-onboarding
-supabase functions deploy spotify-connect
-supabase functions deploy spotify-callback --no-verify-jwt
-supabase functions deploy sync-due-users --no-verify-jwt
-supabase functions delete accept-invite
-```
+**Development mode matters here.** New Spotify apps run in development mode, which allows up to 25 users — and each one must be allowlisted first. Before someone can connect their Spotify account, add their name and the email tied to their Spotify account under **User Management** in the app's dashboard page. If they aren't allowlisted, the OAuth flow will fail for them even though the invite works fine.
 
-`spotify-connect` requires a logged-in Supabase user. `spotify-callback` is public because Spotify redirects to it. `sync-due-users` is public at the JWT layer but checks the service key itself. `complete-onboarding` is the authenticated onboarding function; the session is the gate.
+## Inviting users
 
-The checked-in local Supabase config enables email signups for local development so Mailpit captures auth emails. Hosted Auth signups stay disabled via the Supabase dashboard; do not use `supabase config push` unless the hosted Auth URLs and provider settings have been reviewed.
-
-Invite a new user:
+Invite someone by email:
 
 ```bash
 pnpm invite friend@example.com --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
 ```
 
-Supabase emails the invitee a sign-up link via custom SMTP (Resend on `krtky.dev`). They click it, land signed-in at `/app/`, and set a password and profile. After that, they connect Spotify from `/app/`.
+What happens next:
 
-### How it works
+1. Supabase emails them a sign-up link (custom SMTP via Resend on `krtky.dev`).
+2. They click it, land signed-in at `/app/`, and choose a password, display name, profile slug, and whether their profile is public.
+3. They hit "connect spotify", approve the OAuth prompt, and syncing starts — new listens appear within 15 minutes.
 
-The browser is still a static SvelteKit app. It only receives `PUBLIC_SUPABASE_URL` and a public Supabase key. All writes and all Spotify secrets stay behind Supabase RLS or Edge Functions.
+Remember: they also need to be on the Spotify app's User Management allowlist (previous section) before step 3 will work.
 
-1. The site owner runs `pnpm invite <email>`. Supabase (custom SMTP via Resend on `krtky.dev`) emails an invite link; accounts are created server-side, so hosted signups stay disabled — invite-only holds.
-2. The invitee clicks the link, lands signed-in at `/app/` with no profile yet, and sets a password + display name, slug, and visibility. The client calls `auth.updateUser({ password })` then the `complete-onboarding` Edge Function (authenticated; the session is the gate — no invite code).
-3. Returning users sign in with email + password. "Forgot password?" uses `resetPasswordForEmail`; a `PASSWORD_RECOVERY` session shows the set-new-password form. Logged-in users can also change their password in-app.
-4. They click "connect spotify". The `spotify-connect` Edge Function creates a short-lived OAuth state and returns a Spotify authorization URL.
-5. Spotify redirects to `spotify-callback`, which exchanges the code using `SPOTIFY_CLIENT_SECRET`, encrypts the Spotify refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, and stores it in `spotify_connections`.
-6. Supabase Cron calls `sync-due-users` every 15 minutes using the service key stored in Supabase Vault.
-7. `sync-due-users` finds stale enabled users, decrypts each refresh token, fetches recently played tracks, inserts `listening_events` with that user's `user_id`, refreshes that user's rollups, and updates their overview cache.
+Invites are the only way accounts get created — there is no public signup. If you invite someone via the Supabase dashboard instead of `pnpm invite`, onboarding will reject them with a 403; re-invite them with the CLI.
 
-User-specific rows live under `user_id`:
+## Deploying the site
 
-```text
-profiles
-spotify_connections
-listening_events
-rollup_daily_entity_stats
-sync_state
-overview_cache
-public_activity_recent
-```
+`.github/workflows/deploy.yml` builds and deploys to GitHub Pages on every push to `main`. Configure the repo on GitHub:
 
-Shared Spotify metadata remains global:
+- **Repository variables**: `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_PUBLISHABLE_KEY` (optional fallback `PUBLIC_SUPABASE_ANON_KEY`), and optionally `PUBLIC_BASE_PATH` — the base path defaults to `/<repo-name>`; set it to `/` when serving from a custom domain root.
+- **Actions secrets**: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`.
 
-```text
-artists
-albums
-tracks
-track_artists
-artist_genres
-```
+## Importing your full history
 
-The main uniqueness rule for events is:
-
-```text
-(user_id, source_event_key)
-```
-
-That lets two users listen to the same track at the same time without colliding.
-
-### Access model
-
-```text
-anon:
-  can read public profile views where profiles.is_public = true
-  cannot read archived legacy user_id = null rows
-  cannot write
-
-authenticated user:
-  can read their own private profile, rollups, overview, activity, sync state, and events
-  can update their profile visibility and Spotify sync toggle
-  cannot directly insert/update/delete listening_events
-
-Edge Functions/service key:
-  owns invite validation, Spotify token exchange, scheduled sync, event inserts, and rollup refreshes
-```
-
-The old single-user public rows remain in the database with `user_id = null`, but they are archived with `archived_at` and hidden from the public read path. They are recoverable, not physically deleted.
-
-## Local Import
-
-Extended Streaming History backfills use Python for local exploration/cleaning and the TypeScript importer for the database write. See [docs/extended-history-backfill-plan.md](docs/extended-history-backfill-plan.md) for the full flow.
-
-Keep private Spotify export data in gitignored paths such as `my_spotify_data.zip`, an extracted `Spotify Extended Streaming History/` folder, or `analysis/`.
-
-Explore the export with Marimo:
+Spotify's [Extended Streaming History export](https://www.spotify.com/account/privacy/) (takes up to 30 days to arrive) gets you play-by-play data going back to your first ever listen. The flow is: explore the export in a Marimo notebook, clean it with Polars, then import it with the TypeScript CLI:
 
 ```bash
-uv run marimo edit notebooks/spotify_extended_history_explore.py
-```
-
-Choose a cutoff before importing so export rows do not double-count recently-played API rows:
-
-```sql
-select min(played_at)
-from listening_events
-where user_id = '<auth-user-uuid>'
-  and source = 2;
-```
-
-Clean the export into JSON arrays:
-
-```bash
-uv run python -m backfill.clean \
-  --input my_spotify_data.zip \
-  --out analysis/out \
-  --cutoff-iso '<timestamp>'
-```
-
-Then import the cleaned files:
-
-```bash
-pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
-```
-
-The `--user-id` value is the Supabase Auth user ID for the profile that should receive the imported events. The importer refreshes that user's rollups, recent activity, and `overview_cache` row.
-
-The importer requires `--user-id`; the legacy null-user import path has been removed from this script.
-
-The local importer reads `.env.local`:
-
-```text
-SUPABASE_URL=
-SUPABASE_SECRET_KEY=
-```
-
-The cleaner reads only `Streaming_History_Audio_*.json`, ignores video history, drops rows without `spotify_track_uri`, preserves the source-event hash fields verbatim, and excludes `ip_addr` / `conn_country` from cleaned output. Re-run the import once after the first import; it should be a no-op because events upsert on `(user_id, source_event_key)`.
-
-## Spotify OAuth
-
-Current user connections go through Supabase Edge Functions. Register this Spotify redirect URI:
-
-```text
-https://<project-ref>.supabase.co/functions/v1/spotify-callback
-```
-
-Then users connect Spotify from `/app/`. The refresh token is encrypted inside the Edge Function before it is stored in `spotify_connections`.
-
-The old single-user local auth helper still exists for legacy/manual sync experiments:
-
-```text
-http://127.0.0.1:5179/callback
-```
-
-Set `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` locally, then run:
-
-```bash
-pnpm spotify:auth
-```
-
-Store the printed refresh token as `SPOTIFY_REFRESH_TOKEN` only if you keep using the legacy single-user scripts.
-
-## GitHub Workflows
-
-- `deploy.yml`: builds and deploys the static site to GitHub Pages on `main` pushes.
-- `enrich-metadata.yml`: manual-only metadata enrichment (artist images/genres + backfill for imported history). Spotify removed the batch catalog endpoints (`/v1/{artists,albums,tracks}?ids=`) in Feb 2026, so the fetchers in `scripts/lib/spotify.ts` call the single-item endpoints (`/v1/artists/{id}`, …) one id at a time.
-
-The recently-played sync no longer runs from GitHub Actions: a Supabase Cron job (`pg_cron` + `pg_net`, see `supabase/migrations/*_schedule_sync_due_users_cron.sql`) calls the `sync-due-users` Edge Function every 15 minutes.
-
-## Commands
-
-```bash
-pnpm build
-pnpm check
-pnpm test
-pnpm typecheck
-uv run pytest
+uv sync
 uv run marimo edit notebooks/spotify_extended_history_explore.py
 uv run python -m backfill.clean --input my_spotify_data.zip --out analysis/out --cutoff-iso '<timestamp>'
-pnpm invite friend@example.com --site-url=https://kartikey-vyas.github.io/spotify-tracker/app/
 pnpm import:spotify-export --user-id=<auth-user-uuid> analysis/out/cleaned_*.json
-pnpm db:size
 ```
 
-Additional manual commands still present in `package.json`:
+The full walkthrough — including how to pick the cutoff timestamp so export rows don't double-count synced rows — is in [docs/extended-history-backfill-plan.md](docs/extended-history-backfill-plan.md). Keep raw exports in gitignored paths (`my_spotify_data.zip`, `Spotify Extended Streaming History/`, `analysis/`); they contain PII.
+
+After a large import, run `pnpm enrich:metadata` (or the long-running `pnpm enrich:backfill`) to fill in artist images and genres.
+
+## Everyday commands
 
 ```bash
-pnpm spotify:auth
-pnpm sync:recently-played
-pnpm enrich:metadata
+pnpm dev          # local dev server
+pnpm build        # static production build
+pnpm check        # svelte-check (app)
+pnpm typecheck    # tsc (scripts/)
+pnpm test         # vitest
+uv run pytest     # python backfill tests
+pnpm db:size      # check database size
 ```
 
-Do not use `spotify:auth` or `sync:recently-played` for the current public homepage. The current sync path is `sync-due-users`. `enrich:metadata` remains useful after large imports to backfill Spotify metadata.
+## More docs
 
-## Data Semantics
-
-- `exact`: imported from Spotify Extended Streaming History with `ms_played`
-- `api_unknown_duration`: imported from recently-played API without duration
-- `inferred`: reserved for optional future player polling
-
-Minute totals use exact and inferred durations. API-only plays are counted as plays and shown as unknown duration.
-
-Dates are bucketed in `Australia/Melbourne`; weeks start Monday.
-
-## Security
-
-Authenticated users can read their own user-scoped rollups, overview cache, sync state, and raw listening events. They cannot directly insert/update listening events. Anon users can read public profile views where `profiles.is_public = true`; no anon writes are granted. Archived `user_id = null` rows are hidden from anon access. Spotify refresh tokens are only handled by Edge Functions and are encrypted before storage.
+- [docs/architecture.md](docs/architecture.md) — data model, access rules, sync internals, security model
+- [docs/local-development.md](docs/local-development.md) — full local Supabase stack, auth testing, Mailpit
+- [docs/extended-history-backfill-plan.md](docs/extended-history-backfill-plan.md) — extended history import walkthrough
+- [AGENTS.md](AGENTS.md) — instructions for coding agents working in this repo
