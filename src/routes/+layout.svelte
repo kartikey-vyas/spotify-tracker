@@ -53,6 +53,16 @@
     };
   });
 
+  function positionThemeMenu(): void {
+    if (!themeMenu?.open) return;
+    const options = themeMenu.querySelector<HTMLElement>('.theme-options');
+    if (!options) return;
+    options.style.setProperty('--theme-menu-shift', '0px');
+    const margin = 8;
+    const overflow = margin - options.getBoundingClientRect().left;
+    if (overflow > 0) options.style.setProperty('--theme-menu-shift', `${overflow}px`);
+  }
+
   function selectTheme(nextTheme: Theme): void {
     theme = nextTheme;
     applyTheme(theme);
@@ -93,7 +103,7 @@
         {/if}
 
         <span class="nav-separator">/</span>
-        <details bind:this={themeMenu} class="theme-menu">
+        <details bind:this={themeMenu} class="theme-menu" on:toggle={positionThemeMenu}>
           <summary>theme</summary>
           <div class="theme-options" role="radiogroup" aria-label="Color theme">
             {#each themes as option}

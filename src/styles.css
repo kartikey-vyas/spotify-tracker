@@ -250,6 +250,9 @@ input[type='checkbox'] {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
+  /* set on open when a right-aligned menu would poke past the viewport's left
+     edge (narrow screens where the nav wraps and "theme" sits far left) */
+  transform: translateX(var(--theme-menu-shift, 0px));
   z-index: 10;
   display: grid;
   min-width: 112px;
