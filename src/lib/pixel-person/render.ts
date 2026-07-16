@@ -119,9 +119,13 @@ export function renderPixelWorld(
   }
   drawPlacedRecords(context, placedRecords, now);
   for (const person of people) {
+    // While seated the record leans beside the listener, painted first so the
+    // person always sits in front of it; in hand it paints over the sprite.
+    const listening = person.activity === 'listen';
+    if (listening) drawCarriedRecord(context, person, now);
     drawPerson(context, person, now);
-    drawCarriedRecord(context, person, now);
-    if (person.activity === 'listen') drawListeningNotes(context, person, now);
+    if (!listening) drawCarriedRecord(context, person, now);
+    if (listening) drawListeningNotes(context, person, now);
     const occluder = hidingOccluder(person, geometry);
     if (occluder) clearOccludedPixels(context, person, occluder);
     if (debug && person.drag) drawDangleDebug(context, person);
@@ -210,16 +214,19 @@ function drawCarriedRecord(
   const size = RECORD_PIXELS * RECORD_SCALE;
   // Drawn outside the facing-flip transform so the album art never mirrors;
   // held in front of the body with a slight hand overlap and a walk bob.
-  // While listening it rests on the sitter's lap instead.
+  // While listening it rests on the ground, leaning against the sitter's
+  // side (and is painted behind them by the render order above).
   const listening = person.activity === 'listen';
   const bob = listening ? 0 : carriedRecordBob(person, now);
   const x = listening
-    ? person.body.x + person.body.width / 2 - size / 2 + person.facing * 3
+    ? person.facing === 1
+      ? person.body.x + person.body.width - 6
+      : person.body.x - size + 6
     : person.facing === 1
       ? person.body.x + person.body.width - 4
       : person.body.x - size + 4;
   const y = listening
-    ? person.body.y + person.body.height - size - 2
+    ? person.body.y + person.body.height - size
     : person.body.y + person.body.height - size - 4 + bob;
   context.drawImage(
     art.sprite,
