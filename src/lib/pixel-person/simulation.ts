@@ -62,8 +62,12 @@ const RECORD_ERRAND = {
   maxTravelDistance: 420,
   travelTimeoutMs: 12_000,
   stoopMs: 550,
-  carryMinMs: 20_000,
-  carryJitterMs: 40_000,
+  carryMinMs: 5_000,
+  carryJitterMs: 10_000,
+  deliverTimeoutMs: 20_000,
+  returnDelayMs: 6_000,
+  returnJitterMs: 8_000,
+  wallExitMargin: 24,
   arrivalSlackX: 5,
   arrivalSlackY: 46,
   driftChance: 0.35
@@ -124,6 +128,8 @@ interface CarriedRecord {
   sourceId: string;
   imageUrl: string;
   putDownAt: number;
+  /** Where to march while still inside the record wall; set-down waits until outside. */
+  deliverGoalX: number;
 }
 
 export interface PixelPersonRuntime {
@@ -141,6 +147,7 @@ export interface PixelPersonRuntime {
   lastClimbAt: number;
   nextHideAt: number;
   nextRecordAt: number;
+  lastRecordSourceId: string | null;
   climb: ClimbMotion | null;
   mantle: MantleMotion | null;
   hide: HideMotion | null;
@@ -175,6 +182,7 @@ export function createPixelPerson(
     lastClimbAt: now - 12_000,
     nextHideAt: now + 7_000,
     nextRecordAt: now + RECORD_ERRAND.firstDelayMs,
+    lastRecordSourceId: null,
     climb: null,
     mantle: null,
     hide: null,
@@ -220,7 +228,7 @@ export function stepPixelPerson(
     return person;
   }
   if (person.activity === 'record-stoop') {
-    updateRecordStoop(person, now, events);
+    updateRecordStoop(person, geometry, now, events);
     return person;
   }
   if (person.crawling) {
@@ -236,8 +244,13 @@ export function stepPixelPerson(
     now >= person.carrying.putDownAt &&
     (person.activity === 'idle' || person.activity === 'wander')
   ) {
-    beginRecordStoop(person, 'place', now);
-    return person;
+    // Records get delivered away from the wall they came from; only give up
+    // and drop in place if leaving has taken implausibly long.
+    const stillInWall = isInsideRecordWall(person, geometry);
+    if (!stillInWall || now >= person.carrying.putDownAt + RECORD_ERRAND.deliverTimeoutMs) {
+      beginRecordStoop(person, 'place', now);
+      return person;
+    }
   }
 
   if (person.activity === 'seek-record' && person.recordErrand) {
@@ -604,6 +617,21 @@ function chooseNextActivity(
 ): void {
   cancelSpecialMovement(person);
 
+  // While carrying inside the record wall, the goal is explicit: march toward
+  // the delivery spot instead of dawdling among the shelves.
+  if (person.carrying && isInsideRecordWall(person, geometry)) {
+    const viewport = geometry.viewportBounds;
+    person.goalX = clamp(
+      person.carrying.deliverGoalX,
+      viewport.x + 12,
+      viewport.x + viewport.width - person.body.width - 12
+    );
+    person.facing = person.goalX >= person.body.x ? 1 : -1;
+    person.activity = 'wander';
+    person.activityUntil = now + 4_000;
+    return;
+  }
+
   // Record errands come before climb planning: cover tiles are solid supports,
   // so the climb branch would otherwise always win while standing on the wall.
   let wanderBiasX: number | null = null;
@@ -766,7 +794,60 @@ function chooseRecordSource(
     );
   if (candidates.length === 0) return null;
   const pool = candidates.slice(0, 4);
-  return pool[Math.floor(Math.random() * pool.length)];
+  // Come back for a different record than the last one, when there's a choice.
+  const fresh = pool.filter((source) => source.id !== person.lastRecordSourceId);
+  const options = fresh.length > 0 ? fresh : pool;
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+/** Bounding box of all record sources — the "record wall" as one region. */
+function recordWallBounds(geometry: WorldGeometry): Rect | null {
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  let found = false;
+  for (const source of geometry.itemSources) {
+    if (source.kind !== 'record') continue;
+    found = true;
+    left = Math.min(left, source.x);
+    top = Math.min(top, source.y);
+    right = Math.max(right, source.x + source.width);
+    bottom = Math.max(bottom, source.y + source.height);
+  }
+  return found ? { x: left, y: top, width: right - left, height: bottom - top } : null;
+}
+
+function isInsideRecordWall(person: PixelPersonRuntime, geometry: WorldGeometry): boolean {
+  const wall = recordWallBounds(geometry);
+  return wall !== null && intersects(person.body, expandedRect(wall, RECORD_ERRAND.wallExitMargin));
+}
+
+/**
+ * Picks a random-ish delivery x outside the record wall, preferring whichever
+ * side of the viewport has room. When the wall spans the full width, aim past
+ * the nearer edge — walking off the shelf ends drops the carrier out of the
+ * wall's bounds from below, which also counts as delivered.
+ */
+function chooseDeliveryGoalX(person: PixelPersonRuntime, geometry: WorldGeometry): number {
+  const viewport = geometry.viewportBounds;
+  const minX = viewport.x + 12;
+  const maxX = viewport.x + viewport.width - person.body.width - 12;
+  const wall = recordWallBounds(geometry);
+  if (!wall) {
+    const direction = Math.random() < 0.5 ? -1 : 1;
+    return clamp(person.body.x + direction * (150 + Math.random() * 200), minX, maxX);
+  }
+  const margin = RECORD_ERRAND.wallExitMargin;
+  const leftZone = { from: minX, to: wall.x - margin - person.body.width };
+  const rightZone = { from: wall.x + wall.width + margin, to: maxX };
+  const zones = [leftZone, rightZone].filter((zone) => zone.to - zone.from >= 40);
+  if (zones.length === 0) {
+    // No horizontal room beside the wall: overshoot toward the nearer edge.
+    return person.body.x - viewport.x < viewport.width / 2 ? minX : maxX;
+  }
+  const zone = zones[Math.floor(Math.random() * zones.length)];
+  return zone.from + Math.random() * (zone.to - zone.from);
 }
 
 function nearestRecordSourceX(
@@ -800,6 +881,7 @@ function beginRecordStoop(
 
 function updateRecordStoop(
   person: PixelPersonRuntime,
+  geometry: WorldGeometry,
   now: number,
   events?: PixelWorldEvent[]
 ): void {
@@ -812,11 +894,16 @@ function updateRecordStoop(
     person.carrying = {
       sourceId: person.recordErrand.sourceId,
       imageUrl: person.recordErrand.imageUrl,
-      putDownAt: now + RECORD_ERRAND.carryMinMs + Math.random() * RECORD_ERRAND.carryJitterMs
+      putDownAt: now + RECORD_ERRAND.carryMinMs + Math.random() * RECORD_ERRAND.carryJitterMs,
+      deliverGoalX: chooseDeliveryGoalX(person, geometry)
     };
+    person.lastRecordSourceId = person.recordErrand.sourceId;
   } else if (action === 'place' && person.carrying) {
     events?.push({ type: 'record-dropped', personId: person.id, record: dropPayload(person) });
     person.carrying = null;
+    // Head back for another record soon — the browse-deliver loop.
+    person.nextRecordAt =
+      now + RECORD_ERRAND.returnDelayMs + Math.random() * RECORD_ERRAND.returnJitterMs;
   }
   person.recordErrand = null;
   person.activity = 'idle';

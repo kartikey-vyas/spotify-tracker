@@ -189,8 +189,10 @@ describe('pixel person record errands', () => {
 
     stepPixelPerson(person, world, spatial, [], 0.05, 700);
     expect(person.carrying?.sourceId).toBe('tile-1');
-    expect(person.carrying!.putDownAt - 700).toBeGreaterThanOrEqual(20_000);
-    expect(person.carrying!.putDownAt - 700).toBeLessThanOrEqual(60_000);
+    expect(person.carrying!.putDownAt - 700).toBeGreaterThanOrEqual(5_000);
+    expect(person.carrying!.putDownAt - 700).toBeLessThanOrEqual(15_000);
+    expect(Number.isFinite(person.carrying!.deliverGoalX)).toBe(true);
+    expect(person.lastRecordSourceId).toBe('tile-1');
     expect(person.recordErrand).toBeNull();
     expect(person.activity).toBe('idle');
   });
@@ -215,13 +217,20 @@ describe('pixel person record errands', () => {
     const person = createPixelPerson(tinyPerson, body(), 0);
     person.activity = 'idle';
     person.activityUntil = 10_000;
-    person.carrying = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl, putDownAt: 0 };
+    person.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: recordSource().imageUrl,
+      putDownAt: 0,
+      deliverGoalX: 400
+    };
 
     stepPixelPerson(person, world, spatial, [], 0.05, 100, events);
     expect(person.activity).toBe('record-stoop');
 
     stepPixelPerson(person, world, spatial, [], 0.05, 800, events);
     expect(person.carrying).toBeNull();
+    expect(person.nextRecordAt - 800).toBeGreaterThanOrEqual(6_000);
+    expect(person.nextRecordAt - 800).toBeLessThanOrEqual(14_000);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: 'record-dropped',
@@ -238,12 +247,71 @@ describe('pixel person record errands', () => {
     const person = createPixelPerson(tinyPerson, body(), 0);
     person.activity = 'idle';
     person.activityUntil = 10_000;
-    person.carrying = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl, putDownAt: 0 };
+    person.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: recordSource().imageUrl,
+      putDownAt: 0,
+      deliverGoalX: 400
+    };
 
     stepPixelPerson(person, world, spatial, [], 0.05, 100);
     stepPixelPerson(person, world, spatial, [], 0.05, 800);
 
     expect(person.carrying).toBeNull();
+  });
+
+  it('will not set a record down inside the wall; it marches toward the delivery goal', () => {
+    const world = geometry();
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(tinyPerson, body({ x: 120 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 99_000;
+    person.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: recordSource().imageUrl,
+      putDownAt: 0,
+      deliverGoalX: 460
+    };
+
+    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+
+    expect(person.activity).toBe('wander');
+    expect(person.carrying).not.toBeNull();
+    expect(person.goalX).toBe(460);
+    expect(person.facing).toBe(1);
+  });
+
+  it('gives up and drops in place when leaving the wall takes too long', () => {
+    const world = geometry();
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(tinyPerson, body({ x: 120 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 99_000;
+    person.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: recordSource().imageUrl,
+      putDownAt: -25_000,
+      deliverGoalX: 460
+    };
+
+    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+
+    expect(person.activity).toBe('record-stoop');
+  });
+
+  it('goes back for a different record than the last one carried', () => {
+    const world = geometry({
+      itemSources: [recordSource(), recordSource({ id: 'tile-2', x: 210 })]
+    });
+    const person = createPixelPerson(tinyPerson, body(), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+    person.lastRecordSourceId = 'tile-1';
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.activity).toBe('seek-record');
+    expect(person.recordErrand?.sourceId).toBe('tile-2');
   });
 
   it('never hides while carrying a record', () => {
@@ -254,7 +322,12 @@ describe('pixel person record errands', () => {
     const carrier = createPixelPerson(tinyPerson, body(), 0);
     carrier.activityUntil = 0;
     carrier.nextHideAt = 0;
-    carrier.carrying = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl, putDownAt: 99_000 };
+    carrier.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: recordSource().imageUrl,
+      putDownAt: 99_000,
+      deliverGoalX: 400
+    };
     stepPixelPerson(carrier, world, spatial, [], 0.05, 50);
     expect(carrier.activity).not.toBe('seek-hide');
 
@@ -267,7 +340,12 @@ describe('pixel person record errands', () => {
 
   it('drops the carried record in place when grabbed', () => {
     const person = createPixelPerson(tinyPerson, body(), 0);
-    person.carrying = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl, putDownAt: 99_000 };
+    person.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: recordSource().imageUrl,
+      putDownAt: 99_000,
+      deliverGoalX: 400
+    };
     person.recordErrand = { sourceId: 'tile-2', imageUrl: recordSource().imageUrl };
 
     const dropped = dropCarriedRecord(person);
