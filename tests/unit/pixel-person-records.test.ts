@@ -210,13 +210,13 @@ describe('pixel person record errands', () => {
     expect(person.activity).not.toBe('seek-record');
   });
 
-  it('sets the record down after the carry timer and reports where it fell', () => {
+  it('sits down to listen after delivering, then sets the record down where it fell', () => {
     const world = geometry();
     const spatial = new SpatialHash(world.colliders);
     const events: PixelWorldEvent[] = [];
     const person = createPixelPerson(tinyPerson, body(), 0);
     person.activity = 'idle';
-    person.activityUntil = 10_000;
+    person.activityUntil = 99_000;
     person.carrying = {
       sourceId: 'tile-1',
       imageUrl: recordSource().imageUrl,
@@ -225,12 +225,26 @@ describe('pixel person record errands', () => {
     };
 
     stepPixelPerson(person, world, spatial, [], 0.05, 100, events);
+    expect(person.activity).toBe('listen');
+    expect(person.animation).toBe('listen');
+    expect(person.body.vx).toBe(0);
+    expect(person.listen!.until - 100).toBeGreaterThanOrEqual(8_000);
+    expect(person.listen!.until - 100).toBeLessThanOrEqual(16_000);
+    expect(person.carrying).not.toBeNull();
+
+    // Still listening mid-session; nothing placed yet.
+    stepPixelPerson(person, world, spatial, [], 0.05, 4_000, events);
+    expect(person.activity).toBe('listen');
+    expect(events).toHaveLength(0);
+
+    // Session over -> stoop -> place.
+    stepPixelPerson(person, world, spatial, [], 0.05, 20_000, events);
     expect(person.activity).toBe('record-stoop');
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 800, events);
+    stepPixelPerson(person, world, spatial, [], 0.05, 20_700, events);
     expect(person.carrying).toBeNull();
-    expect(person.nextRecordAt - 800).toBeGreaterThanOrEqual(6_000);
-    expect(person.nextRecordAt - 800).toBeLessThanOrEqual(14_000);
+    expect(person.nextRecordAt - 20_700).toBeGreaterThanOrEqual(6_000);
+    expect(person.nextRecordAt - 20_700).toBeLessThanOrEqual(14_000);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: 'record-dropped',
@@ -241,12 +255,12 @@ describe('pixel person record errands', () => {
     });
   });
 
-  it('completes a set-down without an events array without throwing', () => {
+  it('completes the listen-and-place flow without an events array without throwing', () => {
     const world = geometry();
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(tinyPerson, body(), 0);
     person.activity = 'idle';
-    person.activityUntil = 10_000;
+    person.activityUntil = 99_000;
     person.carrying = {
       sourceId: 'tile-1',
       imageUrl: recordSource().imageUrl,
@@ -255,8 +269,28 @@ describe('pixel person record errands', () => {
     };
 
     stepPixelPerson(person, world, spatial, [], 0.05, 100);
-    stepPixelPerson(person, world, spatial, [], 0.05, 800);
+    stepPixelPerson(person, world, spatial, [], 0.05, 20_000);
+    stepPixelPerson(person, world, spatial, [], 0.05, 20_700);
 
+    expect(person.carrying).toBeNull();
+  });
+
+  it('a grab interrupts a listening session cleanly', () => {
+    const person = createPixelPerson(tinyPerson, body(), 0);
+    person.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: recordSource().imageUrl,
+      putDownAt: 0,
+      deliverGoalX: 400
+    };
+    person.activity = 'listen';
+    person.listen = { startedAt: 0, until: 99_000 };
+
+    dropCarriedRecord(person);
+    beginPixelPersonDrag(person, 7, { x: 20, y: 20 }, 10);
+
+    expect(person.activity).toBe('drag');
+    expect(person.listen).toBeNull();
     expect(person.carrying).toBeNull();
   });
 
@@ -281,7 +315,7 @@ describe('pixel person record errands', () => {
     expect(person.facing).toBe(1);
   });
 
-  it('gives up and drops in place when leaving the wall takes too long', () => {
+  it('gives up and settles in place to listen when leaving the wall takes too long', () => {
     const world = geometry();
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(tinyPerson, body({ x: 120 }), 0);
@@ -296,7 +330,7 @@ describe('pixel person record errands', () => {
 
     stepPixelPerson(person, world, spatial, [], 0.05, 50);
 
-    expect(person.activity).toBe('record-stoop');
+    expect(person.activity).toBe('listen');
   });
 
   it('goes back for a different record than the last one carried', () => {

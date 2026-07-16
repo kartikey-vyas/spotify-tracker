@@ -7,7 +7,8 @@ export type AnimationName =
   | 'climb'
   | 'mantle'
   | 'hide'
-  | 'dangle';
+  | 'dangle'
+  | 'listen';
 
 export type Facing = -1 | 1;
 

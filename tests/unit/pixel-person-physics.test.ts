@@ -51,6 +51,7 @@ describe('pixel person character registry', () => {
       'hide',
       'idle',
       'jump',
+      'listen',
       'mantle',
       'walk'
     ]);

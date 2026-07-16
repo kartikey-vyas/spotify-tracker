@@ -302,6 +302,46 @@ const dangleB = frame([
   '............'
 ]);
 
+// Sitting cross-legged with headphones on (the band and ear cups are outline
+// pixels over the hair), legs stretched out front; frame B nods the head.
+const listenA = frame([
+  '............',
+  '............',
+  '............',
+  '............',
+  '............',
+  '...oooooo...',
+  '..o.hhhh.o..',
+  '..ohooooho..',
+  '...hssss....',
+  '...otttto...',
+  '..otttttto..',
+  '..osttttso..',
+  '...oppppo...',
+  '...opppppo..',
+  '..oob..obbo.',
+  '............'
+]);
+
+const listenB = frame([
+  '............',
+  '............',
+  '............',
+  '............',
+  '............',
+  '............',
+  '...oooooo...',
+  '..o.hhhh.o..',
+  '..ohooooho..',
+  '...hssss....',
+  '..otttttto..',
+  '..osttttso..',
+  '...oppppo...',
+  '...opppppo..',
+  '..oob..obbo.',
+  '............'
+]);
+
 function animation(
   frames: SpriteFrame[],
   frameDurationMs: number,
@@ -319,7 +359,8 @@ const animations: Record<AnimationName, SpriteAnimation> = {
   climb: animation([climbA, climbB], 190),
   mantle: animation([mantleA, mantleB], 150, false),
   hide: animation([hideA, idleB], 520),
-  dangle: animation([dangleA, dangleB], 240)
+  dangle: animation([dangleA, dangleB], 240),
+  listen: animation([listenA, listenB], 480)
 };
 
 export const tinyPerson: CharacterDefinition = {

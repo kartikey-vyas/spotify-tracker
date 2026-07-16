@@ -76,7 +76,8 @@ function renderSignature(
         : `:${record.id}:${getRecordArt(record.imageUrl)?.status ?? ''}`;
   }
   for (const person of people) {
-    if (person.drag) {
+    // Dragging (pendulum) and listening (floating notes) animate continuously.
+    if (person.drag || person.activity === 'listen') {
       signature += `:${now}`;
       continue;
     }
@@ -120,9 +121,50 @@ export function renderPixelWorld(
   for (const person of people) {
     drawPerson(context, person, now);
     drawCarriedRecord(context, person, now);
+    if (person.activity === 'listen') drawListeningNotes(context, person, now);
     const occluder = hidingOccluder(person, geometry);
     if (occluder) clearOccludedPixels(context, person, occluder);
     if (debug && person.drag) drawDangleDebug(context, person);
+  }
+}
+
+// A tiny eighth note, drawn at the sprite scale (each cell is 2x2 px).
+const NOTE_GLYPH = ['..#.', '..##', '..#.', '..#.', '.##.', '###.'];
+const NOTE_INTERVAL_MS = 650;
+const NOTE_LIFE_MS = 1_900;
+
+function drawListeningNotes(
+  context: CanvasRenderingContext2D,
+  person: PixelPersonRuntime,
+  now: number
+): void {
+  if (!person.listen) return;
+  const elapsed = now - person.listen.startedAt;
+  const newest = Math.floor(elapsed / NOTE_INTERVAL_MS);
+  const oldest = Math.max(0, Math.ceil((elapsed - NOTE_LIFE_MS) / NOTE_INTERVAL_MS));
+  const headX = person.body.x + person.body.width / 2;
+  const headY = person.body.y + 6;
+  context.save();
+  context.fillStyle = themeOutline();
+  for (let index = oldest; index <= newest; index += 1) {
+    const age = elapsed - index * NOTE_INTERVAL_MS;
+    if (age < 0 || age >= NOTE_LIFE_MS) continue;
+    const progress = age / NOTE_LIFE_MS;
+    const side = index % 2 === 0 ? 1 : -1;
+    const x = headX + side * (7 + progress * 9) + Math.sin(age / 260 + index) * 2;
+    const y = headY - 6 - progress * 24;
+    context.globalAlpha = progress < 0.75 ? 1 : 1 - (progress - 0.75) / 0.25;
+    drawNoteGlyph(context, Math.round(x - window.scrollX), Math.round(y - window.scrollY));
+  }
+  context.restore();
+}
+
+function drawNoteGlyph(context: CanvasRenderingContext2D, x: number, y: number): void {
+  for (let row = 0; row < NOTE_GLYPH.length; row += 1) {
+    for (let column = 0; column < NOTE_GLYPH[row].length; column += 1) {
+      if (NOTE_GLYPH[row][column] !== '#') continue;
+      context.fillRect(x + column * 2, y + row * 2, 2, 2);
+    }
   }
 }
 
@@ -168,12 +210,17 @@ function drawCarriedRecord(
   const size = RECORD_PIXELS * RECORD_SCALE;
   // Drawn outside the facing-flip transform so the album art never mirrors;
   // held in front of the body with a slight hand overlap and a walk bob.
-  const bob = carriedRecordBob(person, now);
-  const x =
-    person.facing === 1
+  // While listening it rests on the sitter's lap instead.
+  const listening = person.activity === 'listen';
+  const bob = listening ? 0 : carriedRecordBob(person, now);
+  const x = listening
+    ? person.body.x + person.body.width / 2 - size / 2 + person.facing * 3
+    : person.facing === 1
       ? person.body.x + person.body.width - 4
       : person.body.x - size + 4;
-  const y = person.body.y + person.body.height - size - 4 + bob;
+  const y = listening
+    ? person.body.y + person.body.height - size - 2
+    : person.body.y + person.body.height - size - 4 + bob;
   context.drawImage(
     art.sprite,
     Math.round(x - window.scrollX),

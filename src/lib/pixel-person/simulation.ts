@@ -65,6 +65,8 @@ const RECORD_ERRAND = {
   carryMinMs: 5_000,
   carryJitterMs: 10_000,
   deliverTimeoutMs: 20_000,
+  listenMinMs: 8_000,
+  listenJitterMs: 8_000,
   returnDelayMs: 6_000,
   returnJitterMs: 8_000,
   wallExitMargin: 24,
@@ -80,6 +82,7 @@ type Activity =
   | 'hiding'
   | 'seek-record'
   | 'record-stoop'
+  | 'listen'
   | 'climb'
   | 'mantle'
   | 'drag';
@@ -124,6 +127,11 @@ interface RecordStoop {
   startedAt: number;
 }
 
+interface ListenSession {
+  startedAt: number;
+  until: number;
+}
+
 interface CarriedRecord {
   sourceId: string;
   imageUrl: string;
@@ -155,6 +163,7 @@ export interface PixelPersonRuntime {
   plannedClimb: PlannedClimb | null;
   recordErrand: RecordErrand | null;
   recordStoop: RecordStoop | null;
+  listen: ListenSession | null;
   carrying: CarriedRecord | null;
   drag: DangleState | null;
   crawling: boolean;
@@ -190,6 +199,7 @@ export function createPixelPerson(
     plannedClimb: null,
     recordErrand: null,
     recordStoop: null,
+    listen: null,
     carrying: null,
     drag: null,
     crawling: false,
@@ -231,6 +241,10 @@ export function stepPixelPerson(
     updateRecordStoop(person, geometry, now, events);
     return person;
   }
+  if (person.activity === 'listen') {
+    updateListening(person, now);
+    return person;
+  }
   if (person.crawling) {
     updateCrawl(person, geometry, spatial, dt, now);
     return person;
@@ -245,10 +259,11 @@ export function stepPixelPerson(
     (person.activity === 'idle' || person.activity === 'wander')
   ) {
     // Records get delivered away from the wall they came from; only give up
-    // and drop in place if leaving has taken implausibly long.
+    // and settle in place if leaving has taken implausibly long. Either way,
+    // the record gets listened to before it's set down.
     const stillInWall = isInsideRecordWall(person, geometry);
     if (!stillInWall || now >= person.carrying.putDownAt + RECORD_ERRAND.deliverTimeoutMs) {
-      beginRecordStoop(person, 'place', now);
+      beginListening(person, now);
       return person;
     }
   }
@@ -867,6 +882,30 @@ function nearestRecordSourceX(
   return best ? best.x + best.width / 2 : null;
 }
 
+function beginListening(person: PixelPersonRuntime, now: number): void {
+  person.listen = {
+    startedAt: now,
+    until: now + RECORD_ERRAND.listenMinMs + Math.random() * RECORD_ERRAND.listenJitterMs
+  };
+  person.activity = 'listen';
+  person.body.vx = 0;
+  person.body.vy = 0;
+  setAnimation(person, 'listen', now);
+}
+
+function updateListening(person: PixelPersonRuntime, now: number): void {
+  if (!person.listen || !person.carrying) {
+    person.listen = null;
+    person.activity = 'idle';
+    person.activityUntil = now;
+    setAnimation(person, 'idle', now);
+    return;
+  }
+  if (now < person.listen.until) return;
+  person.listen = null;
+  beginRecordStoop(person, 'place', now);
+}
+
 function beginRecordStoop(
   person: PixelPersonRuntime,
   action: RecordStoop['action'],
@@ -1381,6 +1420,7 @@ function cancelSpecialMovement(person: PixelPersonRuntime): void {
   person.plannedClimb = null;
   person.recordErrand = null;
   person.recordStoop = null;
+  person.listen = null;
   // person.carrying is deliberately kept: records survive activity changes.
   person.drag = null;
 }
