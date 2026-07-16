@@ -45,6 +45,15 @@ const CRAWL_HEIGHT = 12;
 export const STUCK_RECOVERY_MS = 1_400;
 /** A crawl that hasn't found a stand-up spot by then flags itself as stuck. */
 const CRAWL_BAILOUT_MS = 12_000;
+// Pocket detection: someone pacing a span this narrow for this long (e.g.
+// wedged between a tall panel edge and the viewport boundary, where nothing
+// is climbable) is confined and hands themselves to stuck recovery.
+const CONFINED_SPAN = 70;
+const CONFINED_BAILOUT_MS = 15_000;
+const CONFINED_TRACKING_GAP_MS = 400;
+/** Keep chosen goals this far from the viewport edges — corners are traps. */
+const EDGE_COMFORT = 36;
+const DELIVERY_EDGE_COMFORT = 48;
 const CRAWL_PHYSICS_CONFIG: PhysicsConfig = {
   ...defaultPhysicsConfig,
   walkSpeed: 24,
@@ -72,7 +81,8 @@ const RECORD_ERRAND = {
   wallExitMargin: 24,
   arrivalSlackX: 5,
   arrivalSlackY: 46,
-  driftChance: 0.35
+  driftChance: 0.35,
+  recentMemory: 6
 } as const;
 
 type Activity =
@@ -155,7 +165,8 @@ export interface PixelPersonRuntime {
   lastClimbAt: number;
   nextHideAt: number;
   nextRecordAt: number;
-  lastRecordSourceId: string | null;
+  /** Recently carried albums (newest last); avoided when choosing the next errand. */
+  recentRecordSourceIds: string[];
   climb: ClimbMotion | null;
   mantle: MantleMotion | null;
   hide: HideMotion | null;
@@ -168,6 +179,10 @@ export interface PixelPersonRuntime {
   drag: DangleState | null;
   crawling: boolean;
   crawlingSince: number;
+  confinedSince: number;
+  confinedCheckedAt: number;
+  confinedMinX: number;
+  confinedMaxX: number;
 }
 
 export function createPixelPerson(
@@ -191,7 +206,7 @@ export function createPixelPerson(
     lastClimbAt: now - 12_000,
     nextHideAt: now + 7_000,
     nextRecordAt: now + RECORD_ERRAND.firstDelayMs,
-    lastRecordSourceId: null,
+    recentRecordSourceIds: [],
     climb: null,
     mantle: null,
     hide: null,
@@ -203,7 +218,11 @@ export function createPixelPerson(
     carrying: null,
     drag: null,
     crawling: false,
-    crawlingSince: 0
+    crawlingSince: 0,
+    confinedSince: now,
+    confinedCheckedAt: now,
+    confinedMinX: body.x,
+    confinedMaxX: body.x
   };
 }
 
@@ -373,10 +392,39 @@ export function stepPixelPerson(
     person.stuckForMs = 0;
   }
   person.previousX = person.body.x;
+  trackConfinement(person, now);
 
   if (moveX === 0 && person.activity !== 'idle') chooseNextActivity(person, geometry, now);
   setLocomotionAnimation(person, now);
   return person;
+}
+
+/**
+ * Detects terminal pockets (e.g. between a tall unclimbable panel edge and
+ * the viewport boundary): pacing a narrow x-span for a long stretch never
+ * trips the blocked-movement stuck counter, so it is handled here by handing
+ * the person to the same stuck-recovery respawn.
+ */
+function trackConfinement(person: PixelPersonRuntime, now: number): void {
+  // A gap means a special state (climb, listen, drag, ...) ran; start over so
+  // stationary activities never count as confinement.
+  if (now - person.confinedCheckedAt > CONFINED_TRACKING_GAP_MS) {
+    person.confinedSince = now;
+    person.confinedMinX = person.body.x;
+    person.confinedMaxX = person.body.x;
+  }
+  person.confinedCheckedAt = now;
+  person.confinedMinX = Math.min(person.confinedMinX, person.body.x);
+  person.confinedMaxX = Math.max(person.confinedMaxX, person.body.x);
+  if (person.confinedMaxX - person.confinedMinX > CONFINED_SPAN) {
+    person.confinedSince = now;
+    person.confinedMinX = person.body.x;
+    person.confinedMaxX = person.body.x;
+    return;
+  }
+  if (person.body.grounded && now - person.confinedSince > CONFINED_BAILOUT_MS) {
+    person.stuckForMs = STUCK_RECOVERY_MS;
+  }
 }
 
 export function beginPixelPersonDrag(
@@ -708,10 +756,10 @@ function chooseNextActivity(
   }
 
   const viewport = geometry.viewportBounds;
-  const minX = Math.max(geometry.scanBounds.x + 24, viewport.x + 12);
+  const minX = Math.max(geometry.scanBounds.x + 24, viewport.x + EDGE_COMFORT);
   const maxX = Math.min(
     geometry.scanBounds.x + geometry.scanBounds.width - person.body.width - 24,
-    viewport.x + viewport.width - person.body.width - 12
+    viewport.x + viewport.width - person.body.width - EDGE_COMFORT
   );
   const distance = 90 + Math.random() * 210;
   const drifting = wanderBiasX !== null && Math.random() < RECORD_ERRAND.driftChance;
@@ -808,11 +856,13 @@ function chooseRecordSource(
         horizontalDistance(person.body, left) - horizontalDistance(person.body, right)
     );
   if (candidates.length === 0) return null;
-  const pool = candidates.slice(0, 4);
-  // Come back for a different record than the last one, when there's a choice.
-  const fresh = pool.filter((source) => source.id !== person.lastRecordSourceId);
-  const options = fresh.length > 0 ? fresh : pool;
-  return options[Math.floor(Math.random() * options.length)];
+  // Prefer albums not carried recently — walking farther beats repeating —
+  // and only fall back to repeats when everything eligible is recent.
+  const fresh = candidates.filter(
+    (source) => !person.recentRecordSourceIds.includes(source.id)
+  );
+  const pool = (fresh.length > 0 ? fresh : candidates).slice(0, 4);
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /** Bounding box of all record sources — the "record wall" as one region. */
@@ -840,14 +890,15 @@ function isInsideRecordWall(person: PixelPersonRuntime, geometry: WorldGeometry)
 
 /**
  * Picks a random-ish delivery x outside the record wall, preferring whichever
- * side of the viewport has room. When the wall spans the full width, aim past
- * the nearer edge — walking off the shelf ends drops the carrier out of the
- * wall's bounds from below, which also counts as delivered.
+ * side of the viewport has room. When the wall spans the full width, aim just
+ * past a random wall end — walking off the shelf ends drops the carrier out
+ * of the wall's bounds from below. Goals always keep a comfortable distance
+ * from the viewport edges; corners are traps, not destinations.
  */
 function chooseDeliveryGoalX(person: PixelPersonRuntime, geometry: WorldGeometry): number {
   const viewport = geometry.viewportBounds;
-  const minX = viewport.x + 12;
-  const maxX = viewport.x + viewport.width - person.body.width - 12;
+  const minX = viewport.x + DELIVERY_EDGE_COMFORT;
+  const maxX = viewport.x + viewport.width - person.body.width - DELIVERY_EDGE_COMFORT;
   const wall = recordWallBounds(geometry);
   if (!wall) {
     const direction = Math.random() < 0.5 ? -1 : 1;
@@ -858,8 +909,13 @@ function chooseDeliveryGoalX(person: PixelPersonRuntime, geometry: WorldGeometry
   const rightZone = { from: wall.x + wall.width + margin, to: maxX };
   const zones = [leftZone, rightZone].filter((zone) => zone.to - zone.from >= 40);
   if (zones.length === 0) {
-    // No horizontal room beside the wall: overshoot toward the nearer edge.
-    return person.body.x - viewport.x < viewport.width / 2 ? minX : maxX;
+    // No horizontal room beside the wall: aim a modest overshoot past a
+    // random wall end instead of marching into the viewport corner.
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const overshoot = RECORD_ERRAND.wallExitMargin + Math.random() * 70;
+    const target =
+      side === -1 ? wall.x - overshoot - person.body.width : wall.x + wall.width + overshoot;
+    return clamp(target, minX, maxX);
   }
   const zone = zones[Math.floor(Math.random() * zones.length)];
   return zone.from + Math.random() * (zone.to - zone.from);
@@ -936,13 +992,30 @@ function updateRecordStoop(
       putDownAt: now + RECORD_ERRAND.carryMinMs + Math.random() * RECORD_ERRAND.carryJitterMs,
       deliverGoalX: chooseDeliveryGoalX(person, geometry)
     };
-    person.lastRecordSourceId = person.recordErrand.sourceId;
+    person.recentRecordSourceIds.push(person.recordErrand.sourceId);
+    if (person.recentRecordSourceIds.length > RECORD_ERRAND.recentMemory) {
+      person.recentRecordSourceIds.shift();
+    }
   } else if (action === 'place' && person.carrying) {
     events?.push({ type: 'record-dropped', personId: person.id, record: dropPayload(person) });
     person.carrying = null;
-    // Head back for another record soon — the browse-deliver loop.
+    // Head back for another record soon — the browse-deliver loop — but first
+    // stroll toward the middle so the drop spot doesn't become a campsite.
     person.nextRecordAt =
       now + RECORD_ERRAND.returnDelayMs + Math.random() * RECORD_ERRAND.returnJitterMs;
+    const viewport = geometry.viewportBounds;
+    const center = viewport.x + viewport.width / 2;
+    person.recordErrand = null;
+    person.goalX = clamp(
+      center + (Math.random() - 0.5) * viewport.width * 0.4,
+      viewport.x + EDGE_COMFORT,
+      viewport.x + viewport.width - person.body.width - EDGE_COMFORT
+    );
+    person.facing = person.goalX >= person.body.x ? 1 : -1;
+    person.activity = 'wander';
+    person.activityUntil = now + 5_000;
+    setAnimation(person, 'idle', now);
+    return;
   }
   person.recordErrand = null;
   person.activity = 'idle';
@@ -1381,8 +1454,8 @@ function hasSupportAhead(
 function reverse(person: PixelPersonRuntime, geometry: WorldGeometry, now: number): void {
   const viewport = geometry.viewportBounds;
   person.facing = person.facing === 1 ? -1 : 1;
-  const minimumX = viewport.x + 12;
-  const maximumX = viewport.x + viewport.width - person.body.width - 12;
+  const minimumX = viewport.x + EDGE_COMFORT;
+  const maximumX = viewport.x + viewport.width - person.body.width - EDGE_COMFORT;
   person.goalX = clamp(
     person.body.x + person.facing * (80 + Math.random() * 130),
     minimumX,

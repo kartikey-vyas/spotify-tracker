@@ -192,7 +192,7 @@ describe('pixel person record errands', () => {
     expect(person.carrying!.putDownAt - 700).toBeGreaterThanOrEqual(5_000);
     expect(person.carrying!.putDownAt - 700).toBeLessThanOrEqual(15_000);
     expect(Number.isFinite(person.carrying!.deliverGoalX)).toBe(true);
-    expect(person.lastRecordSourceId).toBe('tile-1');
+    expect(person.recentRecordSourceIds).toContain('tile-1');
     expect(person.recordErrand).toBeNull();
     expect(person.activity).toBe('idle');
   });
@@ -245,6 +245,10 @@ describe('pixel person record errands', () => {
     expect(person.carrying).toBeNull();
     expect(person.nextRecordAt - 20_700).toBeGreaterThanOrEqual(6_000);
     expect(person.nextRecordAt - 20_700).toBeLessThanOrEqual(14_000);
+    // After placing he strolls back toward the middle instead of camping.
+    expect(person.activity).toBe('wander');
+    expect(person.goalX).toBeGreaterThanOrEqual(150);
+    expect(person.goalX).toBeLessThanOrEqual(350);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: 'record-dropped',
@@ -333,19 +337,93 @@ describe('pixel person record errands', () => {
     expect(person.activity).toBe('listen');
   });
 
-  it('goes back for a different record than the last one carried', () => {
+  it('avoids albums fetched recently when there is a fresh alternative', () => {
     const world = geometry({
       itemSources: [recordSource(), recordSource({ id: 'tile-2', x: 210 })]
     });
     const person = createPixelPerson(tinyPerson, body(), 0);
     person.activityUntil = 0;
     person.nextRecordAt = 0;
-    person.lastRecordSourceId = 'tile-1';
+    person.recentRecordSourceIds = ['tile-1'];
 
     stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('tile-2');
+  });
+
+  it('falls back to a repeat when everything nearby is recent', () => {
+    const world = geometry();
+    const person = createPixelPerson(tinyPerson, body(), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+    person.recentRecordSourceIds = ['tile-1'];
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('tile-1');
+  });
+
+  it('caps the recent-album memory at its window size', () => {
+    const world = geometry();
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(tinyPerson, body({ x: 141 }), 0);
+    person.activity = 'seek-record';
+    person.activityUntil = 99_000;
+    person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
+    person.recentRecordSourceIds = ['a', 'b', 'c', 'd', 'e', 'f'];
+
+    stepPixelPerson(person, world, spatial, [], 0.05, 100);
+    stepPixelPerson(person, world, spatial, [], 0.05, 700);
+
+    expect(person.recentRecordSourceIds).toHaveLength(6);
+    expect(person.recentRecordSourceIds[0]).toBe('b');
+    expect(person.recentRecordSourceIds[5]).toBe('tile-1');
+  });
+
+  it('chooses delivery goals away from the viewport corners even for a full-width wall', () => {
+    const wide = recordSource({ id: 'wall', x: 0, width: 500 });
+    const world = geometry({ itemSources: [wide] });
+    const spatial = new SpatialHash(world.colliders);
+    for (let trial = 0; trial < 30; trial += 1) {
+      const person = createPixelPerson(tinyPerson, body({ x: 243 }), 0);
+      person.activity = 'seek-record';
+      person.activityUntil = 99_000;
+      person.recordErrand = { sourceId: 'wall', imageUrl: wide.imageUrl };
+
+      stepPixelPerson(person, world, spatial, [], 0.05, 100);
+      stepPixelPerson(person, world, spatial, [], 0.05, 700);
+
+      expect(person.carrying).not.toBeNull();
+      expect(person.carrying!.deliverGoalX).toBeGreaterThanOrEqual(48);
+      expect(person.carrying!.deliverGoalX).toBeLessThanOrEqual(500 - 14 - 48);
+    }
+  });
+
+  it('bails out of a terminal corner pocket via stuck recovery', () => {
+    const floor = collider({ id: 'pocket-floor', x: 0, y: 60, width: 60 });
+    const wallLeft = collider({ id: 'pocket-left', x: -4, y: -200, width: 4, height: 260 });
+    const wallRight = collider({ id: 'pocket-right', x: 60, y: -200, width: 4, height: 260 });
+    const world = geometry({ colliders: [floor, wallLeft, wallRight], itemSources: [] });
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(tinyPerson, body({ x: 20, supportId: floor.id }), 0);
+    person.activity = 'wander';
+    person.activityUntil = 4_000;
+    person.goalX = 300;
+    person.nextRecordAt = 999_000;
+    person.nextHideAt = 999_000;
+
+    let bailedAtMs: number | null = null;
+    for (let step = 1; step <= 500; step += 1) {
+      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      if (person.stuckForMs >= STUCK_RECOVERY_MS) {
+        bailedAtMs = step * 50;
+        break;
+      }
+    }
+
+    expect(bailedAtMs).not.toBeNull();
+    expect(bailedAtMs!).toBeLessThanOrEqual(20_000);
   });
 
   it('never hides while carrying a record', () => {
