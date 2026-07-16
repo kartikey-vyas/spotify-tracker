@@ -13,7 +13,10 @@ import type {
   WorldGeometry
 } from './types';
 
-export const PLACED_RECORD_FADE_MS = 2_400;
+/** Set-down records stay at full opacity for the hold, then fade out. */
+export const PLACED_RECORD_HOLD_MS = 120_000;
+export const PLACED_RECORD_FADE_MS = 4_000;
+export const PLACED_RECORD_LIFETIME_MS = PLACED_RECORD_HOLD_MS + PLACED_RECORD_FADE_MS;
 
 const spriteCache = new Map<string, HTMLCanvasElement>();
 let cachedTheme = '';
@@ -64,7 +67,14 @@ function renderSignature(
   let signature =
     `${canvas.width}:${canvas.height}:${window.scrollX}:${window.scrollY}` +
     `:${geometryRevision}:${document.documentElement.dataset.theme ?? ''}`;
-  if (debug || placedRecords.length > 0) signature += `:${now}`;
+  if (debug) signature += `:${now}`;
+  for (const record of placedRecords) {
+    // Held records are static; only an active fade needs per-frame redraws.
+    signature +=
+      now - record.placedAt > PLACED_RECORD_HOLD_MS
+        ? `:${now}`
+        : `:${record.id}:${getRecordArt(record.imageUrl)?.status ?? ''}`;
+  }
   for (const person of people) {
     if (person.drag) {
       signature += `:${now}`;
@@ -126,7 +136,11 @@ function drawPlacedRecords(
   for (const record of records) {
     const art = getRecordArt(record.imageUrl);
     if (art?.status !== 'ready' || !art.sprite) continue;
-    const progress = clamp((now - record.placedAt) / PLACED_RECORD_FADE_MS, 0, 1);
+    const progress = clamp(
+      (now - record.placedAt - PLACED_RECORD_HOLD_MS) / PLACED_RECORD_FADE_MS,
+      0,
+      1
+    );
     if (progress >= 1) continue;
     context.save();
     context.globalAlpha = 1 - progress * progress * (3 - 2 * progress);

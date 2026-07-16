@@ -249,11 +249,14 @@ export function stepPixelPerson(
     } else {
       // Re-aim every step so layout shifts re-route instead of stranding us.
       person.goalX = source.x + source.width / 2 - person.body.width / 2;
+      const feetY = person.body.y + person.body.height;
       const arrived =
         person.body.grounded &&
         Math.abs(person.body.x - person.goalX) <= RECORD_ERRAND.arrivalSlackX &&
-        Math.abs(person.body.y + person.body.height - source.y) <=
-          RECORD_ERRAND.arrivalSlackY;
+        // Feet anywhere along the source's vertical span (standing on the
+        // shelf under it, or on its top edge) counts as reaching the record.
+        feetY >= source.y - RECORD_ERRAND.arrivalSlackY &&
+        feetY <= source.y + source.height + RECORD_ERRAND.arrivalSlackY;
       if (arrived) {
         beginRecordStoop(person, 'pickup', now);
         return person;

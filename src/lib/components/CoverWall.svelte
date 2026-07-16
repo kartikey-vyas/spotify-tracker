@@ -62,16 +62,22 @@
   <ul class="cover-wall" bind:this={grid}>
     {#if loading}
       {#each Array(skeletonCount) as _, index (index)}
-        <li><span class="tile skeleton" aria-hidden="true"></span></li>
+        <li>
+          <span class="tile skeleton" aria-hidden="true"></span>
+          <span class="shelf" data-pixel-collision="platform"></span>
+        </li>
       {/each}
     {:else}
       {#each visible as item (item.id)}
-        <li>
+        <li
+          data-pixel-collision="occluder"
+          data-pixel-record={item.imageUrl && !failed[item.id] ? item.imageUrl : undefined}
+        >
           <svelte:element
             this={item.href ? 'a' : 'div'}
             class="tile"
             href={item.href ? `${base}${item.href}` : undefined}
-            data-pixel-record={item.imageUrl && !failed[item.id] ? item.imageUrl : undefined}
+            data-pixel-collision="ignore"
             use:tooltip={[captionText(item), item.value].filter(Boolean).join(' · ')}
           >
             {#if item.imageUrl && !failed[item.id]}
@@ -91,6 +97,7 @@
               {#if item.value}<span class="value">{item.value}</span>{/if}
             </span>
           </svelte:element>
+          <span class="shelf" data-pixel-collision="platform"></span>
         </li>
       {/each}
     {/if}
@@ -103,10 +110,25 @@
   .cover-wall {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 8px;
+    gap: 14px 8px;
     margin: 0;
-    padding: 0;
+    padding: 0 0 8px;
     list-style: none;
+  }
+
+  .cover-wall li {
+    position: relative;
+  }
+
+  /* Pixel shelf board each row of records stands on; the pixel people walk
+     along these (the boards are the wall's only collision surface). */
+  .shelf {
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    bottom: -7px;
+    height: 6px;
+    background: var(--line);
   }
 
   .tile {

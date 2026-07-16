@@ -18,7 +18,7 @@
   import { getRecordArt, requestRecordArt } from '$lib/pixel-person/record-art';
   import {
     isPointOnPixelPerson,
-    PLACED_RECORD_FADE_MS,
+    PLACED_RECORD_LIFETIME_MS,
     renderPixelWorld,
     sizeCanvas
   } from '$lib/pixel-person/render';
@@ -52,6 +52,7 @@
     viewportBounds: { x: 0, y: 0, width: 0, height: 0 }
   };
   const MAX_PIXEL_PEOPLE = 6;
+  const MAX_PLACED_RECORDS = 12;
 
   let canvas: HTMLCanvasElement;
   let mounted = false;
@@ -288,13 +289,14 @@
     }
     if (placedRecords.length > 0) {
       placedRecords = placedRecords.filter(
-        (record) => now - record.placedAt < PLACED_RECORD_FADE_MS
+        (record) => now - record.placedAt < PLACED_RECORD_LIFETIME_MS
       );
     }
   }
 
   function placeRecord(record: DroppedRecord | null, now: number): void {
     if (!record || getRecordArt(record.imageUrl)?.status !== 'ready') return;
+    if (placedRecords.length >= MAX_PLACED_RECORDS) placedRecords.shift();
     placedRecords.push({
       id: nextRecordEntityId++,
       imageUrl: record.imageUrl,
