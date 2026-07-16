@@ -217,6 +217,24 @@ input[type='checkbox'] {
   color: var(--muted);
 }
 
+.pixel-person-summon {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.pixel-person-summon:hover {
+  background: transparent;
+  color: var(--text);
+}
+
 .site-nav a,
 .theme-menu summary {
   min-height: 0;

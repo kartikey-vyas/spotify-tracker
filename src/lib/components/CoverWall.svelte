@@ -71,6 +71,7 @@
             this={item.href ? 'a' : 'div'}
             class="tile"
             href={item.href ? `${base}${item.href}` : undefined}
+            data-pixel-record={item.imageUrl && !failed[item.id] ? item.imageUrl : undefined}
             use:tooltip={[captionText(item), item.value].filter(Boolean).join(' · ')}
           >
             {#if item.imageUrl && !failed[item.id]}
@@ -84,7 +85,7 @@
             {:else}
               <span class="art placeholder" aria-hidden="true">♪</span>
             {/if}
-            <span class="overlay">
+            <span class="overlay" data-pixel-collision="ignore">
               <span class="title">{item.title}</span>
               {#if item.subtitle}<span class="subtitle">{item.subtitle}</span>{/if}
               {#if item.value}<span class="value">{item.value}</span>{/if}
