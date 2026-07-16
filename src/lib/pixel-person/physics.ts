@@ -48,7 +48,10 @@ export function hasBodyClearance(
   ignoredColliderId?: string
 ): boolean {
   return !colliders.some(
-    (collider) => collider.id !== ignoredColliderId && intersects(body, collider)
+    (collider) =>
+      collider.kind !== 'ladder' &&
+      collider.id !== ignoredColliderId &&
+      intersects(body, collider)
   );
 }
 
@@ -105,7 +108,7 @@ export function stepPhysics(
     const nextRight = nextX + body.width;
     let limit = nextX;
     for (const collider of colliders) {
-      if (!overlapsVertically(body, collider)) continue;
+      if (collider.kind === 'ladder' || !overlapsVertically(body, collider)) continue;
       if (startRight <= collider.x + EPSILON && nextRight >= collider.x) {
         const candidate = collider.x - body.width;
         if (candidate < limit) {
@@ -121,7 +124,7 @@ export function stepPhysics(
     const nextLeft = nextX;
     let limit = nextX;
     for (const collider of colliders) {
-      if (!overlapsVertically(body, collider)) continue;
+      if (collider.kind === 'ladder' || !overlapsVertically(body, collider)) continue;
       const colliderRight = collider.x + collider.width;
       if (startLeft >= colliderRight - EPSILON && nextLeft <= colliderRight) {
         const candidate = colliderRight;
@@ -147,7 +150,7 @@ export function stepPhysics(
     const nextBottom = nextY + body.height;
     let limit = nextY;
     for (const collider of colliders) {
-      if (!overlapsHorizontally(body, collider)) continue;
+      if (collider.kind === 'ladder' || !overlapsHorizontally(body, collider)) continue;
       if (startBottom <= collider.y + EPSILON && nextBottom >= collider.y) {
         const candidate = collider.y - body.height;
         const standingBody = { ...body, y: candidate };
@@ -169,7 +172,7 @@ export function stepPhysics(
     const nextTop = nextY;
     let limit = nextY;
     for (const collider of colliders) {
-      if (!overlapsHorizontally(body, collider)) continue;
+      if (collider.kind === 'ladder' || !overlapsHorizontally(body, collider)) continue;
       const colliderBottom = collider.y + collider.height;
       if (startTop >= colliderBottom - EPSILON && nextTop <= colliderBottom) {
         const candidate = colliderBottom;

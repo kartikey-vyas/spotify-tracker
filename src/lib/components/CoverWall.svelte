@@ -68,7 +68,7 @@
         </li>
       {/each}
     {:else}
-      {#each visible as item (item.id)}
+      {#each visible as item, index (item.id)}
         <li
           data-pixel-collision="occluder"
           data-pixel-record={item.imageUrl && !failed[item.id] ? item.imageUrl : undefined}
@@ -98,6 +98,9 @@
             </span>
           </svelte:element>
           <span class="shelf" data-pixel-collision="platform"></span>
+          {#if index % 3 === 1}
+            <span class="ladder" data-pixel-collision="ladder"></span>
+          {/if}
         </li>
       {/each}
     {/if}
@@ -129,6 +132,17 @@
     bottom: -7px;
     height: 6px;
     background: var(--line);
+  }
+
+  /* Invisible climbing zone in the column gap, spanning from this row's
+     shelf up to the shelf above; pixel people use these to climb the wall. */
+  .ladder {
+    position: absolute;
+    top: -13px;
+    bottom: -7px;
+    right: -6px;
+    width: 4px;
+    pointer-events: none;
   }
 
   .tile {

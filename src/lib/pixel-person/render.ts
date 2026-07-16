@@ -489,5 +489,6 @@ function debugColor(kind: Collider['kind']): string {
   if (kind === 'text') return 'rgba(75, 167, 200, 0.75)';
   if (kind === 'border' || kind === 'platform') return 'rgba(230, 195, 132, 0.8)';
   if (kind === 'solid') return 'rgba(228, 104, 118, 0.75)';
+  if (kind === 'ladder') return 'rgba(126, 217, 87, 0.6)';
   return 'rgba(220, 215, 186, 0.5)';
 }

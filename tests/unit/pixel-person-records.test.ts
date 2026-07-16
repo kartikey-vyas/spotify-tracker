@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { bridgeWalkableTops, findSafeSpawn } from '../../src/lib/pixel-person/geometry';
-import { SpatialHash } from '../../src/lib/pixel-person/physics';
+import { SpatialHash, stepPhysics } from '../../src/lib/pixel-person/physics';
 import { smallCoverVariant } from '../../src/lib/pixel-person/record-art';
 import {
   beginPixelPersonDrag,
@@ -301,7 +301,8 @@ describe('pixel person record errands', () => {
   it('will not set a record down inside the wall; it marches toward the delivery goal', () => {
     const world = geometry();
     const spatial = new SpatialHash(world.colliders);
-    const person = createPixelPerson(tinyPerson, body({ x: 120 }), 0);
+    // Body overlapping the wall's box, like standing on an interior shelf.
+    const person = createPixelPerson(tinyPerson, body({ x: 120, y: 70 }), 0);
     person.activityUntil = 0;
     person.nextRecordAt = 99_000;
     person.carrying = {
@@ -395,8 +396,8 @@ describe('pixel person record errands', () => {
       stepPixelPerson(person, world, spatial, [], 0.05, 700);
 
       expect(person.carrying).not.toBeNull();
-      expect(person.carrying!.deliverGoalX).toBeGreaterThanOrEqual(48);
-      expect(person.carrying!.deliverGoalX).toBeLessThanOrEqual(500 - 14 - 48);
+      expect(person.carrying!.deliverGoalX).toBeGreaterThanOrEqual(16);
+      expect(person.carrying!.deliverGoalX).toBeLessThanOrEqual(500 - 14 - 16);
     }
   });
 
@@ -550,6 +551,111 @@ describe('record discoverability', () => {
 
     const spawn = findSafeSpawn(world, tinyPerson, 0);
     expect(spawn.supportId).toBe('near-wall');
+  });
+});
+
+describe('invisible ladders', () => {
+  const lowerShelf = () => collider({ id: 'lower-shelf', x: 0, y: 160, width: 300 });
+  const upperShelf = () => collider({ id: 'upper-shelf', x: 0, y: 60, width: 300 });
+  const ladder = (): Collider => ({
+    id: 'ladder-1',
+    kind: 'ladder',
+    x: 148,
+    y: 60,
+    width: 4,
+    height: 100
+  });
+
+  it('never blocks horizontal movement', () => {
+    const floor = collider({ id: 'floor', x: 0, y: 60, width: 400 });
+    const rungs = { ...ladder(), x: 100, y: -40 };
+    const result = stepPhysics(
+      { x: 90, y: 30, width: 14, height: 30, vx: 42, vy: 0, grounded: true, supportId: 'floor' },
+      { moveX: 1, jump: false },
+      [floor, rungs],
+      1 / 20
+    );
+
+    expect(result.contacts.right).toBeNull();
+    expect(result.body.x).toBeGreaterThan(90);
+  });
+
+  it('climbs a planned ladder up to the shelf above', () => {
+    const world = geometry({
+      colliders: [lowerShelf(), upperShelf(), ladder()],
+      itemSources: []
+    });
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(
+      tinyPerson,
+      body({ x: 143, y: 130, supportId: 'lower-shelf' }),
+      0
+    );
+    person.activity = 'wander';
+    person.activityUntil = 99_000;
+    person.goalX = 143;
+    person.plannedLadder = { ladderId: 'ladder-1', goalX: 143 };
+    person.nextRecordAt = 999_000;
+    person.nextHideAt = 999_000;
+
+    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    expect(person.activity).toBe('climb');
+    expect(person.climb?.wall.id).toBe('ladder-1');
+
+    let step = 2;
+    while (
+      ((person.activity as string) === 'climb' || (person.activity as string) === 'mantle') &&
+      step < 200
+    ) {
+      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      step += 1;
+    }
+
+    expect(person.body.grounded).toBe(true);
+    expect(person.body.y + person.body.height).toBeCloseTo(60, 0);
+  });
+
+  it('refuses a ladder with nothing walkable at its top', () => {
+    const world = geometry({ colliders: [lowerShelf(), ladder()], itemSources: [] });
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(
+      tinyPerson,
+      body({ x: 143, y: 130, supportId: 'lower-shelf' }),
+      0
+    );
+    person.activity = 'wander';
+    person.activityUntil = 99_000;
+    person.goalX = 143;
+    person.plannedLadder = { ladderId: 'ladder-1', goalX: 143 };
+
+    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+
+    expect(person.activity).not.toBe('climb');
+    expect(person.plannedLadder).toBeNull();
+  });
+
+  it('plans ladder climbs from the ambient activity loop', () => {
+    const world = geometry({
+      colliders: [lowerShelf(), upperShelf(), ladder()],
+      itemSources: []
+    });
+    const spatial = new SpatialHash(world.colliders);
+
+    let planned = false;
+    for (let trial = 0; trial < 60 && !planned; trial += 1) {
+      const person = createPixelPerson(
+        tinyPerson,
+        body({ x: 40, y: 130, supportId: 'lower-shelf' }),
+        0
+      );
+      person.activityUntil = 0;
+      person.nextRecordAt = 999_000;
+      person.nextHideAt = 999_000;
+      stepPixelPerson(person, world, spatial, [], 0.001, 50);
+      if (person.plannedLadder?.ladderId === 'ladder-1') planned = true;
+    }
+
+    expect(planned).toBe(true);
   });
 });
 

@@ -22,7 +22,8 @@ export interface Rect extends Point {
   height: number;
 }
 
-export type ColliderKind = 'text' | 'border' | 'solid' | 'platform' | 'floor';
+/** 'ladder' colliders never block movement; they are climbable zones. */
+export type ColliderKind = 'text' | 'border' | 'solid' | 'platform' | 'floor' | 'ladder';
 
 export interface Collider extends Rect {
   id: string;

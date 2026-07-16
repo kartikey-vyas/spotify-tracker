@@ -328,7 +328,11 @@
       const outsideVisibleWorld = !intersects(person.body, visibleWorld);
       const embeddedInGeometry =
         person.activity !== 'hiding' &&
-        spatial.query(person.body).some((collider) => intersects(person.body, collider));
+        spatial
+          .query(person.body)
+          .some(
+            (collider) => collider.kind !== 'ladder' && intersects(person.body, collider)
+          );
       if (forceRespawn || outsideVisibleWorld || embeddedInGeometry) {
         placeRecord(dropCarriedRecord(person), now);
         return createPersonAtSafeSpawn(now, index);

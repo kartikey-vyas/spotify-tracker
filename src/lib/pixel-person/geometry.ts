@@ -93,6 +93,8 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
 
     if (isSolid) {
       colliders.push({ ...rect, id: `${groupId}:solid`, groupId, kind: 'solid' });
+    } else if (override === 'ladder') {
+      colliders.push({ ...rect, id: `${groupId}:ladder`, groupId, kind: 'ladder' });
     } else if (override === 'platform') {
       colliders.push({
         x: rect.x,

@@ -54,6 +54,17 @@ const CONFINED_TRACKING_GAP_MS = 400;
 /** Keep chosen goals this far from the viewport edges — corners are traps. */
 const EDGE_COMFORT = 36;
 const DELIVERY_EDGE_COMFORT = 48;
+
+// Invisible ladder zones (kind 'ladder'): never block movement, climbable on
+// purpose when one is rooted at the current walking level and something
+// walkable exists at its top to land on.
+const LADDER_CLIMB = {
+  cooldownMs: 9_000,
+  maxDistance: 240,
+  chance: 0.4,
+  arrivalSlackX: 5,
+  topSlack: 8
+} as const;
 const CRAWL_PHYSICS_CONFIG: PhysicsConfig = {
   ...defaultPhysicsConfig,
   walkSpeed: 24,
@@ -172,6 +183,7 @@ export interface PixelPersonRuntime {
   hide: HideMotion | null;
   hiddenOccluderId: string | null;
   plannedClimb: PlannedClimb | null;
+  plannedLadder: { ladderId: string; goalX: number } | null;
   recordErrand: RecordErrand | null;
   recordStoop: RecordStoop | null;
   listen: ListenSession | null;
@@ -212,6 +224,7 @@ export function createPixelPerson(
     hide: null,
     hiddenOccluderId: null,
     plannedClimb: null,
+    plannedLadder: null,
     recordErrand: null,
     recordStoop: null,
     listen: null,
@@ -277,11 +290,18 @@ export function stepPixelPerson(
     now >= person.carrying.putDownAt &&
     (person.activity === 'idle' || person.activity === 'wander')
   ) {
-    // Records get delivered away from the wall they came from; only give up
-    // and settle in place if leaving has taken implausibly long. Either way,
+    // Records get delivered away from the wall they came from; reaching the
+    // chosen delivery spot also counts (the comfort-clamped goal can sit at
+    // the wall's lip), and a give-up timer bounds the worst case. Either way,
     // the record gets listened to before it's set down.
     const stillInWall = isInsideRecordWall(person, geometry);
-    if (!stillInWall || now >= person.carrying.putDownAt + RECORD_ERRAND.deliverTimeoutMs) {
+    const reachedGoal =
+      Math.abs(person.body.x - person.carrying.deliverGoalX) <= 24;
+    if (
+      !stillInWall ||
+      reachedGoal ||
+      now >= person.carrying.putDownAt + RECORD_ERRAND.deliverTimeoutMs
+    ) {
       beginListening(person, now);
       return person;
     }
@@ -338,6 +358,21 @@ export function stepPixelPerson(
     person.plannedClimb = null;
     handleClimbDownTransition(person, plan.top, plan.wall, plan.side, geometry, now);
     return person;
+  }
+
+  if (
+    person.plannedLadder &&
+    person.body.grounded &&
+    Math.abs(person.body.x - person.plannedLadder.goalX) <= LADDER_CLIMB.arrivalSlackX
+  ) {
+    const ladder = geometry.colliders.find(
+      (candidate) =>
+        candidate.kind === 'ladder' && candidate.id === person.plannedLadder?.ladderId
+    );
+    person.plannedLadder = null;
+    if (ladder && hasWalkableTopNear(geometry, ladder) && beginLadderClimb(person, ladder, geometry, now)) {
+      return person;
+    }
   }
 
   if (person.activity === 'seek-hide' && person.hide) {
@@ -486,7 +521,9 @@ export function releasePixelPersonDrag(
 ): boolean {
   if (!person.drag || person.drag.pointerId !== pointerId) return false;
   const released = releaseDangle(person.drag, person.body);
-  const nearby = spatial.query(expandedRect(released, 200));
+  const nearby = spatial
+    .query(expandedRect(released, 200))
+    .filter((collider) => collider.kind !== 'ladder');
   const crawlCandidate = resizedBodyFromFeet(released, CRAWL_HEIGHT);
   const overheadObstacles = nearby.filter((collider) => intersects(released, collider));
   const canCrawlAtRelease =
@@ -695,6 +732,28 @@ function chooseNextActivity(
     return;
   }
 
+  // Ladder rides get first pick of the activity slot: on the wall the record
+  // errand would otherwise always win it (its cooldown is about as long as
+  // the walk back), starving the climbs entirely.
+  if (
+    !person.carrying &&
+    now - person.lastClimbAt >= LADDER_CLIMB.cooldownMs &&
+    Math.random() < LADDER_CLIMB.chance
+  ) {
+    const ladder = chooseLadder(person, geometry);
+    if (ladder) {
+      person.plannedLadder = {
+        ladderId: ladder.id,
+        goalX: ladder.x + ladder.width / 2 - person.body.width / 2
+      };
+      person.goalX = person.plannedLadder.goalX;
+      person.facing = person.goalX >= person.body.x ? 1 : -1;
+      person.activity = 'wander';
+      person.activityUntil = now + 8_000;
+      return;
+    }
+  }
+
   // Record errands come before climb planning: cover tiles are solid supports,
   // so the climb branch would otherwise always win while standing on the wall.
   let wanderBiasX: number | null = null;
@@ -884,8 +943,10 @@ function recordWallBounds(geometry: WorldGeometry): Rect | null {
 }
 
 function isInsideRecordWall(person: PixelPersonRuntime, geometry: WorldGeometry): boolean {
+  // Exact bounds, no halo: landing on the furniture just below the wall must
+  // count as delivered, or carriers stall at the edge until the give-up timer.
   const wall = recordWallBounds(geometry);
-  return wall !== null && intersects(person.body, expandedRect(wall, RECORD_ERRAND.wallExitMargin));
+  return wall !== null && intersects(person.body, wall);
 }
 
 /**
@@ -909,13 +970,19 @@ function chooseDeliveryGoalX(person: PixelPersonRuntime, geometry: WorldGeometry
   const rightZone = { from: wall.x + wall.width + margin, to: maxX };
   const zones = [leftZone, rightZone].filter((zone) => zone.to - zone.from >= 40);
   if (zones.length === 0) {
-    // No horizontal room beside the wall: aim a modest overshoot past a
-    // random wall end instead of marching into the viewport corner.
+    // No horizontal room beside the wall: commit past a random wall end so
+    // the carrier walks off the shelf lip and cascades down and out, rather
+    // than dead-stopping at a goal on the lip itself. Only a slim viewport
+    // clamp applies — corner traps are handled by confinement bail-out.
     const side = Math.random() < 0.5 ? -1 : 1;
-    const overshoot = RECORD_ERRAND.wallExitMargin + Math.random() * 70;
+    const overshoot = 30 + Math.random() * 60;
     const target =
       side === -1 ? wall.x - overshoot - person.body.width : wall.x + wall.width + overshoot;
-    return clamp(target, minX, maxX);
+    return clamp(
+      target,
+      viewport.x + 16,
+      viewport.x + viewport.width - person.body.width - 16
+    );
   }
   const zone = zones[Math.floor(Math.random() * zones.length)];
   return zone.from + Math.random() * (zone.to - zone.from);
@@ -1114,6 +1181,61 @@ function updateHiding(person: PixelPersonRuntime, now: number): void {
     person.activity = 'idle';
     setAnimation(person, 'idle', now);
   }
+}
+
+function chooseLadder(person: PixelPersonRuntime, geometry: WorldGeometry): Collider | null {
+  const bodyBottom = person.body.y + person.body.height;
+  const eligible = geometry.colliders.filter((collider) => {
+    if (collider.kind !== 'ladder') return false;
+    const ladderBottom = collider.y + collider.height;
+    // Rooted at foot level, or hanging up to ~70px above it — the latter lets
+    // someone under the wall climb its lowest ladders back onto the shelves.
+    if (ladderBottom > bodyBottom + 12 || ladderBottom < bodyBottom - 70) return false;
+    const climbHeight = bodyBottom - collider.y;
+    if (climbHeight <= 22 || climbHeight > MAX_CLIMB_HEIGHT) return false;
+    return (
+      horizontalDistance(person.body, collider) <= LADDER_CLIMB.maxDistance &&
+      hasWalkableTopNear(geometry, collider)
+    );
+  });
+  if (eligible.length === 0) return null;
+  return eligible[Math.floor(Math.random() * eligible.length)];
+}
+
+/** A ladder is only worth climbing when something walkable awaits at its top. */
+function hasWalkableTopNear(geometry: WorldGeometry, ladder: Collider): boolean {
+  return geometry.colliders.some(
+    (collider) =>
+      (collider.edge === 'top' || collider.kind === 'solid') &&
+      Math.abs(collider.y - ladder.y) <= LADDER_CLIMB.topSlack &&
+      collider.x < ladder.x + ladder.width + 30 &&
+      collider.x + collider.width > ladder.x - 30
+  );
+}
+
+function beginLadderClimb(
+  person: PixelPersonRuntime,
+  ladder: Collider,
+  geometry: WorldGeometry,
+  now: number
+): boolean {
+  const climbHeight = person.body.y + person.body.height - ladder.y;
+  if (climbHeight <= 22 || climbHeight > MAX_CLIMB_HEIGHT) return false;
+  const side = person.facing === 1 ? 'left' : 'right';
+  // Only the viewport check applies: ladder climbs deliberately pass through
+  // shelf strips on the way up.
+  if (!hasClearClimbPath(person.body, ladder, ladder, side, ladder.y - person.body.height, geometry, true)) {
+    return false;
+  }
+  person.climb = { wall: ladder, top: ladder, side, direction: 'up', returnY: null };
+  person.activity = 'climb';
+  person.body.vx = 0;
+  person.body.vy = 0;
+  person.body.grounded = false;
+  person.body.supportId = null;
+  person.lastClimbAt = now;
+  setAnimation(person, 'climb', now);
+  return true;
 }
 
 function tryBeginClimbUp(
@@ -1324,6 +1446,7 @@ function hasClearClimbPath(
   };
   return !geometry.colliders.some(
     (collider) =>
+      collider.kind !== 'ladder' &&
       collider.id !== wall.id &&
       collider.id !== top.id &&
       collider.id !== body.supportId &&
@@ -1430,6 +1553,7 @@ function hasSupportAhead(
   return spatial
     .query(probe)
     .some((collider) => {
+      if (collider.kind === 'ladder') return false;
       if (
         collider.y < body.y + body.height - 1 ||
         collider.y > body.y + body.height + 10
@@ -1491,6 +1615,7 @@ function cancelSpecialMovement(person: PixelPersonRuntime): void {
   person.hide = null;
   person.hiddenOccluderId = null;
   person.plannedClimb = null;
+  person.plannedLadder = null;
   person.recordErrand = null;
   person.recordStoop = null;
   person.listen = null;
