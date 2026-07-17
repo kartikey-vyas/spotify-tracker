@@ -1,11 +1,17 @@
 <script lang="ts">
   import { dev } from '$app/environment';
   import '../styles.css';
+  import { afterNavigate } from '$app/navigation';
   import { base } from '$app/paths';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { isCurrentUserAdmin } from '$lib/queries/admin';
   import { supabase } from '$lib/supabase';
   import { THEME_KEY, applyTheme, isTheme, themes, type Theme } from '$lib/theme';
+  import {
+    isPixelPersonRoute,
+    shouldEnablePixelPerson
+  } from '$lib/pixel-person/availability';
+  import { pixelPersonController } from '$lib/pixel-person/controller';
 
   const links = [
     { href: '/', label: 'overview' },
@@ -18,6 +24,45 @@
   let theme: Theme = 'warm-dark';
   let themeMenu: HTMLDetailsElement | null = null;
   let showAdmin = dev;
+  let canSummonPixelPerson = false;
+  let pixelPersonWorld:
+    | (typeof import('$lib/components/PixelPersonWorld.svelte'))['default']
+    | null = null;
+  let loadingPixelPersonWorld: Promise<void> | null = null;
+  let reducedMotionQuery: MediaQueryList | null = null;
+
+  afterNavigate(() => {
+    updatePixelPersonAvailability();
+  });
+
+  // The pixel-person world (simulation, physics, sprites) is a large module
+  // graph; it is only fetched and mounted once the feature can actually run.
+  function loadPixelPersonWorld(): Promise<void> {
+    loadingPixelPersonWorld ??= import('$lib/components/PixelPersonWorld.svelte').then(
+      (module) => {
+        pixelPersonWorld = module.default;
+      }
+    );
+    return loadingPixelPersonWorld;
+  }
+
+  function updatePixelPersonAvailability(): void {
+    if (typeof window === 'undefined') return;
+    reducedMotionQuery ??= window.matchMedia('(prefers-reduced-motion: reduce)');
+    canSummonPixelPerson =
+      isPixelPersonRoute(window.location.pathname, base) && !reducedMotionQuery.matches;
+    if (
+      !pixelPersonWorld &&
+      shouldEnablePixelPerson(
+        window.location.pathname,
+        window.innerWidth,
+        reducedMotionQuery.matches,
+        base
+      )
+    ) {
+      void loadPixelPersonWorld();
+    }
+  }
 
   onMount(() => {
     let storedTheme: string | null = null;
@@ -40,6 +85,11 @@
 
     document.addEventListener('click', closeThemeMenu);
 
+    updatePixelPersonAvailability();
+    const onPixelPersonEnvironmentChange = () => updatePixelPersonAvailability();
+    reducedMotionQuery?.addEventListener('change', onPixelPersonEnvironmentChange);
+    window.addEventListener('resize', onPixelPersonEnvironmentChange);
+
     void refreshAdminAccess();
     const {
       data: { subscription }
@@ -49,6 +99,8 @@
 
     return () => {
       document.removeEventListener('click', closeThemeMenu);
+      reducedMotionQuery?.removeEventListener('change', onPixelPersonEnvironmentChange);
+      window.removeEventListener('resize', onPixelPersonEnvironmentChange);
       subscription?.unsubscribe();
     };
   });
@@ -67,6 +119,12 @@
     theme = nextTheme;
     applyTheme(theme);
     if (themeMenu) themeMenu.open = false;
+  }
+
+  async function summonPixelPerson(): Promise<void> {
+    await loadPixelPersonWorld();
+    await tick();
+    pixelPersonController.summon();
   }
 
   async function refreshAdminAccess(): Promise<void> {
@@ -119,6 +177,19 @@
             {/each}
           </div>
         </details>
+
+        {#if canSummonPixelPerson}
+          <span class="nav-separator">/</span>
+          <button
+            class="pixel-person-summon"
+            type="button"
+            aria-label="Add a tiny listener"
+            title="add a tiny listener"
+            on:click={summonPixelPerson}
+          >
+            +1
+          </button>
+        {/if}
       </nav>
     </div>
   </header>
@@ -127,3 +198,7 @@
     <slot />
   </main>
 </div>
+
+{#if pixelPersonWorld}
+  <svelte:component this={pixelPersonWorld} />
+{/if}
