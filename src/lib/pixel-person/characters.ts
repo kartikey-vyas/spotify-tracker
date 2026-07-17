@@ -386,10 +386,50 @@ export const tinyPerson: CharacterDefinition = {
   animations
 };
 
+/**
+ * Derives a new character from an existing one by recoloring — frames are
+ * shared by reference (the sprite cache keys by character id, so variants
+ * rasterize independently). The cheap way to grow the roster.
+ */
+export function withPalette(
+  base: CharacterDefinition,
+  id: string,
+  paletteOverrides: CharacterDefinition['palette']
+): CharacterDefinition {
+  return { ...base, id, palette: { ...base.palette, ...paletteOverrides } };
+}
+
+const sunnyPerson = withPalette(tinyPerson, 'tiny-person-sunny', {
+  h: '#e8c170',
+  t: '#c14b4b',
+  p: '#54586e'
+});
+
+const mossPerson = withPalette(tinyPerson, 'tiny-person-moss', {
+  h: '#2f2b26',
+  s: '#c98d5e',
+  t: '#6a9a58',
+  p: '#5d5266'
+});
+
+const plumPerson = withPalette(tinyPerson, 'tiny-person-plum', {
+  h: '#a8623d',
+  t: '#9e5f8a',
+  p: '#39546b'
+});
+
 export const characterRegistry: Record<string, CharacterDefinition> = {
-  [tinyPerson.id]: tinyPerson
+  [tinyPerson.id]: tinyPerson,
+  [sunnyPerson.id]: sunnyPerson,
+  [mossPerson.id]: mossPerson,
+  [plumPerson.id]: plumPerson
 };
 
 export function getCharacter(id = tinyPerson.id): CharacterDefinition {
   return characterRegistry[id] ?? tinyPerson;
+}
+
+export function randomCharacter(): CharacterDefinition {
+  const all = Object.values(characterRegistry);
+  return all[Math.floor(Math.random() * all.length)];
 }

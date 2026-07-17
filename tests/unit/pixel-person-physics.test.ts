@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { characterRegistry, tinyPerson } from '../../src/lib/pixel-person/characters';
+import {
+  characterRegistry,
+  tinyPerson,
+  withPalette
+} from '../../src/lib/pixel-person/characters';
 import { PixelPersonController } from '../../src/lib/pixel-person/controller';
 import {
   defaultPhysicsConfig,
@@ -43,24 +47,52 @@ describe('pixel person character registry', () => {
     expect(tinyPerson.pixelWidth).toBe(12);
     expect(tinyPerson.pixelHeight).toBe(16);
     expect(tinyPerson.scale).toBe(2);
-    expect(Object.keys(tinyPerson.animations).sort()).toEqual([
-      'climb',
-      'crawl',
-      'dangle',
-      'fall',
-      'hide',
-      'idle',
-      'jump',
-      'listen',
-      'mantle',
-      'walk'
-    ]);
-    for (const animation of Object.values(tinyPerson.animations)) {
-      for (const frame of animation.frames) {
-        expect(frame.rows).toHaveLength(16);
-        expect(frame.rows.every((row) => row.length === 12)).toBe(true);
+  });
+
+  it('every registered character is complete and consistently sized', () => {
+    const characters = Object.values(characterRegistry);
+    expect(characters.length).toBeGreaterThanOrEqual(2);
+    for (const character of characters) {
+      expect(characterRegistry[character.id]).toBe(character);
+      expect(Object.keys(character.animations).sort()).toEqual([
+        'climb',
+        'crawl',
+        'dangle',
+        'fall',
+        'hide',
+        'idle',
+        'jump',
+        'listen',
+        'mantle',
+        'walk'
+      ]);
+      for (const animation of Object.values(character.animations)) {
+        for (const frame of animation.frames) {
+          expect(frame.rows).toHaveLength(character.pixelHeight);
+          expect(frame.rows.every((row) => row.length === character.pixelWidth)).toBe(true);
+        }
+      }
+      // Every palette key used by any frame must resolve to a color.
+      for (const animation of Object.values(character.animations)) {
+        for (const frame of animation.frames) {
+          for (const row of frame.rows) {
+            for (const key of row) {
+              if (key === '.') continue;
+              expect(character.palette[key]).toBeTruthy();
+            }
+          }
+        }
       }
     }
+  });
+
+  it('withPalette derives recolored variants that share frames', () => {
+    const variant = withPalette(tinyPerson, 'test-variant', { t: '#ff0000' });
+    expect(variant.id).toBe('test-variant');
+    expect(variant.palette.t).toBe('#ff0000');
+    expect(variant.palette.h).toBe(tinyPerson.palette.h);
+    expect(variant.animations).toBe(tinyPerson.animations);
+    expect(tinyPerson.palette.t).not.toBe('#ff0000');
   });
 });
 

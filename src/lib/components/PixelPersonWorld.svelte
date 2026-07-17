@@ -7,7 +7,7 @@
     ambientPixelPersonPopulation,
     shouldEnablePixelPerson
   } from '$lib/pixel-person/availability';
-  import { getCharacter } from '$lib/pixel-person/characters';
+  import { getCharacter, randomCharacter } from '$lib/pixel-person/characters';
   import { pixelPersonController } from '$lib/pixel-person/controller';
   import {
     clientToDocument,
@@ -366,7 +366,7 @@
     slot: number,
     id = `pixel-person-${nextPersonId++}`
   ): PixelPersonRuntime {
-    const definition = getCharacter();
+    const definition = randomCharacter();
     return createPixelPerson(
       definition,
       findSafeSpawn(geometry, definition, slot),
