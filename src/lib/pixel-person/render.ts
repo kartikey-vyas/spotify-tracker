@@ -22,21 +22,37 @@ const spriteCache = new Map<string, HTMLCanvasElement>();
 let cachedTheme = '';
 let cachedOutline = '#111';
 
+// Browser zoom changes devicePixelRatio and innerWidth INVERSELY, so the
+// physical pixel size alone cannot detect it — the applied dpr and CSS size
+// are tracked explicitly or zoom leaves a stale transform and inline size.
+let appliedDpr = 0;
+let appliedCssWidth = 0;
+let appliedCssHeight = 0;
+
 export function sizeCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   const context = canvas.getContext('2d');
   if (!context) return null;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const pixelWidth = Math.round(window.innerWidth * dpr);
   const pixelHeight = Math.round(window.innerHeight * dpr);
-  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
-    canvas.width = pixelWidth;
-    canvas.height = pixelHeight;
+  if (
+    canvas.width !== pixelWidth ||
+    canvas.height !== pixelHeight ||
+    appliedDpr !== dpr ||
+    appliedCssWidth !== window.innerWidth ||
+    appliedCssHeight !== window.innerHeight
+  ) {
+    // Assigning width/height always resets the bitmap and canvas state, even
+    // to the same value — only touch them when they actually changed.
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
     canvas.style.width = `${window.innerWidth}px`;
     canvas.style.height = `${window.innerHeight}px`;
-    // Assigning width/height resets canvas state, so this is the only time the
-    // transform and smoothing need to be configured.
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.imageSmoothingEnabled = false;
+    appliedDpr = dpr;
+    appliedCssWidth = window.innerWidth;
+    appliedCssHeight = window.innerHeight;
   }
   return context;
 }
@@ -65,8 +81,8 @@ function renderSignature(
     geometryRevision += 1;
   }
   let signature =
-    `${canvas.width}:${canvas.height}:${window.scrollX}:${window.scrollY}` +
-    `:${geometryRevision}:${document.documentElement.dataset.theme ?? ''}`;
+    `${canvas.width}:${canvas.height}:${window.devicePixelRatio}:${window.scrollX}` +
+    `:${window.scrollY}:${geometryRevision}:${document.documentElement.dataset.theme ?? ''}`;
   if (debug) signature += `:${now}`;
   for (const record of placedRecords) {
     // Held records are static; only an active fade needs per-frame redraws.
@@ -112,7 +128,12 @@ export function renderPixelWorld(
   const signature = renderSignature(canvas, people, geometry, now, debug, placedRecords);
   if (signature === lastRenderSignature) return;
   lastRenderSignature = signature;
-  context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  // Clear in device space: CSS-space clearing under-covers the last device
+  // row/column when innerWidth * dpr rounds up (fractional-DPR ghosting).
+  context.save();
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.restore();
 
   if (debug) {
     drawDebugGeometry(context, geometry.colliders, geometry.occluders, geometry.itemSources);

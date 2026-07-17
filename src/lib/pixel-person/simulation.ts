@@ -51,6 +51,7 @@ const CRAWL_BAILOUT_MS = 12_000;
 const CONFINED_SPAN = 70;
 const CONFINED_BAILOUT_MS = 15_000;
 const CONFINED_TRACKING_GAP_MS = 400;
+const CONFINED_MIN_REVERSALS = 3;
 /** Keep chosen goals this far from the viewport edges — corners are traps. */
 const EDGE_COMFORT = 36;
 const DELIVERY_EDGE_COMFORT = 48;
@@ -200,6 +201,7 @@ export interface PixelPersonRuntime {
   confinedCheckedAt: number;
   confinedMinX: number;
   confinedMaxX: number;
+  confinedReversals: number;
 }
 
 export function createPixelPerson(
@@ -240,7 +242,8 @@ export function createPixelPerson(
     confinedSince: now,
     confinedCheckedAt: now,
     confinedMinX: body.x,
-    confinedMaxX: body.x
+    confinedMaxX: body.x,
+    confinedReversals: 0
   };
 }
 
@@ -263,15 +266,15 @@ export function stepPixelPerson(
     return person;
   }
   if (person.activity === 'mantle') {
-    updateMantle(person, now);
+    updateMantle(person, geometry, now);
     return person;
   }
   if (person.activity === 'climb') {
-    updateClimb(person, dt, now);
+    updateClimb(person, geometry, dt, now);
     return person;
   }
   if (person.activity === 'hiding') {
-    updateHiding(person, now);
+    updateHiding(person, geometry, now);
     return person;
   }
   if (person.activity === 'record-stoop') {
@@ -361,8 +364,13 @@ export function stepPixelPerson(
   ) {
     const plan = person.plannedClimb;
     person.plannedClimb = null;
-    handleClimbDownTransition(person, plan.top, plan.wall, plan.side, geometry, now);
-    return person;
+    // The plan can be up to 15s old; rescans may have replaced its colliders.
+    const liveTop = refreshCollider(geometry, plan.top);
+    const liveWall = refreshCollider(geometry, plan.wall);
+    if (liveTop && liveWall) {
+      handleClimbDownTransition(person, liveTop, liveWall, plan.side, geometry, now);
+      return person;
+    }
   }
 
   if (
@@ -452,12 +460,15 @@ export function stepPixelPerson(
  * the person to the same stuck-recovery respawn.
  */
 function trackConfinement(person: PixelPersonRuntime, now: number): void {
+  // Confinement needs evidence of thwarted movement (reversals); a person
+  // legitimately idling in one spot must never be flagged.
   // A gap means a special state (climb, listen, drag, ...) ran; start over so
   // stationary activities never count as confinement.
   if (now - person.confinedCheckedAt > CONFINED_TRACKING_GAP_MS) {
     person.confinedSince = now;
     person.confinedMinX = person.body.x;
     person.confinedMaxX = person.body.x;
+    person.confinedReversals = 0;
   }
   person.confinedCheckedAt = now;
   person.confinedMinX = Math.min(person.confinedMinX, person.body.x);
@@ -466,9 +477,14 @@ function trackConfinement(person: PixelPersonRuntime, now: number): void {
     person.confinedSince = now;
     person.confinedMinX = person.body.x;
     person.confinedMaxX = person.body.x;
+    person.confinedReversals = 0;
     return;
   }
-  if (person.body.grounded && now - person.confinedSince > CONFINED_BAILOUT_MS) {
+  if (
+    person.body.grounded &&
+    person.confinedReversals >= CONFINED_MIN_REVERSALS &&
+    now - person.confinedSince > CONFINED_BAILOUT_MS
+  ) {
     person.stuckForMs = STUCK_RECOVERY_MS;
   }
 }
@@ -568,6 +584,7 @@ function beginCrawl(person: PixelPersonRuntime, now: number): void {
   resizeBodyFromFeet(person.body, CRAWL_HEIGHT);
   person.crawling = true;
   person.crawlingSince = now;
+  person.plannedLadder = null;
   person.body.vx = clamp(
     person.body.vx,
     -CRAWL_PHYSICS_CONFIG.walkSpeed,
@@ -1186,8 +1203,29 @@ function beginHiding(person: PixelPersonRuntime, now: number): void {
   setAnimation(person, 'hide', now);
 }
 
-function updateHiding(person: PixelPersonRuntime, now: number): void {
+function updateHiding(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry,
+  now: number
+): void {
   if (!person.hide) return;
+  // The hiding place can vanish or move mid-animation (rescan); abort in
+  // place rather than sliding behind an occluder that is no longer there.
+  const occluder = geometry.occluders.find(
+    (candidate) => candidate.id === person.hide?.occluder.id
+  );
+  if (
+    !occluder ||
+    Math.abs(occluder.x - person.hide.occluder.x) > STALE_COLLIDER_TOLERANCE ||
+    Math.abs(occluder.y - person.hide.occluder.y) > STALE_COLLIDER_TOLERANCE
+  ) {
+    person.hiddenOccluderId = null;
+    person.hide = null;
+    person.activity = 'idle';
+    person.activityUntil = now;
+    setAnimation(person, 'idle', now);
+    return;
+  }
   const elapsed = now - person.hide.startedAt;
   const enterDuration = 360;
   const holdUntil = 2_650;
@@ -1317,15 +1355,24 @@ function findLadderRouteTowardRecord(
   return best;
 }
 
+/** The walkable surface a ladder tops out onto, nearest to the ladder's top. */
+function findLadderLanding(geometry: WorldGeometry, ladder: Collider): Collider | null {
+  let best: Collider | null = null;
+  for (const collider of geometry.colliders) {
+    if (collider.edge !== 'top' && collider.kind !== 'solid') continue;
+    if (Math.abs(collider.y - ladder.y) > LADDER_CLIMB.topSlack) continue;
+    if (collider.x >= ladder.x + ladder.width + 30) continue;
+    if (collider.x + collider.width <= ladder.x - 30) continue;
+    if (!best || Math.abs(collider.y - ladder.y) < Math.abs(best.y - ladder.y)) {
+      best = collider;
+    }
+  }
+  return best;
+}
+
 /** A ladder is only worth climbing when something walkable awaits at its top. */
 function hasWalkableTopNear(geometry: WorldGeometry, ladder: Collider): boolean {
-  return geometry.colliders.some(
-    (collider) =>
-      (collider.edge === 'top' || collider.kind === 'solid') &&
-      Math.abs(collider.y - ladder.y) <= LADDER_CLIMB.topSlack &&
-      collider.x < ladder.x + ladder.width + 30 &&
-      collider.x + collider.width > ladder.x - 30
-  );
+  return findLadderLanding(geometry, ladder) !== null;
 }
 
 /** A ladder is only worth riding down when something walkable awaits below. */
@@ -1624,9 +1671,50 @@ function hasClearClimbPath(
   );
 }
 
-function updateClimb(person: PixelPersonRuntime, dt: number, now: number): void {
+// Motion states capture Collider objects, but every geometry rescan rebuilds
+// the world; a captured rect can go stale mid-move (page reflow). Refresh the
+// reference when the collider survived, abort into a fall when it vanished or
+// jumped — otherwise people scale thin air or mantle onto phantom geometry.
+const STALE_COLLIDER_TOLERANCE = 24;
+
+function refreshCollider(geometry: WorldGeometry, captured: Collider): Collider | null {
+  const live = geometry.colliders.find((collider) => collider.id === captured.id);
+  if (!live) return null;
+  if (
+    Math.abs(live.x - captured.x) > STALE_COLLIDER_TOLERANCE ||
+    Math.abs(live.y - captured.y) > STALE_COLLIDER_TOLERANCE
+  ) {
+    return null;
+  }
+  return live;
+}
+
+function abortSpecialMove(person: PixelPersonRuntime, now: number): void {
+  person.climb = null;
+  person.mantle = null;
+  person.body.grounded = false;
+  person.body.supportId = null;
+  person.activity = 'idle';
+  person.activityUntil = now;
+  setLocomotionAnimation(person, now);
+}
+
+function updateClimb(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry,
+  dt: number,
+  now: number
+): void {
   if (!person.climb) return;
   const climb = person.climb;
+  const liveWall = refreshCollider(geometry, climb.wall);
+  const liveTop = refreshCollider(geometry, climb.top);
+  if (!liveWall || !liveTop) {
+    abortSpecialMove(person, now);
+    return;
+  }
+  climb.wall = liveWall;
+  climb.top = liveTop;
   person.body.vx = 0;
   person.body.vy = 0;
   person.facing = climb.side === 'left' ? 1 : -1;
@@ -1665,10 +1753,21 @@ function updateClimb(person: PixelPersonRuntime, dt: number, now: number): void 
 
   person.body.y -= CLIMB_SPEED * dt;
   const targetY = climb.top.y - person.body.height;
-  if (person.body.y <= targetY + 7) beginMantleUp(person, climb, now);
+  if (person.body.y <= targetY + 7) beginMantleUp(person, climb, geometry, now);
 }
 
-function beginMantleUp(person: PixelPersonRuntime, climb: ClimbMotion, now: number): void {
+function beginMantleUp(
+  person: PixelPersonRuntime,
+  climb: ClimbMotion,
+  geometry: WorldGeometry,
+  now: number
+): void {
+  // Ladder rides mantle onto the real landing surface that qualified the
+  // ladder — the ladder's own top can sit up to topSlack below it, which
+  // would leave the body embedded in (and falling through) the shelf.
+  const landing =
+    climb.wall.kind === 'ladder' ? findLadderLanding(geometry, climb.wall) : null;
+  const surface = landing ?? climb.top;
   const inset = Math.min(5, Math.max(2, climb.top.width / 4));
   const targetEdge =
     climb.wall.edge === 'left' || climb.wall.edge === 'right'
@@ -1680,16 +1779,20 @@ function beginMantleUp(person: PixelPersonRuntime, climb: ClimbMotion, now: numb
       : climb.top.x + climb.top.width - person.body.width - inset;
   person.mantle = {
     start: { x: person.body.x, y: person.body.y },
-    end: { x: endX, y: climb.top.y - person.body.height },
+    end: { x: endX, y: surface.y - person.body.height },
     startedAt: now,
-    supportId: climb.top.id
+    supportId: surface.id
   };
   person.climb = null;
   person.activity = 'mantle';
   setAnimation(person, 'mantle', now);
 }
 
-function updateMantle(person: PixelPersonRuntime, now: number): void {
+function updateMantle(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry,
+  now: number
+): void {
   if (!person.mantle) return;
   const horizontalDistance = Math.abs(person.mantle.end.x - person.mantle.start.x);
   const duration = Math.max(
@@ -1714,8 +1817,16 @@ function updateMantle(person: PixelPersonRuntime, now: number): void {
 
   person.body.vx = 0;
   person.body.vy = 0;
-  person.body.grounded = true;
-  person.body.supportId = supportId;
+  // Only land as grounded when the support still exists where the mantle
+  // aimed; a rescan may have removed or moved it mid-lerp — fall instead.
+  const support = supportId
+    ? geometry.colliders.find((collider) => collider.id === supportId)
+    : undefined;
+  const supported =
+    support !== undefined &&
+    Math.abs(support.y - (person.body.y + person.body.height)) <= STALE_COLLIDER_TOLERANCE;
+  person.body.grounded = supported;
+  person.body.supportId = supported ? supportId : null;
   person.activity = 'idle';
   person.activityUntil = now + 600;
   setAnimation(person, 'idle', now);
@@ -1765,6 +1876,7 @@ function hasSupportAhead(
 
 function reverse(person: PixelPersonRuntime, geometry: WorldGeometry, now: number): void {
   const viewport = geometry.viewportBounds;
+  person.confinedReversals += 1;
   person.facing = person.facing === 1 ? -1 : 1;
   const minimumX = viewport.x + EDGE_COMFORT;
   const maximumX = viewport.x + viewport.width - person.body.width - EDGE_COMFORT;

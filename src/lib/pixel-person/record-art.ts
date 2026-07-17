@@ -15,9 +15,14 @@ export type RecordArtStatus = 'loading' | 'ready' | 'failed';
 export interface RecordArt {
   status: RecordArtStatus;
   sprite: HTMLCanvasElement | null;
+  failedAt?: number;
 }
 
-const MAX_CACHED_RECORDS = 24;
+// Sized well above the worst-case live set (carried + placed records), so a
+// still-visible record's art can't be evicted by churn.
+const MAX_CACHED_RECORDS = 48;
+/** Transient failures (network blips) get another chance after this. */
+const RETRY_FAILED_AFTER_MS = 60_000;
 const cache = new Map<string, RecordArt>();
 
 // Spotify encodes the image size in the URL hash prefix; the stored URLs are
@@ -37,6 +42,15 @@ export function requestRecordArt(imageUrl: string): RecordArt {
     // Re-insert to mark as recently used.
     cache.delete(imageUrl);
     cache.set(imageUrl, existing);
+    if (
+      existing.status === 'failed' &&
+      existing.failedAt !== undefined &&
+      Date.now() - existing.failedAt > RETRY_FAILED_AFTER_MS
+    ) {
+      existing.status = 'loading';
+      existing.failedAt = undefined;
+      void rasterize(imageUrl, existing);
+    }
     return existing;
   }
   const entry: RecordArt = { status: 'loading', sprite: null };
@@ -62,6 +76,7 @@ async function rasterize(imageUrl: string, entry: RecordArt): Promise<void> {
     (smallUrl !== imageUrl ? await fetchCoverBitmap(imageUrl) : null);
   if (!bitmap) {
     entry.status = 'failed';
+    entry.failedAt = Date.now();
     return;
   }
 
@@ -73,6 +88,7 @@ async function rasterize(imageUrl: string, entry: RecordArt): Promise<void> {
   if (!context) {
     bitmap.close();
     entry.status = 'failed';
+    entry.failedAt = Date.now();
     return;
   }
   context.imageSmoothingEnabled = false;
@@ -88,6 +104,7 @@ async function rasterize(imageUrl: string, entry: RecordArt): Promise<void> {
     if (!smallContext) {
       bitmap.close();
       entry.status = 'failed';
+      entry.failedAt = Date.now();
       return;
     }
     smallContext.imageSmoothingEnabled = true;

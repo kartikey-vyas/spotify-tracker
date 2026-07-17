@@ -115,7 +115,11 @@
     mutationObserver?.observe(root!, {
       childList: true,
       subtree: true,
-      characterData: true
+      characterData: true,
+      // Attribute-only changes (class/style flips) reflow content without
+      // touching the node structure; geometry must rescan for those too.
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'open', 'aria-hidden']
     });
 
     const resizeObserver = root
@@ -251,8 +255,14 @@
           simulationEvents
         );
         if (!stepped) continue;
-        if (stepped.stuckForMs >= STUCK_RECOVERY_MS) {
-          placeRecord(dropCarriedRecord(stepped), now);
+        // A person flung below everything free-falls forever on a quiet page
+        // (the outside-world respawn only runs on geometry rescans, which
+        // nothing triggers) — catch the fall here every frame instead.
+        const fellOutOfWorld =
+          stepped.body.y > geometry.scanBounds.y + geometry.scanBounds.height + 120;
+        if (stepped.stuckForMs >= STUCK_RECOVERY_MS || fellOutOfWorld) {
+          const dropped = dropCarriedRecord(stepped);
+          if (!fellOutOfWorld) placeRecord(dropped, now);
           people[survivors++] = createPersonAtSafeSpawn(now, index, stepped.id);
         } else {
           people[survivors++] = stepped;
@@ -277,9 +287,15 @@
         const art = requestRecordArt(person.recordErrand.imageUrl);
         if (art.status === 'failed') cancelRecordErrand(person, now);
       }
-      if (person.carrying && getRecordArt(person.carrying.imageUrl)?.status === 'failed') {
-        dropCarriedRecord(person);
+      if (person.carrying) {
+        // Touching the cache every frame pins live art against LRU eviction
+        // (and self-heals by re-fetching if it was somehow dropped).
+        const art = requestRecordArt(person.carrying.imageUrl);
+        if (art.status === 'failed') dropCarriedRecord(person);
       }
+    }
+    for (const record of placedRecords) {
+      requestRecordArt(record.imageUrl);
     }
     if (simulationEvents.length > 0) {
       for (const event of simulationEvents) {

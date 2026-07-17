@@ -220,6 +220,9 @@ export function resolveDroppedBody(
 
   for (const blocker of blockers.sort((left, right) => left.y - right.y)) {
     const candidate = { ...source, y: blocker.y - source.height };
+    // Popping onto a tall blocker's top must honor the same distance cap as
+    // every other escape, or releases teleport hundreds of pixels.
+    if (source.y - candidate.y > maximumDistance) continue;
     if (isClear(candidate)) return candidate;
   }
 

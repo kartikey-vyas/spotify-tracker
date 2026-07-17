@@ -18,6 +18,10 @@ const MIN_BORDER_THICKNESS = 2;
 const BRIDGE_TOP_TOLERANCE = 3;
 const BRIDGE_MAX_GAP = 18;
 const BRIDGE_MIN_SEGMENT_WIDTH = 24;
+// A gap is only bridged when it is small relative to its neighbors — grid
+// tiles qualify, but two unrelated buttons that happen to share a top line
+// must not gain a load-bearing strip across the void between them.
+const BRIDGE_MAX_GAP_RATIO = 0.4;
 // Spawn spread: a single ideal height funnels the whole population onto one
 // shelf, so the ideal band cycles per slot and gets a little jitter so repeat
 // spawns on the same slot do not stack on identical spots. Slot 0 stays at
@@ -203,15 +207,22 @@ export function bridgeWalkableTops(colliders: Collider[]): Collider[] {
         });
       }
     };
+    let previousSegment = start;
     for (let index = 1; index < row.length; index += 1) {
       const segment = row[index];
-      if (segment.x <= spanRight + BRIDGE_MAX_GAP) {
+      const gap = segment.x - spanRight;
+      const bridgeable =
+        gap <= BRIDGE_MAX_GAP &&
+        gap <= Math.min(previousSegment.width, segment.width) * BRIDGE_MAX_GAP_RATIO;
+      if (bridgeable) {
         spanRight = Math.max(spanRight, segment.x + segment.width);
         spanMinY = Math.min(spanMinY, segment.y);
         spanCount += 1;
+        previousSegment = segment;
       } else {
         flushSpan();
         start = segment;
+        previousSegment = segment;
         spanRight = segment.x + segment.width;
         spanMinY = segment.y;
         spanCount = 1;
