@@ -64,7 +64,7 @@
       {#each Array(skeletonCount) as _, index (index)}
         <li>
           <span class="tile skeleton" aria-hidden="true"></span>
-          <span class="shelf" data-pixel-collision="platform"></span>
+          <span class="shelf"><span class="shelf-walk" data-pixel-collision="platform"></span></span>
         </li>
       {/each}
     {:else}
@@ -97,7 +97,7 @@
               {#if item.value}<span class="value">{item.value}</span>{/if}
             </span>
           </svelte:element>
-          <span class="shelf" data-pixel-collision="platform"></span>
+          <span class="shelf"><span class="shelf-walk" data-pixel-collision="platform"></span></span>
           {#if index % 3 === 1}
             <span class="ladder" data-pixel-collision="ladder"></span>
           {/if}
@@ -123,8 +123,10 @@
     position: relative;
   }
 
-  /* Pixel shelf board each row of records stands on; the pixel people walk
-     along these (the boards are the wall's only collision surface). */
+  /* Pixel shelf board each row of records stands on. The board itself is
+     visual only; the nested .shelf-walk carries the collision, inset back to
+     the tile bounds so the 4px visual overhangs at the wall's outer edges
+     never become standable stubs (people were pinballing down them). */
   .shelf {
     position: absolute;
     left: -4px;
@@ -132,6 +134,14 @@
     bottom: -7px;
     height: 6px;
     background: var(--line);
+  }
+
+  .shelf-walk {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    right: 4px;
   }
 
   /* Invisible climbing zone in the column gap, spanning from this row's

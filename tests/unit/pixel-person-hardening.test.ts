@@ -212,6 +212,37 @@ describe('crawl transition hygiene', () => {
   });
 });
 
+describe('placed record hit testing', () => {
+  const record = (overrides = {}) => ({
+    id: 1,
+    imageUrl: 'https://i.scdn.co/image/x',
+    position: { x: 100, y: 200 },
+    placedAt: 1_000,
+    ...overrides
+  });
+
+  it('hits inside the bottom-centered 24px art box and misses outside', async () => {
+    const { placedRecordHitTest } = await import('../../src/lib/pixel-person/render');
+    const records = [record()];
+    // Art spans x 88..112, y 176..200 (bottom-centered on position).
+    expect(placedRecordHitTest(records, { x: 100, y: 190 }, 2_000)?.id).toBe(1);
+    expect(placedRecordHitTest(records, { x: 89, y: 177 }, 2_000)?.id).toBe(1);
+    expect(placedRecordHitTest(records, { x: 100, y: 210 }, 2_000)).toBeNull();
+    expect(placedRecordHitTest(records, { x: 130, y: 190 }, 2_000)).toBeNull();
+  });
+
+  it('ignores records that are already fading and prefers the topmost', async () => {
+    const { placedRecordHitTest, PLACED_RECORD_HOLD_MS } = await import(
+      '../../src/lib/pixel-person/render'
+    );
+    const fading = record({ id: 1, placedAt: 1_000 });
+    const fresh = record({ id: 2, placedAt: 5_000 });
+    const now = 1_000 + PLACED_RECORD_HOLD_MS + 500;
+    expect(placedRecordHitTest([fading], { x: 100, y: 190 }, now)).toBeNull();
+    expect(placedRecordHitTest([fading, fresh], { x: 100, y: 190 }, now)?.id).toBe(2);
+  });
+});
+
 describe('record art failure retry', () => {
   it('retries a failed fetch after the backoff instead of poisoning the source', async () => {
     clearRecordArtCache();

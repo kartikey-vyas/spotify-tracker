@@ -193,6 +193,34 @@ function drawNoteGlyph(context: CanvasRenderingContext2D, x: number, y: number):
   }
 }
 
+/**
+ * The placed record (topmost first) under a document-space point, if any.
+ * Records already fading are not clickable — they are on their way out.
+ */
+export function placedRecordHitTest(
+  records: readonly PlacedRecord[],
+  documentPoint: Point,
+  now: number
+): PlacedRecord | null {
+  const size = RECORD_PIXELS * RECORD_SCALE;
+  const slop = 3;
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (now - record.placedAt > PLACED_RECORD_HOLD_MS) continue;
+    const left = record.position.x - size / 2;
+    const top = record.position.y - size;
+    if (
+      documentPoint.x >= left - slop &&
+      documentPoint.x <= left + size + slop &&
+      documentPoint.y >= top - slop &&
+      documentPoint.y <= top + size + slop
+    ) {
+      return record;
+    }
+  }
+  return null;
+}
+
 function drawPlacedRecords(
   context: CanvasRenderingContext2D,
   records: readonly PlacedRecord[],
