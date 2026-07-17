@@ -63,7 +63,8 @@ const LADDER_CLIMB = {
   maxDistance: 240,
   chance: 0.4,
   arrivalSlackX: 5,
-  topSlack: 8
+  topSlack: 8,
+  bottomSlack: 8
 } as const;
 const CRAWL_PHYSICS_CONFIG: PhysicsConfig = {
   ...defaultPhysicsConfig,
@@ -113,7 +114,10 @@ interface ClimbMotion {
   top: Collider;
   side: 'left' | 'right';
   direction: 'up' | 'down';
+  /** Peek-down turnaround: descend to here, then flip back to 'up'. */
   returnY: number | null;
+  /** Ladder-ride dismount: descending feet reaching here ends the climb. */
+  dismountY?: number | null;
 }
 
 interface MantleMotion {
@@ -183,7 +187,8 @@ export interface PixelPersonRuntime {
   hide: HideMotion | null;
   hiddenOccluderId: string | null;
   plannedClimb: PlannedClimb | null;
-  plannedLadder: { ladderId: string; goalX: number } | null;
+  /** direction defaults to 'up' when omitted. */
+  plannedLadder: { ladderId: string; goalX: number; direction?: 'up' | 'down' } | null;
   recordErrand: RecordErrand | null;
   recordStoop: RecordStoop | null;
   listen: ListenSession | null;
@@ -365,13 +370,19 @@ export function stepPixelPerson(
     person.body.grounded &&
     Math.abs(person.body.x - person.plannedLadder.goalX) <= LADDER_CLIMB.arrivalSlackX
   ) {
+    const plan = person.plannedLadder;
     const ladder = geometry.colliders.find(
-      (candidate) =>
-        candidate.kind === 'ladder' && candidate.id === person.plannedLadder?.ladderId
+      (candidate) => candidate.kind === 'ladder' && candidate.id === plan.ladderId
     );
     person.plannedLadder = null;
-    if (ladder && hasWalkableTopNear(geometry, ladder) && beginLadderClimb(person, ladder, geometry, now)) {
-      return person;
+    if (ladder) {
+      const started =
+        plan.direction === 'down'
+          ? hasWalkableBottomNear(geometry, ladder) &&
+            beginLadderDescent(person, ladder, geometry, now)
+          : hasWalkableTopNear(geometry, ladder) &&
+            beginLadderClimb(person, ladder, geometry, now);
+      if (started) return person;
     }
   }
 
@@ -740,11 +751,12 @@ function chooseNextActivity(
     now - person.lastClimbAt >= LADDER_CLIMB.cooldownMs &&
     Math.random() < LADDER_CLIMB.chance
   ) {
-    const ladder = chooseLadder(person, geometry);
-    if (ladder) {
+    const ride = chooseLadderRide(person, geometry);
+    if (ride) {
       person.plannedLadder = {
-        ladderId: ladder.id,
-        goalX: ladder.x + ladder.width / 2 - person.body.width / 2
+        ladderId: ride.ladder.id,
+        goalX: ride.ladder.x + ride.ladder.width / 2 - person.body.width / 2,
+        direction: ride.direction
       };
       person.goalX = person.plannedLadder.goalX;
       person.facing = person.goalX >= person.body.x ? 1 : -1;
@@ -767,6 +779,17 @@ function chooseNextActivity(
       person.activityUntil = now + RECORD_ERRAND.travelTimeoutMs;
       person.nextRecordAt =
         now + RECORD_ERRAND.cooldownMs + Math.random() * RECORD_ERRAND.cooldownJitterMs;
+      return;
+    }
+    const route = findLadderRouteTowardRecord(person, geometry);
+    if (route) {
+      person.plannedLadder = route;
+      person.goalX = route.goalX;
+      person.facing = person.goalX >= person.body.x ? 1 : -1;
+      person.activity = 'wander';
+      person.activityUntil = now + 8_000;
+      // Re-plan quickly once the ride lands on the source's level.
+      person.nextRecordAt = now + 2_000;
       return;
     }
     person.nextRecordAt = now + RECORD_ERRAND.retryMs;
@@ -891,6 +914,21 @@ function chooseClimbPlan(
   return options[0]?.plan ?? null;
 }
 
+/**
+ * People walk on top of tiles, so a source is reachable when its top edge is
+ * near the given walking plane (or a body standing there would overlap it).
+ */
+function sourceReachableAtLevel(
+  source: ItemSource,
+  feetY: number,
+  bodyHeight: number
+): boolean {
+  return (
+    Math.abs(source.y - feetY) <= RECORD_ERRAND.arrivalSlackY ||
+    (feetY - bodyHeight < source.y + source.height && feetY > source.y)
+  );
+}
+
 function chooseRecordSource(
   person: PixelPersonRuntime,
   geometry: WorldGeometry
@@ -900,13 +938,8 @@ function chooseRecordSource(
     .filter((source) => {
       if (source.kind !== 'record') return false;
       if (!intersects(source, geometry.viewportBounds)) return false;
-      // People walk on top of tiles, so a source is reachable when its top
-      // edge is near the current walking plane (or the body overlaps it).
-      const reachableLevel =
-        Math.abs(source.y - bodyBottom) <= RECORD_ERRAND.arrivalSlackY ||
-        (person.body.y < source.y + source.height && bodyBottom > source.y);
       return (
-        reachableLevel &&
+        sourceReachableAtLevel(source, bodyBottom, person.body.height) &&
         horizontalDistance(person.body, source) <= RECORD_ERRAND.maxTravelDistance
       );
     })
@@ -1183,23 +1216,105 @@ function updateHiding(person: PixelPersonRuntime, now: number): void {
   }
 }
 
-function chooseLadder(person: PixelPersonRuntime, geometry: WorldGeometry): Collider | null {
+interface LadderRide {
+  ladder: Collider;
+  direction: 'up' | 'down';
+}
+
+function eligibleLadderRides(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry
+): LadderRide[] {
   const bodyBottom = person.body.y + person.body.height;
-  const eligible = geometry.colliders.filter((collider) => {
-    if (collider.kind !== 'ladder') return false;
+  const rides: LadderRide[] = [];
+  for (const collider of geometry.colliders) {
+    if (collider.kind !== 'ladder') continue;
+    if (horizontalDistance(person.body, collider) > LADDER_CLIMB.maxDistance) continue;
     const ladderBottom = collider.y + collider.height;
-    // Rooted at foot level, or hanging up to ~70px above it — the latter lets
-    // someone under the wall climb its lowest ladders back onto the shelves.
-    if (ladderBottom > bodyBottom + 12 || ladderBottom < bodyBottom - 70) return false;
+    // Up ride: rooted at foot level, or hanging up to ~70px above it — the
+    // latter lets someone under the wall climb its lowest ladders back onto
+    // the shelves.
     const climbHeight = bodyBottom - collider.y;
-    if (climbHeight <= 22 || climbHeight > MAX_CLIMB_HEIGHT) return false;
-    return (
-      horizontalDistance(person.body, collider) <= LADDER_CLIMB.maxDistance &&
+    if (
+      ladderBottom <= bodyBottom + 12 &&
+      ladderBottom >= bodyBottom - 70 &&
+      climbHeight > 22 &&
+      climbHeight <= MAX_CLIMB_HEIGHT &&
       hasWalkableTopNear(geometry, collider)
+    ) {
+      rides.push({ ladder: collider, direction: 'up' });
+    }
+    // Down ride: top at foot level with somewhere walkable at its bottom.
+    const dropHeight = ladderBottom - bodyBottom;
+    if (
+      Math.abs(collider.y - bodyBottom) <= 12 &&
+      dropHeight > 22 &&
+      dropHeight <= MAX_CLIMB_HEIGHT &&
+      hasWalkableBottomNear(geometry, collider)
+    ) {
+      rides.push({ ladder: collider, direction: 'down' });
+    }
+  }
+  return rides;
+}
+
+function chooseLadderRide(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry
+): LadderRide | null {
+  const rides = eligibleLadderRides(person, geometry);
+  if (rides.length === 0) return null;
+  return rides[Math.floor(Math.random() * rides.length)];
+}
+
+/**
+ * When no record source is level-reachable, finds the nearest ladder ride
+ * whose far end lands on a level where one is — the errand's route between
+ * shelves. Deliberate travel, so the ambient climb chance/cooldown don't
+ * apply.
+ */
+function findLadderRouteTowardRecord(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry
+): { ladderId: string; goalX: number; direction: 'up' | 'down' } | null {
+  const feetY = person.body.y + person.body.height;
+  const offLevelSources = geometry.itemSources.filter(
+    (source) =>
+      source.kind === 'record' &&
+      intersects(source, geometry.viewportBounds) &&
+      !sourceReachableAtLevel(source, feetY, person.body.height) &&
+      // Slightly more generous than the level errand: the ladder ride itself
+      // covers part of the trip.
+      horizontalDistance(person.body, source) <= RECORD_ERRAND.maxTravelDistance + 80
+  );
+  if (offLevelSources.length === 0) return null;
+  // Prefer routes toward albums not carried recently, but a repeat still
+  // beats staying stranded when everything off-level is recent.
+  const fresh = offLevelSources.filter(
+    (source) => !person.recentRecordSourceIds.includes(source.id)
+  );
+  const targets = fresh.length > 0 ? fresh : offLevelSources;
+
+  let best: { ladderId: string; goalX: number; direction: 'up' | 'down' } | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const ride of eligibleLadderRides(person, geometry)) {
+    const farFeetY =
+      ride.direction === 'up' ? ride.ladder.y : ride.ladder.y + ride.ladder.height;
+    const connects = targets.some((source) =>
+      sourceReachableAtLevel(source, farFeetY, person.body.height)
     );
-  });
-  if (eligible.length === 0) return null;
-  return eligible[Math.floor(Math.random() * eligible.length)];
+    if (!connects) continue;
+    const distance = horizontalDistance(person.body, ride.ladder);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = {
+        ladderId: ride.ladder.id,
+        goalX: ride.ladder.x + ride.ladder.width / 2 - person.body.width / 2,
+        direction: ride.direction
+      };
+    }
+  }
+  return best;
 }
 
 /** A ladder is only worth climbing when something walkable awaits at its top. */
@@ -1208,6 +1323,18 @@ function hasWalkableTopNear(geometry: WorldGeometry, ladder: Collider): boolean 
     (collider) =>
       (collider.edge === 'top' || collider.kind === 'solid') &&
       Math.abs(collider.y - ladder.y) <= LADDER_CLIMB.topSlack &&
+      collider.x < ladder.x + ladder.width + 30 &&
+      collider.x + collider.width > ladder.x - 30
+  );
+}
+
+/** A ladder is only worth riding down when something walkable awaits below. */
+function hasWalkableBottomNear(geometry: WorldGeometry, ladder: Collider): boolean {
+  const ladderBottom = ladder.y + ladder.height;
+  return geometry.colliders.some(
+    (collider) =>
+      (collider.edge === 'top' || collider.kind === 'solid') &&
+      Math.abs(collider.y - ladderBottom) <= LADDER_CLIMB.bottomSlack &&
       collider.x < ladder.x + ladder.width + 30 &&
       collider.x + collider.width > ladder.x - 30
   );
@@ -1228,6 +1355,49 @@ function beginLadderClimb(
     return false;
   }
   person.climb = { wall: ladder, top: ladder, side, direction: 'up', returnY: null };
+  person.activity = 'climb';
+  person.body.vx = 0;
+  person.body.vy = 0;
+  person.body.grounded = false;
+  person.body.supportId = null;
+  person.lastClimbAt = now;
+  setAnimation(person, 'climb', now);
+  return true;
+}
+
+function beginLadderDescent(
+  person: PixelPersonRuntime,
+  ladder: Collider,
+  geometry: WorldGeometry,
+  now: number
+): boolean {
+  const ladderBottom = ladder.y + ladder.height;
+  const dropHeight = ladderBottom - (person.body.y + person.body.height);
+  if (dropHeight <= 22 || dropHeight > MAX_CLIMB_HEIGHT) return false;
+  const side = person.facing === 1 ? 'left' : 'right';
+  // Only the viewport check applies: ladder rides deliberately pass through
+  // shelf strips on the way down.
+  if (
+    !hasClearClimbPath(
+      person.body,
+      ladder,
+      ladder,
+      side,
+      ladderBottom - person.body.height,
+      geometry,
+      true
+    )
+  ) {
+    return false;
+  }
+  person.climb = {
+    wall: ladder,
+    top: ladder,
+    side,
+    direction: 'down',
+    returnY: null,
+    dismountY: ladderBottom
+  };
   person.activity = 'climb';
   person.body.vx = 0;
   person.body.vy = 0;
@@ -1471,6 +1641,24 @@ function updateClimb(person: PixelPersonRuntime, dt: number, now: number): void 
       climb.direction = 'up';
       climb.returnY = null;
       person.animationStartedAt = now;
+      return;
+    }
+    const dismountY = climb.dismountY ?? null;
+    if (
+      climb.returnY === null &&
+      dismountY !== null &&
+      person.body.y + person.body.height >= dismountY
+    ) {
+      // Dismount at the ladder's bottom: physics lands the person on the
+      // shelf strip that lives there.
+      person.body.y = dismountY - person.body.height;
+      person.climb = null;
+      person.activity = 'idle';
+      person.activityUntil = now + 400;
+      person.body.vx = 0;
+      person.body.vy = 0;
+      person.body.grounded = false;
+      setLocomotionAnimation(person, now);
     }
     return;
   }

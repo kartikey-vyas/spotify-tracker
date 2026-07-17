@@ -18,6 +18,12 @@ const MIN_BORDER_THICKNESS = 2;
 const BRIDGE_TOP_TOLERANCE = 3;
 const BRIDGE_MAX_GAP = 18;
 const BRIDGE_MIN_SEGMENT_WIDTH = 24;
+// Spawn spread: a single ideal height funnels the whole population onto one
+// shelf, so the ideal band cycles per slot and gets a little jitter so repeat
+// spawns on the same slot do not stack on identical spots. Slot 0 stays at
+// the historical 0.62 band.
+const SPAWN_BAND_FACTORS = [0.62, 0.42, 0.75, 0.5, 0.68, 0.35];
+const SPAWN_BAND_JITTER = 0.05;
 const SOLID_SELECTOR = [
   'button',
   'input',
@@ -237,7 +243,9 @@ export function findSafeSpawn(
   const viewport = geometry.viewportBounds;
   const viewportTop = viewport.y + 54;
   const viewportBottom = viewport.y + viewport.height - 4;
-  const idealY = viewport.y + viewport.height * 0.62;
+  const idealBandFactor = SPAWN_BAND_FACTORS[Math.abs(slot) % SPAWN_BAND_FACTORS.length];
+  const idealBandJitter = (Math.random() * 2 - 1) * SPAWN_BAND_JITTER;
+  const idealY = viewport.y + viewport.height * (idealBandFactor + idealBandJitter);
   const viewportCenterX = viewport.x + viewport.width / 2;
   const candidates = geometry.colliders
     .filter(
