@@ -93,7 +93,6 @@ const RECORD_ERRAND = {
   returnJitterMs: 8_000,
   wallExitMargin: 24,
   arrivalSlackX: 5,
-  arrivalSlackY: 46,
   driftChance: 0.35,
   recentMemory: 6
 } as const;
@@ -328,10 +327,7 @@ export function stepPixelPerson(
       const arrived =
         person.body.grounded &&
         Math.abs(person.body.x - person.goalX) <= RECORD_ERRAND.arrivalSlackX &&
-        // Feet anywhere along the source's vertical span (standing on the
-        // shelf under it, or on its top edge) counts as reaching the record.
-        feetY >= source.y - RECORD_ERRAND.arrivalSlackY &&
-        feetY <= source.y + source.height + RECORD_ERRAND.arrivalSlackY;
+        sourceReachableAtLevel(source, feetY, person.body.height);
       if (arrived) {
         beginRecordStoop(person, 'pickup', now);
         return person;
@@ -414,7 +410,16 @@ export function stepPixelPerson(
     if (exitedContainer) return person;
     const descended = tryBeginClimbDown(person, geometry, now);
     if (descended) return person;
-    jump = person.body.supportId !== 'viewport-floor';
+    // Cliff sense: only hop off an edge when something to land on exists
+    // within a sane drop. Carriers committed to a delivery walk off anyway
+    // (the fall is the exit); everyone else turns back from the void.
+    if (person.body.supportId !== 'viewport-floor') {
+      if (hasLandingBeyondEdge(person.body, moveX, spatial)) {
+        jump = true;
+      } else if (!person.carrying) {
+        reverse(person, geometry, now);
+      }
+    }
   }
 
   const nearby = spatial.query(expandedRect(person.body, 28));
@@ -940,10 +945,10 @@ function sourceReachableAtLevel(
   feetY: number,
   bodyHeight: number
 ): boolean {
-  return (
-    Math.abs(source.y - feetY) <= RECORD_ERRAND.arrivalSlackY ||
-    (feetY - bodyHeight < source.y + source.height && feetY > source.y)
-  );
+  // Same-row only: the standing body must vertically overlap the album's
+  // tile. Albums below the feet (the next row down, or a row seen from a
+  // perch above) are not reachable — nobody grabs records through the floor.
+  return source.y < feetY && source.y + source.height > feetY - bodyHeight;
 }
 
 function chooseRecordSource(
@@ -1841,6 +1846,34 @@ function topForWall(wall: Collider, colliders: Collider[]): Collider {
   );
 }
 
+const EDGE_LANDING_MAX_DROP = 170;
+const EDGE_LANDING_REACH = 36;
+
+/** Anything to land on just past an edge, within a survivable-looking drop. */
+function hasLandingBeyondEdge(
+  body: PhysicsBody,
+  direction: Facing,
+  spatial: SpatialHash
+): boolean {
+  const feetY = body.y + body.height;
+  const probe: Rect = {
+    x: direction === 1 ? body.x + body.width + 2 : body.x - 2 - EDGE_LANDING_REACH,
+    y: feetY - 6,
+    width: EDGE_LANDING_REACH,
+    height: EDGE_LANDING_MAX_DROP + 6
+  };
+  // The hash query is cell-granular (64px); verify real overlap with the probe.
+  return spatial
+    .query(probe)
+    .some(
+      (collider) =>
+        collider.kind !== 'ladder' &&
+        intersects(probe, collider) &&
+        collider.y >= feetY - 6 &&
+        collider.y <= feetY + EDGE_LANDING_MAX_DROP
+    );
+}
+
 function hasSupportAhead(
   body: PhysicsBody,
   direction: Facing,
@@ -1853,6 +1886,11 @@ function hasSupportAhead(
     .query(probe)
     .some((collider) => {
       if (collider.kind === 'ladder') return false;
+      // The hash query is cell-granular (64px); a collider sharing a cell can
+      // sit entirely behind the probe — require real horizontal overlap.
+      if (collider.x >= probe.x + probe.width || collider.x + collider.width <= probe.x) {
+        return false;
+      }
       if (
         collider.y < body.y + body.height - 1 ||
         collider.y > body.y + body.height + 10

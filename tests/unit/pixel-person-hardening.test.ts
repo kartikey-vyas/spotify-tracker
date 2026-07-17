@@ -8,6 +8,10 @@ import {
   requestRecordArt
 } from '../../src/lib/pixel-person/record-art';
 import {
+  PLACED_RECORD_HOLD_MS,
+  placedRecordHitTest
+} from '../../src/lib/pixel-person/render';
+import {
   createPixelPerson,
   stepPixelPerson,
   STUCK_RECOVERY_MS
@@ -212,6 +216,75 @@ describe('crawl transition hygiene', () => {
   });
 });
 
+describe('cliff sense at walkable edges', () => {
+  const shelf = () => collider({ id: 'shelf', x: 0, y: 60, width: 100 });
+
+  function walker(overrides: Partial<PhysicsBody> = {}) {
+    const person = createPixelPerson(
+      tinyPerson,
+      body({ x: 10, supportId: 'shelf', ...overrides }),
+      0
+    );
+    person.activity = 'wander';
+    person.activityUntil = 99_000;
+    person.goalX = 300;
+    person.nextRecordAt = 999_000;
+    person.nextHideAt = 999_000;
+    return person;
+  }
+
+  it('turns back from an edge with nothing to land on below', () => {
+    const world = geometry({ colliders: [shelf()] });
+    const spatial = new SpatialHash(world.colliders);
+    const person = walker();
+
+    for (let step = 1; step <= 120; step += 1) {
+      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      expect(person.body.grounded).toBe(true);
+      // Never leaves the shelf: some part of the body always overlaps it.
+      expect(person.body.x).toBeLessThan(100);
+      expect(person.body.x + person.body.width).toBeGreaterThan(0);
+    }
+  });
+
+  it('still hops off when a landing exists within the drop window', () => {
+    const lower = collider({ id: 'lower', x: 96, y: 160, width: 200 });
+    const world = geometry({ colliders: [shelf(), lower] });
+    const spatial = new SpatialHash(world.colliders);
+    const person = walker();
+
+    let wentAirborne = false;
+    for (let step = 1; step <= 200; step += 1) {
+      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      if (!person.body.grounded) wentAirborne = true;
+      if (wentAirborne && person.body.grounded) break;
+    }
+
+    expect(wentAirborne).toBe(true);
+    expect(person.body.supportId).toBe('lower');
+  });
+
+  it('a carrier committed to a delivery walks off the edge anyway', () => {
+    const world = geometry({ colliders: [shelf()] });
+    const spatial = new SpatialHash(world.colliders);
+    const person = walker();
+    person.carrying = {
+      sourceId: 'tile-1',
+      imageUrl: 'https://i.scdn.co/image/x',
+      putDownAt: 99_000,
+      deliverGoalX: 300
+    };
+
+    let wentAirborne = false;
+    for (let step = 1; step <= 120 && !wentAirborne; step += 1) {
+      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      if (!person.body.grounded) wentAirborne = true;
+    }
+
+    expect(wentAirborne).toBe(true);
+  });
+});
+
 describe('placed record hit testing', () => {
   const record = (overrides = {}) => ({
     id: 1,
@@ -221,8 +294,7 @@ describe('placed record hit testing', () => {
     ...overrides
   });
 
-  it('hits inside the bottom-centered 24px art box and misses outside', async () => {
-    const { placedRecordHitTest } = await import('../../src/lib/pixel-person/render');
+  it('hits inside the bottom-centered 24px art box and misses outside', () => {
     const records = [record()];
     // Art spans x 88..112, y 176..200 (bottom-centered on position).
     expect(placedRecordHitTest(records, { x: 100, y: 190 }, 2_000)?.id).toBe(1);
@@ -231,15 +303,17 @@ describe('placed record hit testing', () => {
     expect(placedRecordHitTest(records, { x: 130, y: 190 }, 2_000)).toBeNull();
   });
 
-  it('ignores records that are already fading and prefers the topmost', async () => {
-    const { placedRecordHitTest, PLACED_RECORD_HOLD_MS } = await import(
-      '../../src/lib/pixel-person/render'
-    );
+  it('ignores records that are already fading and prefers the topmost', () => {
     const fading = record({ id: 1, placedAt: 1_000 });
     const fresh = record({ id: 2, placedAt: 5_000 });
     const now = 1_000 + PLACED_RECORD_HOLD_MS + 500;
     expect(placedRecordHitTest([fading], { x: 100, y: 190 }, now)).toBeNull();
     expect(placedRecordHitTest([fading, fresh], { x: 100, y: 190 }, now)?.id).toBe(2);
+  });
+
+  it('a dismissed record is no longer clickable', () => {
+    const dismissed = record({ id: 1, placedAt: 1_000, dismissedAt: 1_500 });
+    expect(placedRecordHitTest([dismissed], { x: 100, y: 190 }, 2_000)).toBeNull();
   });
 });
 
