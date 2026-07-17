@@ -124,14 +124,20 @@
   }
 
   /* Pixel shelf board each row of records stands on; the pixel people walk
-     along these (the boards are the wall's only collision surface). */
+     along these. The element spans exactly the tile so its collision rect
+     ends flush with the wall (overhang stubs were standable and people
+     pinballed down them); the 4px visual ears that connect boards across
+     column gaps are box-shadows, which the geometry scanner cannot see. */
   .shelf {
     position: absolute;
-    left: -4px;
-    right: -4px;
+    left: 0;
+    right: 0;
     bottom: -7px;
     height: 6px;
     background: var(--line);
+    box-shadow:
+      -4px 0 0 var(--line),
+      4px 0 0 var(--line);
   }
 
   /* Invisible climbing zone in the column gap, spanning from this row's

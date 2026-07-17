@@ -1,5 +1,5 @@
 import { clientToDocument } from './geometry';
-import { clamp } from './physics';
+import { clamp, expandedRect } from './physics';
 import { getRecordArt, RECORD_PIXELS, RECORD_SCALE } from './record-art';
 import type { PixelPersonRuntime } from './simulation';
 import { hitTestSpriteFrame, selectSpriteFrame } from './sprite';
@@ -9,6 +9,7 @@ import type {
   Occluder,
   PlacedRecord,
   Point,
+  Rect,
   SpriteFrame,
   WorldGeometry
 } from './types';
@@ -16,7 +17,25 @@ import type {
 /** Set-down records stay at full opacity for the hold, then fade out. */
 export const PLACED_RECORD_HOLD_MS = 120_000;
 export const PLACED_RECORD_FADE_MS = 4_000;
-export const PLACED_RECORD_LIFETIME_MS = PLACED_RECORD_HOLD_MS + PLACED_RECORD_FADE_MS;
+
+/** When this record's fade begins: after its hold, or the moment it was dismissed. */
+export function fadeStartAt(record: PlacedRecord): number {
+  return Math.min(
+    record.placedAt + PLACED_RECORD_HOLD_MS,
+    record.dismissedAt ?? Number.POSITIVE_INFINITY
+  );
+}
+
+/** The drawn art box: bottom-centered on the record's feet point. */
+function placedRecordRect(record: PlacedRecord): Rect {
+  const size = RECORD_PIXELS * RECORD_SCALE;
+  return {
+    x: record.position.x - size / 2,
+    y: record.position.y - size,
+    width: size,
+    height: size
+  };
+}
 
 const spriteCache = new Map<string, HTMLCanvasElement>();
 let cachedTheme = '';
@@ -87,7 +106,7 @@ function renderSignature(
   for (const record of placedRecords) {
     // Held records are static; only an active fade needs per-frame redraws.
     signature +=
-      now - record.placedAt > PLACED_RECORD_HOLD_MS
+      now >= fadeStartAt(record)
         ? `:${now}`
         : `:${record.id}:${getRecordArt(record.imageUrl)?.status ?? ''}`;
   }
@@ -193,28 +212,44 @@ function drawNoteGlyph(context: CanvasRenderingContext2D, x: number, y: number):
   }
 }
 
+/**
+ * The placed record (topmost first) under a document-space point, if any.
+ * Records already fading are not clickable — they are on their way out.
+ */
+export function placedRecordHitTest(
+  records: readonly PlacedRecord[],
+  documentPoint: Point,
+  now: number
+): PlacedRecord | null {
+  const slop = 3;
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (now >= fadeStartAt(record)) continue;
+    if (pointInside(documentPoint, expandedRect(placedRecordRect(record), slop))) {
+      return record;
+    }
+  }
+  return null;
+}
+
 function drawPlacedRecords(
   context: CanvasRenderingContext2D,
   records: readonly PlacedRecord[],
   now: number
 ): void {
   if (records.length === 0) return;
-  const size = RECORD_PIXELS * RECORD_SCALE;
   for (const record of records) {
     const art = getRecordArt(record.imageUrl);
     if (art?.status !== 'ready' || !art.sprite) continue;
-    const progress = clamp(
-      (now - record.placedAt - PLACED_RECORD_HOLD_MS) / PLACED_RECORD_FADE_MS,
-      0,
-      1
-    );
+    const progress = clamp((now - fadeStartAt(record)) / PLACED_RECORD_FADE_MS, 0, 1);
     if (progress >= 1) continue;
+    const rect = placedRecordRect(record);
     context.save();
     context.globalAlpha = 1 - progress * progress * (3 - 2 * progress);
     context.drawImage(
       art.sprite,
-      Math.round(record.position.x - size / 2 - window.scrollX),
-      Math.round(record.position.y - size - window.scrollY)
+      Math.round(rect.x - window.scrollX),
+      Math.round(rect.y - window.scrollY)
     );
     context.restore();
   }
@@ -457,7 +492,7 @@ function spriteDocumentY(person: PixelPersonRuntime): number {
   );
 }
 
-function pointInside(point: Point, rect: Occluder): boolean {
+function pointInside(point: Point, rect: Rect): boolean {
   return (
     point.x >= rect.x &&
     point.x <= rect.x + rect.width &&

@@ -74,6 +74,8 @@ export interface PlacedRecord {
   imageUrl: string;
   position: Point;
   placedAt: number;
+  /** Set when the user clicks the record; starts its fade immediately. */
+  dismissedAt?: number;
 }
 
 export interface SpriteFrame {

@@ -138,8 +138,9 @@ describe('walkable top bridging', () => {
 
 describe('pixel person record errands', () => {
   it('plans an errand toward a reachable cover once the cooldown elapses', () => {
-    const world = geometry();
-    const person = createPixelPerson(tinyPerson, body(), 0);
+    // Standing on the shelf under the tile row: body overlaps the source.
+    const world = geometry({ colliders: [collider({ y: 130 })] });
+    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
     person.activity = 'idle';
     person.activityUntil = 0;
     person.nextRecordAt = 0;
@@ -152,18 +153,48 @@ describe('pixel person record errands', () => {
     expect(person.nextRecordAt).toBeGreaterThan(20_000);
   });
 
+  it('never targets a record on the row below the walking level', () => {
+    // Standing on the shelf of the y=60 row; a nearer source sits a row down.
+    const sameRow = recordSource({ id: 'same-row', x: 200 });
+    const rowBelow = recordSource({ id: 'row-below', x: 30, y: 150 });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [sameRow, rowBelow]
+    });
+    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('same-row');
+  });
+
+  it('cannot grab a record from a perch above its tile', () => {
+    // Feet exactly at the tile top (standing above the row) — not same-row.
+    const world = geometry();
+    const person = createPixelPerson(tinyPerson, body(), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.recordErrand).toBeNull();
+    expect(person.activity).not.toBe('seek-record');
+  });
+
   it('prefers a record errand over planning a climb from a solid support', () => {
     const panel = collider({
       id: 'panel',
       kind: 'solid',
       edge: undefined,
       x: 0,
-      y: 60,
+      y: 130,
       width: 200,
       height: 90
     });
     const world = geometry({ colliders: [panel] });
-    const person = createPixelPerson(tinyPerson, body({ supportId: 'panel' }), 0);
+    const person = createPixelPerson(tinyPerson, body({ y: 100, supportId: 'panel' }), 0);
     person.activity = 'idle';
     person.activityUntil = 0;
     person.nextRecordAt = 0;
@@ -175,8 +206,8 @@ describe('pixel person record errands', () => {
   });
 
   it('arrives, stoops with the crouch animation, and starts carrying', () => {
-    const world = geometry();
-    const person = createPixelPerson(tinyPerson, body({ x: 141 }), 0);
+    const world = geometry({ colliders: [collider({ y: 130 })] });
+    const person = createPixelPerson(tinyPerson, body({ x: 141, y: 100 }), 0);
     person.activity = 'seek-record';
     person.activityUntil = 10_000;
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
@@ -340,9 +371,10 @@ describe('pixel person record errands', () => {
 
   it('avoids albums fetched recently when there is a fresh alternative', () => {
     const world = geometry({
+      colliders: [collider({ y: 130 })],
       itemSources: [recordSource(), recordSource({ id: 'tile-2', x: 210 })]
     });
-    const person = createPixelPerson(tinyPerson, body(), 0);
+    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
     person.activityUntil = 0;
     person.nextRecordAt = 0;
     person.recentRecordSourceIds = ['tile-1'];
@@ -354,8 +386,8 @@ describe('pixel person record errands', () => {
   });
 
   it('falls back to a repeat when everything nearby is recent', () => {
-    const world = geometry();
-    const person = createPixelPerson(tinyPerson, body(), 0);
+    const world = geometry({ colliders: [collider({ y: 130 })] });
+    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
     person.activityUntil = 0;
     person.nextRecordAt = 0;
     person.recentRecordSourceIds = ['tile-1'];
@@ -366,9 +398,9 @@ describe('pixel person record errands', () => {
   });
 
   it('caps the recent-album memory at its window size', () => {
-    const world = geometry();
+    const world = geometry({ colliders: [collider({ y: 130 })] });
     const spatial = new SpatialHash(world.colliders);
-    const person = createPixelPerson(tinyPerson, body({ x: 141 }), 0);
+    const person = createPixelPerson(tinyPerson, body({ x: 141, y: 100 }), 0);
     person.activity = 'seek-record';
     person.activityUntil = 99_000;
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
@@ -384,10 +416,10 @@ describe('pixel person record errands', () => {
 
   it('chooses delivery goals away from the viewport corners even for a full-width wall', () => {
     const wide = recordSource({ id: 'wall', x: 0, width: 500 });
-    const world = geometry({ itemSources: [wide] });
+    const world = geometry({ colliders: [collider({ y: 130 })], itemSources: [wide] });
     const spatial = new SpatialHash(world.colliders);
     for (let trial = 0; trial < 30; trial += 1) {
-      const person = createPixelPerson(tinyPerson, body({ x: 243 }), 0);
+      const person = createPixelPerson(tinyPerson, body({ x: 243, y: 100 }), 0);
       person.activity = 'seek-record';
       person.activityUntil = 99_000;
       person.recordErrand = { sourceId: 'wall', imageUrl: wide.imageUrl };

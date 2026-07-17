@@ -17,8 +17,10 @@
   import { expandedRect, intersects, SpatialHash } from '$lib/pixel-person/physics';
   import { getRecordArt, requestRecordArt } from '$lib/pixel-person/record-art';
   import {
+    fadeStartAt,
     isPointOnPixelPerson,
-    PLACED_RECORD_LIFETIME_MS,
+    PLACED_RECORD_FADE_MS,
+    placedRecordHitTest,
     renderPixelWorld,
     sizeCanvas
   } from '$lib/pixel-person/render';
@@ -53,6 +55,8 @@
   };
   const MAX_PIXEL_PEOPLE = 6;
   const MAX_PLACED_RECORDS = 12;
+  const CLICK_SUPPRESS_MS = 450;
+  const CLICK_SUPPRESS_RADIUS_PX = 8;
 
   let canvas: HTMLCanvasElement;
   let mounted = false;
@@ -80,8 +84,6 @@
   let activePersonId: string | null = null;
   let lastPointerClient: Point | null = null;
   let suppressedClick: { until: number; point: Point } | null = null;
-  let cursorGrabbable = false;
-  let cursorDragging = false;
   let placedRecords: PlacedRecord[] = [];
   let nextRecordEntityId = 1;
   const pendingSimulationCommands: PixelPersonCommand[] = [];
@@ -189,7 +191,7 @@
       mutationObserver?.disconnect();
       resizeObserver?.disconnect();
       finishPointerDrag(performance.now(), false);
-      setPointerCursor(false, false);
+      clearCursors();
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('pointerdown', onPointerDown, true);
@@ -217,7 +219,7 @@
     enabled = nextEnabled;
     if (!enabled) {
       finishPointerDrag(performance.now(), false);
-      setPointerCursor(false, false);
+      clearCursors();
       people = [];
       placedRecords = [];
       activePersonId = null;
@@ -305,7 +307,7 @@
     }
     if (placedRecords.length > 0) {
       placedRecords = placedRecords.filter(
-        (record) => now - record.placedAt < PLACED_RECORD_LIFETIME_MS
+        (record) => now < fadeStartAt(record) + PLACED_RECORD_FADE_MS
       );
     }
   }
@@ -422,18 +424,28 @@
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (
-      !enabled ||
-      people.length === 0 ||
-      activePointerId !== null ||
-      !event.isPrimary ||
-      event.button !== 0 ||
-      (event.pointerType !== 'mouse' && event.pointerType !== 'pen')
-    ) {
+    if (!enabled || activePointerId !== null || !event.isPrimary || event.button !== 0) {
       return;
     }
     const clientPoint = { x: event.clientX, y: event.clientY };
     const now = performance.now();
+
+    // Placed records dismiss on click/tap (any pointer type): the dismissal
+    // timestamp hands them to the existing fade-out.
+    const clickedRecord =
+      placedRecords.length > 0
+        ? placedRecordHitTest(placedRecords, clientToDocument(clientPoint), now)
+        : null;
+    if (clickedRecord) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      clickedRecord.dismissedAt = now;
+      suppressNextClick(now, clientPoint);
+      requestNextFrame();
+      return;
+    }
+
+    if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
     const target = [...people]
       .reverse()
       .find((person) => isPointOnPixelPerson(person, clientPoint, geometry, now));
@@ -456,17 +468,22 @@
 
   function onPointerMove(event: PointerEvent): void {
     if (activePointerId === null) {
-      if (!enabled || people.length === 0) {
-        setPointerCursor(false, false);
+      if (!enabled) {
+        clearCursors();
         return;
       }
       if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
         const point = { x: event.clientX, y: event.clientY };
-        setPointerCursor(
-          people.some((person) =>
-            isPointOnPixelPerson(person, point, geometry, performance.now())
-          ),
-          false
+        const now = performance.now();
+        const grabbable =
+          people.length > 0 &&
+          people.some((person) => isPointOnPixelPerson(person, point, geometry, now));
+        setPointerCursor(grabbable, false);
+        setCursorClass(
+          'pixel-record-clickable',
+          !grabbable &&
+            placedRecords.length > 0 &&
+            placedRecordHitTest(placedRecords, clientToDocument(point), now) !== null
         );
       }
       return;
@@ -523,7 +540,7 @@
   function onPointerOut(event: PointerEvent): void {
     if (event.relatedTarget !== null) return;
     if (activePointerId !== null) finishPointerDrag(performance.now(), false);
-    else setPointerCursor(false, false);
+    else clearCursors();
   }
 
   function onClick(event: MouseEvent): void {
@@ -532,7 +549,7 @@
       Math.hypot(
         event.clientX - suppressedClick.point.x,
         event.clientY - suppressedClick.point.y
-      ) <= 8;
+      ) <= CLICK_SUPPRESS_RADIUS_PX;
     if (performance.now() <= suppressedClick.until && closeToRelease) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -542,7 +559,7 @@
 
   function onWindowBlur(): void {
     finishPointerDrag(performance.now(), false);
-    setPointerCursor(false, false);
+    clearCursors();
   }
 
   function finishPointerDrag(now: number, suppressReleaseClick: boolean, point?: Point): void {
@@ -565,9 +582,9 @@
     activePointerId = null;
     activePersonId = null;
     lastPointerClient = null;
-    setPointerCursor(false, false);
+    clearCursors();
     if (suppressReleaseClick && point) {
-      suppressedClick = { until: now + 450, point: { ...point } };
+      suppressNextClick(now, point);
     }
   }
 
@@ -577,15 +594,22 @@
       : null;
   }
 
+  function setCursorClass(name: string, on: boolean): void {
+    document.documentElement.classList.toggle(name, on);
+  }
+
   function setPointerCursor(grabbable: boolean, dragging: boolean): void {
-    if (grabbable !== cursorGrabbable) {
-      cursorGrabbable = grabbable;
-      document.documentElement.classList.toggle('pixel-person-grabbable', grabbable);
-    }
-    if (dragging !== cursorDragging) {
-      cursorDragging = dragging;
-      document.documentElement.classList.toggle('pixel-person-dragging', dragging);
-    }
+    setCursorClass('pixel-person-grabbable', grabbable);
+    setCursorClass('pixel-person-dragging', dragging);
+  }
+
+  function clearCursors(): void {
+    setPointerCursor(false, false);
+    setCursorClass('pixel-record-clickable', false);
+  }
+
+  function suppressNextClick(now: number, point: Point): void {
+    suppressedClick = { until: now + CLICK_SUPPRESS_MS, point: { ...point } };
   }
 
   function clearCanvas(): void {
@@ -675,5 +699,10 @@
   :global(html.pixel-person-dragging),
   :global(html.pixel-person-dragging *) {
     cursor: grabbing !important;
+  }
+
+  :global(html.pixel-record-clickable),
+  :global(html.pixel-record-clickable *) {
+    cursor: pointer !important;
   }
 </style>
