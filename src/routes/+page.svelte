@@ -66,19 +66,28 @@
 
   // One long groove of today's numbers for the needle-drop ticker under the
   // site header. Built from the overview cache so it is ready at first paint.
+  // Each window's count and its top artist stay one group (joined with a small
+  // middot); the hollow ◦ only separates windows, so the pairing reads.
   $: grooveText = overview
     ? [
-        `${todayPlays.toLocaleString()} plays today`,
-        overview.today.top_artist ? `top artist ${overview.today.top_artist}` : '',
-        `${last7DaysPlays.toLocaleString()} plays this week`,
-        overview.this_week.top_artists[0]?.entity_name
-          ? `on rotation ${overview.this_week.top_artists[0].entity_name}`
-          : '',
-        `${last30DaysPlays.toLocaleString()} plays this month`,
-        overview.last_30_days.top_artists[0]?.entity_name
-          ? `heavy rotation ${overview.last_30_days.top_artists[0].entity_name}`
-          : ''
+        [
+          `${todayPlays.toLocaleString()} plays today`,
+          overview.today.top_artist ? `top artist ${overview.today.top_artist}` : ''
+        ],
+        [
+          `${last7DaysPlays.toLocaleString()} plays this week`,
+          overview.this_week.top_artists[0]?.entity_name
+            ? `on rotation ${overview.this_week.top_artists[0].entity_name}`
+            : ''
+        ],
+        [
+          `${last30DaysPlays.toLocaleString()} plays this month`,
+          overview.last_30_days.top_artists[0]?.entity_name
+            ? `heavy rotation ${overview.last_30_days.top_artists[0].entity_name}`
+            : ''
+        ]
       ]
+        .map((group) => group.filter(Boolean).join(' · '))
         .filter(Boolean)
         .join(' ◦ ')
     : '';
