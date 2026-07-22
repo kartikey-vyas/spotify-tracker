@@ -45,6 +45,7 @@
     return {
       hour: slice.hour,
       value: slice.value,
+      peak: slice.hour === clock.peakHour,
       track: sector(R_INNER, R_OUTER, a0, a1),
       fill: slice.fraction > 0 ? sector(R_INNER, rValue, a0, a1) : ''
     };
@@ -63,7 +64,7 @@
       {#each wedges as wedge (wedge.hour)}
         <path class="track" d={wedge.track} use:tipAction={tooltip(wedge.hour, wedge.value)} />
         {#if wedge.fill}
-          <path class="value" d={wedge.fill} />
+          <path class="value" class:peak={wedge.peak} d={wedge.fill} />
         {/if}
       {/each}
 
@@ -99,9 +100,14 @@
     fill: color-mix(in srgb, var(--line) 16%, transparent);
   }
 
+  /* Non-peak hours in a softened accent so the peak hour reads instantly. */
   .value {
-    fill: var(--accent);
+    fill: color-mix(in oklab, var(--accent) 45%, var(--surface-2));
     pointer-events: none;
+  }
+
+  .value.peak {
+    fill: var(--accent);
   }
 
   .label {
@@ -113,7 +119,7 @@
   }
 
   .peak-value {
-    fill: var(--text);
+    fill: var(--accent);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
     text-anchor: middle;

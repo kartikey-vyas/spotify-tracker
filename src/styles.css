@@ -6,8 +6,11 @@
   --text: #17130f;
   --muted: #695f52;
   --line: #30271f;
-  --accent: #17130f;
-  --accent-dark: #17130f;
+  /* Burnt-orange ink: 5.0:1 on --bg, 5.5:1 with --accent-ink on top. */
+  --accent: #a53e1c;
+  --accent-dark: #8c3315;
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, var(--bg));
+  --accent-ink: #f6eddf;
   --blue: #17130f;
   --amber: #76500b;
   --red: #9a1d12;
@@ -27,9 +30,12 @@ html[data-theme='black'] {
   --text: #f5f3ec;
   --muted: #aaa79f;
   --line: #3f3f3f;
-  --accent: #f5f3ec;
-  --accent-dark: #f5f3ec;
-  --blue: #f5f3ec;
+  /* Phosphor green, CRT terminal: 13.2:1 on --bg. */
+  --accent: #7ce38b;
+  --accent-dark: #57c96a;
+  --accent-soft: color-mix(in oklab, var(--accent) 20%, var(--bg));
+  --accent-ink: #04140a;
+  --blue: #7ce38b;
   --amber: #e3b76a;
   --red: #ff8a80;
 }
@@ -42,9 +48,12 @@ html[data-theme='warm-dark'] {
   --text: #eee8dc;
   --muted: #b8ad9e;
   --line: #5a4d43;
-  --accent: #eee8dc;
-  --accent-dark: #eee8dc;
-  --blue: #eee8dc;
+  /* Warm amber: 9.6:1 on --bg. */
+  --accent: #dfb36c;
+  --accent-dark: #c99b52;
+  --accent-soft: color-mix(in oklab, var(--accent) 18%, var(--bg));
+  --accent-ink: #17120f;
+  --blue: #dfb36c;
   --amber: #dfb36c;
   --red: #ff9588;
 }
@@ -57,8 +66,11 @@ html[data-theme='kanagawa'] {
   --text: #dcd7ba;
   --muted: #938aa9;
   --line: #54546d;
-  --accent: #dcd7ba;
-  --accent-dark: #dcd7ba;
+  /* Kanagawa's own wave blue: 5.9:1 on --bg. */
+  --accent: #7e9cd8;
+  --accent-dark: #6a87c4;
+  --accent-soft: color-mix(in oklab, var(--accent) 20%, var(--bg));
+  --accent-ink: #16161d;
   --blue: #7e9cd8;
   --amber: #e6c384;
   --red: #e46876;
@@ -72,8 +84,11 @@ html[data-theme='blush'] {
   --text: #3a2230;
   --muted: #8a6675;
   --line: #b07089;
+  /* Magenta: 4.6:1 on --bg, 4.8:1 with --accent-ink on top. */
   --accent: #c2367a;
   --accent-dark: #a12a66;
+  --accent-soft: color-mix(in oklab, var(--accent) 13%, var(--bg));
+  --accent-ink: #fff5f8;
   --blue: #c2367a;
   --amber: #b5650b;
   --red: #b3122a;
@@ -87,11 +102,50 @@ html[data-theme='rose'] {
   --text: #ffe1ee;
   --muted: #c397ad;
   --line: #6e3a55;
+  /* Hot pink: 7.2:1 on --bg. */
   --accent: #ff6fae;
   --accent-dark: #e85a99;
+  --accent-soft: color-mix(in oklab, var(--accent) 18%, var(--bg));
+  --accent-ink: #1c0f17;
   --blue: #b58cff;
   --amber: #f0b56a;
   --red: #ff6f8f;
+}
+
+html[data-theme='gruvbox'] {
+  color-scheme: dark;
+  --bg: #282828;
+  --surface: #32302f;
+  --surface-2: #3c3836;
+  --text: #ebdbb2;
+  --muted: #a89984;
+  --line: #665c54;
+  /* Gruvbox bright orange: 5.8:1 on --bg. */
+  --accent: #fe8019;
+  --accent-dark: #d65d0e;
+  --accent-soft: color-mix(in oklab, var(--accent) 18%, var(--bg));
+  --accent-ink: #282828;
+  --blue: #83a598;
+  --amber: #fabd2f;
+  --red: #fc5c47;
+}
+
+html[data-theme='seafoam'] {
+  color-scheme: light;
+  --bg: #dff0e8;
+  --surface: #ecf7f0;
+  --surface-2: #c9e2d5;
+  --text: #152e28;
+  --muted: #4c675e;
+  --line: #35544b;
+  /* Deep teal: 5.2:1 on --bg, 5.6:1 with --accent-ink on top. */
+  --accent: #0b6f5b;
+  --accent-dark: #095a4a;
+  --accent-soft: color-mix(in oklab, var(--accent) 13%, var(--bg));
+  --accent-ink: #ecf7f0;
+  --blue: #1c5e86;
+  --amber: #7d5405;
+  --red: #a02128;
 }
 
 * {
@@ -110,10 +164,20 @@ body {
   line-height: 1.45;
 }
 
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
 a {
   color: var(--text);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
 }
 
 button,
@@ -154,12 +218,12 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 a:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 input[type='checkbox'] {
-  accent-color: var(--text);
+  accent-color: var(--accent);
 }
 
 ::placeholder {
@@ -186,8 +250,12 @@ input[type='checkbox'] {
   align-items: center;
   gap: 0;
   min-width: 0;
-  color: var(--text);
+  color: var(--accent);
   font-weight: 700;
+}
+
+.brand:hover {
+  color: var(--accent-dark);
 }
 
 .brand-mark {
@@ -246,7 +314,7 @@ input[type='checkbox'] {
 .site-nav a:hover,
 .theme-menu summary:hover {
   background: transparent;
-  color: var(--muted);
+  color: var(--accent);
 }
 
 .theme-menu {
@@ -301,8 +369,8 @@ input[type='checkbox'] {
 }
 
 .theme-options button.active {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 main {

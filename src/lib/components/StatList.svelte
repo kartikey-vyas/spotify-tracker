@@ -53,6 +53,17 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Rank #1 gets the accent: marker and count light up. */
+  .stat-list:not(.skeleton-list) li:first-child::before {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .stat-list:not(.skeleton-list) li:first-child .count {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
   .stat-list .name {
     flex: 1 1 auto;
     overflow: hidden;

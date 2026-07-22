@@ -605,8 +605,8 @@
   }
 
   .picker-options button.active {
-    background: var(--text);
-    color: var(--bg);
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 
   .section-heading {
@@ -714,7 +714,7 @@
   .histogram-bar {
     width: 100%;
     min-height: 1px;
-    background: var(--text);
+    background: var(--accent);
   }
 
   .histogram-bar.is-empty {

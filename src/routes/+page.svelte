@@ -472,8 +472,8 @@
   }
 
   .profile-options button.active {
-    background: var(--text);
-    color: var(--bg);
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 
   .section-gap {
@@ -512,8 +512,8 @@
   }
 
   .window-toggle button.active {
-    background: var(--text);
-    color: var(--bg);
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 
   /* Calendar (wide) + clock (compact) share a row, wrapping on narrow screens. */

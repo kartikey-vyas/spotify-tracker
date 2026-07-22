@@ -38,7 +38,7 @@
     </thead>
     <tbody>
       {#each rows as row, index}
-        <tr>
+        <tr class:top-row={index === 0}>
           <td>{index + 1}</td>
           <td>
             {#if showLinks}
@@ -67,6 +67,16 @@
   .entity-link {
     color: var(--text);
     font-weight: 400;
+  }
+
+  /* Rank #1: soft accent tint across the row, accent marker on the rank cell. */
+  .top-row td {
+    background: var(--accent-soft);
+  }
+
+  .top-row td:first-child {
+    color: var(--accent);
+    font-weight: 700;
   }
 
   .empty {
