@@ -563,6 +563,9 @@
     color: var(--muted);
   }
 
+  /* Same quiet register as the trigger: a floating fragment of the page (bg
+     background, one hairline edge), options as link-like text. Active echoes
+     the summary's dotted underline. */
   .profile-options {
     position: absolute;
     top: calc(100% + 6px);
@@ -570,33 +573,35 @@
     z-index: 10;
     display: grid;
     min-width: 220px;
+    padding: 5px 0;
     border: 1px solid var(--line);
-    background: var(--surface);
+    background: var(--bg);
   }
 
   .profile-options button {
     display: block;
     width: 100%;
-    min-height: 32px;
-    padding: 7px 9px;
+    min-height: 0;
+    padding: 5px 12px;
     border: 0;
-    border-bottom: 1px solid var(--line);
     background: transparent;
-    color: var(--text);
+    color: var(--muted);
+    font-size: 0.9rem;
     text-align: left;
   }
 
-  .profile-options button:last-child {
-    border-bottom: 0;
-  }
-
   .profile-options button:hover {
-    background: var(--surface-2);
+    background: transparent;
+    color: var(--text);
   }
 
   .profile-options button.active {
-    background: var(--accent);
-    color: var(--accent-ink);
+    background: transparent;
+    color: var(--accent);
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
   }
 
   /* Un-boxed sections need whitespace to hold the page together: major

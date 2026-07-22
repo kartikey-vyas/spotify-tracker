@@ -332,6 +332,9 @@ input[type='checkbox'] {
   display: none;
 }
 
+/* The open menu keeps the trigger's quiet register: a floating fragment of the
+   page (bg background, one hairline edge) listing link-like options — no row
+   separators, no filled chips. Active echoes the summary's solid underline. */
 .theme-options {
   position: absolute;
   top: calc(100% + 8px);
@@ -342,35 +345,34 @@ input[type='checkbox'] {
   z-index: 10;
   display: grid;
   min-width: 112px;
+  padding: 5px 0;
   border: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .theme-options button {
   display: block;
   width: 100%;
-  min-height: 32px;
-  padding: 5px 9px;
+  min-height: 0;
+  padding: 4px 12px;
   border: 0;
-  border-bottom: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
   font-size: 0.9rem;
   text-align: left;
 }
 
-.theme-options button:last-child {
-  border-bottom: 0;
-}
-
 .theme-options button:hover {
-  background: var(--surface-2);
+  background: transparent;
   color: var(--text);
 }
 
 .theme-options button.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 main {
