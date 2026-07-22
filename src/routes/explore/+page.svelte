@@ -416,7 +416,7 @@
     <section class="panel section-gap"><p class="error">{error}</p></section>
   {:else}
     <section class="explorer-layout section-gap">
-      <div class="panel">
+      <div class="ranking-col">
         <div class="section-heading">
           <h2>Ranking</h2>
           {#if selectedProfile}<span class="muted">{selectedProfile.display_name}</span>{/if}
@@ -427,7 +427,7 @@
       </div>
 
       {#if entityType === 'artist'}
-        <aside class="panel detail-panel">
+        <aside class="detail-panel">
           {#if detailError}
             <p class="error">{detailError}</p>
           {:else if !entityId}
@@ -520,7 +520,15 @@
 
 <style>
   .section-gap {
-    margin-top: 16px;
+    margin-top: 32px;
+  }
+
+  /* Toolbar as a quiet band: filters sit on the page background, closed off
+     by a single bottom rule instead of a full box. */
+  .toolbar {
+    padding: 0 0 16px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
   }
 
   .picker-field {
@@ -609,12 +617,19 @@
     color: var(--accent-ink);
   }
 
+  /* Heading + one hairline rule; content sits on the page background. */
   .section-heading {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 12px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 14px;
+  }
+
+  .section-heading .muted {
+    font-size: 0.82rem;
   }
 
   .section-heading h2,
@@ -626,13 +641,13 @@
   .explorer-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
-    gap: 16px;
+    gap: 48px;
     align-items: start;
   }
 
   .detail-panel {
     display: grid;
-    gap: 16px;
+    gap: 20px;
   }
 
   .empty-detail {
@@ -647,10 +662,23 @@
     gap: 8px;
   }
 
+  /* Summary figures: no boxes — label over a bold tabular figure. */
   .compact {
-    min-height: 76px;
-    padding: 10px;
-    border: 1px solid var(--line);
+    gap: 2px;
+  }
+
+  .compact .muted {
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .compact strong {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
   }
 
   .detail-section {

@@ -39,7 +39,7 @@
   {:else if error}
     <section class="panel"><p class="error">{error}</p></section>
   {:else}
-    <section class="panel">
+    <section class="activity-table">
       <div class="table-wrap">
         <table>
           <thead>
@@ -91,6 +91,12 @@
 </section>
 
 <style>
+  /* Ledger treatment: the table sits directly on the page background — the
+     header row's hairline and the row separators are the only chrome. */
+  .activity-table {
+    margin-top: 28px;
+  }
+
   .art-col {
     width: 40px;
     padding-right: 0;

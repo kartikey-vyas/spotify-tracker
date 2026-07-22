@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
@@ -14,6 +13,7 @@
     bestAvailableMetric,
     formatMetric,
     metricValue,
+    qualityLabel,
     summaryValue,
     topArtistDetail
   } from '$lib/metrics';
@@ -63,6 +63,25 @@
   // Loading while data is already on screen (a 7d/30d toggle): dim the band so
   // the swap eases instead of popping. Distinct from the cold-load skeleton.
   $: bandPending = bandLoading && !bandSkeleton;
+
+  // One long groove of today's numbers for the needle-drop ticker under the
+  // site header. Built from the overview cache so it is ready at first paint.
+  $: grooveText = overview
+    ? [
+        `${todayPlays.toLocaleString()} plays today`,
+        overview.today.top_artist ? `top artist ${overview.today.top_artist}` : '',
+        `${last7DaysPlays.toLocaleString()} plays this week`,
+        overview.this_week.top_artists[0]?.entity_name
+          ? `on rotation ${overview.this_week.top_artists[0].entity_name}`
+          : '',
+        `${last30DaysPlays.toLocaleString()} plays this month`,
+        overview.last_30_days.top_artists[0]?.entity_name
+          ? `heavy rotation ${overview.last_30_days.top_artists[0].entity_name}`
+          : ''
+      ]
+        .filter(Boolean)
+        .join(' ◦ ')
+    : '';
 
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -213,6 +232,19 @@
       .reduce((total, day) => total + day.plays, 0);
   }
 
+  // "22 Jul 2026, 09:14" — terse pressing-stamp date for the catalog footer.
+  // en-GB keeps months to three letters (en-AU spells out "June"/"July").
+  function catalogStamp(iso: string): string {
+    return new Date(iso).toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+  }
+
   function summaryRows(): Array<{ label: string; value: string; caption: string; detail: string }> {
     if (!overview) return [];
     return [
@@ -237,6 +269,15 @@
 </script>
 
 <section class="page">
+  {#if grooveText && !error}
+    <div class="groove" aria-hidden="true">
+      <div class="groove-track">
+        <span class="groove-copy">{grooveText}&nbsp;&nbsp;◦&nbsp;&nbsp;</span>
+        <span class="groove-copy groove-dup">{grooveText}&nbsp;&nbsp;◦&nbsp;&nbsp;</span>
+      </div>
+    </div>
+  {/if}
+
   <div class="page-header">
     <span class="eyebrow">Australia/Melbourne</span>
     <h1>{selectedProfile?.display_name ?? 'Listening history'}</h1>
@@ -266,7 +307,7 @@
     </section>
   {:else}
     <div class="profile-picker">
-      <span class="profile-label">Profile</span>
+      <span class="profile-label">profile</span>
       <details bind:this={profileMenu} class="profile-menu">
         <summary>{selectedProfile ? profileOptionLabel(selectedProfile) : 'Choose profile'}</summary>
         <div class="profile-options" role="radiogroup" aria-label="Profile">
@@ -285,13 +326,6 @@
       </details>
     </div>
 
-    <div class="status-row">
-      <DataQualityBadge quality={1} />
-      <span class="muted">Generated {new Date(overview.generated_at).toLocaleString()}</span>
-      {#if overview.sync.last_success_at}
-        <span class="muted">Last API sync {new Date(overview.sync.last_success_at).toLocaleString()}</span>
-      {/if}
-    </div>
     <section class="grid cols-3">
       {#each summaryRows() as row}
         <MetricCard label={row.label} value={row.value} caption={row.caption} detail={row.detail} />
@@ -315,7 +349,7 @@
 
     {#if bandSkeleton || topAlbums.length > 0}
       <section class="panel band-region" class:is-pending={bandPending}>
-        <div class="section-heading">
+        <div class="panel-heading">
           <h2>Top albums {windowLabel}</h2>
           <span class="muted">Cover wall</span>
         </div>
@@ -324,7 +358,7 @@
     {/if}
 
     <section class="grid cols-2 section-gap band-region" class:is-pending={bandPending}>
-      <div class="panel">
+      <div>
         <div class="section-heading">
           <h2>Top artists {windowLabel}</h2>
           <span class="muted">Plays</span>
@@ -332,7 +366,7 @@
         <StatList rows={topArtists} loading={bandSkeleton} />
       </div>
 
-      <div class="panel">
+      <div>
         <div class="section-heading">
           <h2>Top tracks {windowLabel}</h2>
           <span class="muted">Plays</span>
@@ -342,7 +376,7 @@
     </section>
 
     <div class="time-row section-gap">
-      <section class="panel calendar-panel">
+      <section class="calendar-panel">
         <div class="section-heading">
           <h2>Listening calendar</h2>
           <span class="muted">Plays per day</span>
@@ -353,7 +387,7 @@
       </section>
 
       {#if overview.clock && overview.clock.length > 0}
-        <section class="panel clock-panel">
+        <section class="clock-panel">
           <div class="section-heading">
             <h2>Listening clock</h2>
             <span class="muted">Last 30 days</span>
@@ -364,7 +398,7 @@
     </div>
 
     {#if overview.release_years && overview.release_years.length > 0}
-      <section class="panel section-gap">
+      <section class="section-gap">
         <div class="section-heading">
           <h2>The age of your music</h2>
           <span class="muted">Plays by release year</span>
@@ -372,12 +406,102 @@
         <ReleaseYearChart buckets={overview.release_years} />
       </section>
     {/if}
+
+    <footer class="sleeve-footer section-gap">
+      <p class="catalog">
+        <span>Cat. musik-001</span>
+        <span class="sep">·</span>
+        <span>{qualityLabel(1)}</span>
+        <span class="sep">·</span>
+        <span>Generated {catalogStamp(overview.generated_at)}</span>
+        {#if overview.sync.last_success_at}
+          <span class="sep">·</span>
+          <span>Synced {catalogStamp(overview.sync.last_success_at)}</span>
+        {/if}
+        <span class="sep">·</span>
+        <span>All plays reserved</span>
+      </p>
+      <span class="barcode" aria-hidden="true"></span>
+    </footer>
   {/if}
 </section>
 
 <style>
-  .status-row,
+  /* Needle-drop ticker: one slow groove of today's numbers under the site
+     header. Two identical copies scroll by -50% for a seamless wrap. */
+  .groove {
+    overflow: hidden;
+    margin-bottom: 16px;
+    padding: 3px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .groove-track {
+    display: flex;
+    width: max-content;
+  }
+
+  .groove-copy {
+    color: var(--muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .groove-track {
+      animation: groove-scroll 75s linear infinite;
+    }
+
+    @keyframes groove-scroll {
+      from {
+        transform: translateX(0);
+      }
+      to {
+        transform: translateX(-50%);
+      }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .groove-track {
+      display: block;
+      width: auto;
+    }
+
+    .groove-copy {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .groove-dup {
+      display: none;
+    }
+  }
+
+  /* Un-boxed sections: a heading plus one hairline rule. Content below sits
+     directly on the page background — the rule is the only chrome. */
   .section-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 14px;
+  }
+
+  .section-heading .muted {
+    font-size: 0.82rem;
+  }
+
+  /* The cover wall keeps its original bordered shelf; its heading stays the
+     plain flex row from the base design (no extra rule inside the box). */
+  .panel-heading {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -385,41 +509,40 @@
     gap: 10px;
   }
 
-  .status-row {
-    margin-bottom: 16px;
-  }
-
+  /* Quiet inline profile picker: a dotted-underline name instead of a bordered
+     box; the dates it used to sit beside now live in the catalog footer. */
   .profile-picker {
     display: inline-flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: baseline;
     gap: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 36px;
   }
 
   .profile-label {
     color: var(--muted);
+    font-size: 0.82rem;
   }
 
   .profile-menu {
     position: relative;
-    min-width: 220px;
   }
 
   .profile-menu summary {
-    min-height: 32px;
-    padding: 5px 28px 5px 9px;
-    border: 1px solid var(--line);
-    background: var(--surface);
+    padding: 0 14px 0 0;
     color: var(--text);
+    font-size: 0.9rem;
     cursor: pointer;
     list-style: none;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
   }
 
   .profile-menu summary::after {
     position: absolute;
-    top: 13px;
-    right: 9px;
+    top: 7px;
+    right: 0;
     width: 0;
     height: 0;
     border-top: 5px solid var(--muted);
@@ -437,7 +560,7 @@
   }
 
   .profile-menu summary:hover {
-    background: var(--surface-2);
+    color: var(--muted);
   }
 
   .profile-options {
@@ -446,7 +569,7 @@
     left: 0;
     z-index: 10;
     display: grid;
-    width: 100%;
+    min-width: 220px;
     border: 1px solid var(--line);
     background: var(--surface);
   }
@@ -476,14 +599,22 @@
     color: var(--accent-ink);
   }
 
+  /* Un-boxed sections need whitespace to hold the page together: major
+     sections sit ~36px apart instead of the old 16px. */
   .section-gap {
-    margin-top: 16px;
+    margin-top: 36px;
+  }
+
+  /* Wider gutter between the two un-boxed ranking columns. */
+  .band-region.cols-2 {
+    column-gap: 48px;
+    row-gap: 32px;
   }
 
   .window-bar {
     display: flex;
     justify-content: flex-end;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
   }
 
   .window-toggle {
@@ -521,7 +652,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    gap: 12px;
+    gap: 36px;
   }
 
   .time-row .calendar-panel {
@@ -551,6 +682,39 @@
     flex: 1 1 220px;
     flex-direction: column;
     max-width: 300px;
+  }
+
+  /* Catalog footer: rights line + a flat CSS barcode (hard-stop stripes, so
+     it stays within the no-gradient look). */
+  .sleeve-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .catalog {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .catalog .sep {
+    opacity: 0.6;
+  }
+
+  .barcode {
+    width: 78px;
+    height: 18px;
+    background: repeating-linear-gradient(90deg, var(--text) 0 2px, transparent 2px 5px, var(--text) 5px 6px, transparent 6px 9px);
   }
 
   /* Window toggle: ease the band down while the new window loads, then back up

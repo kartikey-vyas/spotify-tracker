@@ -380,13 +380,13 @@ main {
 .page {
   width: min(1180px, 100%);
   margin: 0 auto;
-  padding-top: 18px;
+  padding-top: 24px;
 }
 
 .page-header {
   display: grid;
   gap: 4px;
-  margin-bottom: 18px;
+  margin-bottom: 24px;
 }
 
 .eyebrow {
