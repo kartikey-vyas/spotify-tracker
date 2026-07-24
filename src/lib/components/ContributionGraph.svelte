@@ -169,20 +169,22 @@
     gap: var(--gap);
   }
 
+  /* Stepped ramp from --surface-2 toward --accent (flat solids, no alpha) so
+     the calendar picks up each theme's accent while empty days stay quiet. */
   .cell {
     width: var(--cell);
     height: var(--cell);
-    background: color-mix(in srgb, var(--line) 16%, transparent);
+    background: var(--surface-2);
   }
 
   .cell[data-level='1'] {
-    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    background: color-mix(in oklab, var(--accent) 28%, var(--surface-2));
   }
   .cell[data-level='2'] {
-    background: color-mix(in srgb, var(--accent) 48%, transparent);
+    background: color-mix(in oklab, var(--accent) 52%, var(--surface-2));
   }
   .cell[data-level='3'] {
-    background: color-mix(in srgb, var(--accent) 72%, transparent);
+    background: color-mix(in oklab, var(--accent) 76%, var(--surface-2));
   }
   .cell[data-level='4'] {
     background: var(--accent);
@@ -264,7 +266,7 @@
   }
 
   .years button.active {
-    background: var(--text);
-    color: var(--bg);
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 </style>

@@ -10,7 +10,9 @@ export const themes = [
   { value: 'light', label: 'light' },
   { value: 'blush', label: 'blush' },
   { value: 'rose', label: 'rose' },
-  { value: 'black', label: 'black' }
+  { value: 'black', label: 'black' },
+  { value: 'gruvbox', label: 'gruvbox' },
+  { value: 'seafoam', label: 'seafoam' }
 ] as const;
 
 export type Theme = (typeof themes)[number]['value'];

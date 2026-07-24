@@ -26,6 +26,7 @@
             <div
               class="bar"
               class:empty={bar.value === 0}
+              class:max={bar.fraction === 1}
               style="height: {bar.value > 0 ? Math.max(2, bar.fraction * 100) : 0}%"
             ></div>
           </div>
@@ -67,8 +68,13 @@
     height: 100%;
   }
 
+  /* Softened accent for the field of bars; the tallest year in full accent. */
   .bar {
     width: 100%;
+    background: color-mix(in oklab, var(--accent) 55%, var(--surface-2));
+  }
+
+  .bar.max {
     background: var(--accent);
   }
 
@@ -78,7 +84,7 @@
   }
 
   .col:hover .bar:not(.empty) {
-    background: color-mix(in srgb, var(--accent) 70%, var(--text));
+    background: var(--accent-dark);
   }
 
   .axis {
