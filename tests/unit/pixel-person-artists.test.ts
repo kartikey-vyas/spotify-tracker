@@ -9,6 +9,7 @@ import {
 import {
   artistCharacterFor,
   artistCharacters,
+  artistRegistry,
   hasMatchedArtist,
   normalizeArtistName,
   pickCharacter,
@@ -107,6 +108,26 @@ describe('artistCharacters', () => {
       expect(character.id).toBe(key);
     }
     expect(Object.keys(artistCharacters).length).toBeGreaterThan(0);
+  });
+
+  it('declares every artistKey already normalized', () => {
+    // isOwnArtistSource normalizes only the source side and compares directly
+    // against `definition.artistKey`, so an un-normalized artistKey (e.g.
+    // 'Sigur Rós' instead of 'sigur ros') would spawn and walk correctly but
+    // silently never match its own records — no type error, no failing test,
+    // just a character that never seeks its own covers. This asserts the
+    // convention every future artist entry must follow, and that the
+    // registry actually resolves that key back to the character.
+    for (const character of Object.values(artistCharacters)) {
+      const key = character.artistKey;
+      expect(key).toBeTruthy();
+      if (!key) continue;
+      expect(key).toBe(normalizeArtistName(key));
+      const entry = artistRegistry.find((candidate) =>
+        candidate.match.some((name) => normalizeArtistName(name) === key)
+      );
+      expect(entry?.characterId).toBe(character.id);
+    }
   });
 });
 

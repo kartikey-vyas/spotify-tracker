@@ -1,8 +1,13 @@
 import { animation, characterRegistry, frame, getCharacter, tinyPerson } from './characters';
 import type { ArtistPresence, CharacterDefinition } from './types';
 
-/** Weight given to a matched artist whose element declared no rank. */
-const UNRANKED = 8;
+/**
+ * Rank assumed for a matched artist whose element declared no rank. Fed into
+ * the same `RANK_WEIGHT / (rank + 1)` curve as a real rank, so this yields a
+ * weight of 8/9 ≈ 0.89 — slightly below a single generic's weight of 1, not
+ * above it.
+ */
+const UNRANKED_RANK = 8;
 /** Numerator of the rank weighting curve: weight = RANK_WEIGHT / (rank + 1). */
 const RANK_WEIGHT = 8;
 
@@ -13,9 +18,11 @@ export interface ArtistCharacterEntry {
 }
 
 /**
- * Artist characters are deliberately NOT in `characterRegistry`. That registry
- * is what `randomCharacter()` iterates, so adding them there would spawn Frank
- * regardless of whether he is on the page — the behaviour this exists to replace.
+ * Artist characters are deliberately NOT in `characterRegistry`. `pickCharacter`
+ * below builds its generic pool from that registry, so adding them there would
+ * spawn Frank regardless of whether he is on the page — artists must only
+ * spawn when present on the page, which is why they are folded into the pool
+ * separately, weighted by presence.
  */
 export const artistCharacters: Record<string, CharacterDefinition> = {};
 export const artistRegistry: ArtistCharacterEntry[] = [];
@@ -136,7 +143,7 @@ export function pickCharacter(
   for (const presence of presences) {
     const character = artistCharacterFor(presence.name);
     if (!character) continue;
-    const rank = presence.rank ?? UNRANKED;
+    const rank = presence.rank ?? UNRANKED_RANK;
     const existing = bestRank.get(character.id);
     if (existing === undefined || rank < existing) bestRank.set(character.id, rank);
   }

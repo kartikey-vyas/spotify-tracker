@@ -22,7 +22,7 @@
     {#each rows as row, index (row.entity_id)}
       <li
         data-pixel-artist={entityKind === 'artist' ? row.entity_name : undefined}
-        data-pixel-artist-rank={index + 1}
+        data-pixel-artist-rank={entityKind === 'artist' ? index + 1 : undefined}
       >
         <span class="name">{row.entity_name}</span>
         <span class="count">{row.plays.toLocaleString()}</span>

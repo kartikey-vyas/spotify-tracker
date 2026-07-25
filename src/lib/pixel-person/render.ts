@@ -146,7 +146,7 @@ function renderSignature(
       now
     ).index;
     signature +=
-      `|${person.id}:${Math.round(person.body.x)}:${Math.round(person.body.y)}` +
+      `|${person.id}:${person.definition.id}:${Math.round(person.body.x)}:${Math.round(person.body.y)}` +
       `:${person.body.height}:${person.facing}:${person.animation}:${frameIndex}` +
       `:${person.hiddenOccluderId ?? ''}`;
     if (person.carrying) {

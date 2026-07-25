@@ -4,12 +4,10 @@ const WIDTH = 16;
 const HEIGHT = 22;
 
 export function frame(rows: string[]): SpriteFrame {
-  if (rows.length !== HEIGHT || rows.some((row) => row.length < WIDTH)) {
+  if (rows.length !== HEIGHT || rows.some((row) => row.length !== WIDTH)) {
     throw new Error(`Pixel person frames must be ${WIDTH}x${HEIGHT}.`);
   }
-  // Authoring a symmetric figure is easier with an occasional trailing
-  // transparent guide pixel. Trim that guide while keeping runtime frames strict.
-  return { rows: rows.map((row) => row.slice(0, WIDTH)) };
+  return { rows };
 }
 
 const idleA = frame([
@@ -542,9 +540,4 @@ export const characterRegistry: Record<string, CharacterDefinition> = {
 
 export function getCharacter(id = tinyPerson.id): CharacterDefinition {
   return characterRegistry[id] ?? tinyPerson;
-}
-
-export function randomCharacter(): CharacterDefinition {
-  const all = Object.values(characterRegistry);
-  return all[Math.floor(Math.random() * all.length)];
 }

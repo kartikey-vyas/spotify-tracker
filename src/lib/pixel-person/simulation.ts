@@ -961,7 +961,7 @@ function sourceReachableAtLevel(
 function isOwnArtistSource(person: PixelPersonRuntime, source: ItemSource): boolean {
   const key = person.definition.artistKey;
   if (!key || !source.artistName) return false;
-  return normalizeArtistName(source.artistName) === key;
+  return normalizeArtistName(source.artistName) === normalizeArtistName(key);
 }
 
 function chooseRecordSource(
