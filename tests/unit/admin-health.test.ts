@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  capResetAt,
   classifySystemHealth,
   classifyUserHealth,
+  enrichedInWindow,
+  enrichmentProgress,
+  enrichmentProgressLabel,
+  formatDuration,
   gapDiagnosticLabel,
   isUserSyncStale,
+  projectedDaysRemaining,
+  runOutcomeLabel,
+  runStatus,
+  type AdminEnrichmentRun,
   type AdminSystemHealth,
   type AdminUserHealth
 } from '../../src/lib/adminHealth.js';
@@ -26,6 +35,8 @@ function system(overrides: Partial<AdminSystemHealth> = {}): AdminSystemHealth {
     artist_count: 10,
     album_count: 20,
     track_count: 30,
+    tracks_enriched: 30,
+    tracks_unenriched: 0,
     tracks_missing_duration: 0,
     albums_missing_image: 0,
     artists_stale_or_unrefreshed: 0,
@@ -122,5 +133,108 @@ describe('admin health helpers', () => {
         now
       )
     ).toBe('warning');
+  });
+});
+
+describe('enrichmentProgress', () => {
+  it('reports enriched, remaining and percent over the enrichable worklist', () => {
+    const progress = enrichmentProgress(system({ tracks_enriched: 3478, tracks_unenriched: 22325 }));
+    expect(progress).toEqual({
+      enriched: 3478,
+      remaining: 22325,
+      total: 25803,
+      percent: (3478 / 25803) * 100
+    });
+  });
+
+  it('reports 100% when nothing is left to enrich', () => {
+    expect(enrichmentProgress(system({ tracks_enriched: 30, tracks_unenriched: 0 })).percent).toBe(100);
+  });
+
+  it('avoids dividing by zero when there are no enrichable tracks', () => {
+    const progress = enrichmentProgress(system({ tracks_enriched: 0, tracks_unenriched: 0 }));
+    expect(progress.percent).toBe(0);
+    expect(enrichmentProgressLabel(system({ tracks_enriched: 0, tracks_unenriched: 0 }))).toBe(
+      'no enrichable tracks'
+    );
+  });
+
+  it('formats the label with thousands separators and one decimal place', () => {
+    expect(enrichmentProgressLabel(system({ tracks_enriched: 3478, tracks_unenriched: 22325 }))).toBe(
+      '3,478 / 25,803 (13.5%)'
+    );
+  });
+});
+
+function run(overrides: Partial<AdminEnrichmentRun> = {}): AdminEnrichmentRun {
+  return {
+    id: 1,
+    started_at: isoMinutesAgo(60),
+    finished_at: isoMinutesAgo(58),
+    trigger: 'schedule',
+    requested_limit: 40,
+    concurrency: 2,
+    worklist_size: 40,
+    enriched: 40,
+    missing: 0,
+    failed: 0,
+    aborted: false,
+    abort_retry_after_seconds: null,
+    error: null,
+    duration_seconds: 120,
+    ...overrides
+  };
+}
+
+describe('enrichment run telemetry', () => {
+  it('sums enriched tracks only within the trailing window', () => {
+    const runs = [
+      run({ id: 1, started_at: isoMinutesAgo(30), enriched: 40 }),
+      run({ id: 2, started_at: isoMinutesAgo(60 * 23), enriched: 25 }),
+      run({ id: 3, started_at: isoMinutesAgo(60 * 30), enriched: 500 })
+    ];
+    expect(enrichedInWindow(runs, 24, now)).toBe(65);
+  });
+
+  it('projects remaining days from the observed rate', () => {
+    expect(projectedDaysRemaining(1000, 100)).toBe(10);
+    expect(projectedDaysRemaining(0, 0)).toBe(0);
+  });
+
+  it('returns null rather than infinity when nothing is being enriched', () => {
+    expect(projectedDaysRemaining(1000, 0)).toBeNull();
+  });
+
+  it('surfaces the retry-after on a rate-capped run', () => {
+    expect(runOutcomeLabel(run({ aborted: true, enriched: 12, abort_retry_after_seconds: 82_800 }))).toBe(
+      'rate capped after 12, retry-after 23h'
+    );
+  });
+
+  it('flags an unfinished run as critical and a capped run as warning', () => {
+    expect(runStatus(run({ finished_at: null }))).toBe('critical');
+    expect(runStatus(run({ aborted: true }))).toBe('warning');
+    expect(runStatus(run())).toBe('healthy');
+  });
+
+  it('derives the cap reset from the most recent aborted run', () => {
+    const capped = run({
+      aborted: true,
+      finished_at: isoMinutesAgo(60),
+      abort_retry_after_seconds: 3600
+    });
+    expect(capResetAt([capped])?.toISOString()).toBe(now.toISOString());
+  });
+
+  it('ignores aborted runs with no retry-after header', () => {
+    expect(capResetAt([run({ aborted: true, abort_retry_after_seconds: null })])).toBeNull();
+  });
+
+  it('formats durations across the ranges it renders', () => {
+    expect(formatDuration(45)).toBe('45s');
+    expect(formatDuration(600)).toBe('10m');
+    expect(formatDuration(3600)).toBe('1h');
+    expect(formatDuration(82_800)).toBe('23h');
+    expect(formatDuration(null)).toBe('n/a');
   });
 });

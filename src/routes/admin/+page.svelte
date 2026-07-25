@@ -7,7 +7,15 @@
     classifyUserHealth,
     coverageLabel,
     cronFreshnessLabel,
+    capResetAt,
+    enrichedInWindow,
+    enrichmentProgress,
+    enrichmentProgressLabel,
     formatCount,
+    formatDuration,
+    projectedDaysRemaining,
+    runOutcomeLabel,
+    runStatus,
     formatDateTime,
     gapDiagnosticLabel,
     latestPlayLabel,
@@ -30,6 +38,11 @@
   $: system = dashboard?.system ?? null;
   $: users = dashboard?.users ?? [];
   $: systemStatus = system ? classifySystemHealth(system) : 'paused';
+  $: enrichment = enrichmentProgress(system ?? { tracks_enriched: 0, tracks_unenriched: 0 });
+  $: enrichmentRuns = dashboard?.enrichmentRuns ?? [];
+  $: enrichedLast24h = enrichedInWindow(enrichmentRuns, 24);
+  $: projectedDays = projectedDaysRemaining(enrichment.remaining, enrichedLast24h);
+  $: capResets = capResetAt(enrichmentRuns);
 
   onMount(async () => {
     await loadDashboard();
@@ -177,6 +190,31 @@
 
     <section class="panel catalog-panel section-gap">
       <h2>Catalog/Data quality</h2>
+      <div class="enrichment">
+        <div class="enrichment-head">
+          <span class="enrichment-title">Metadata enrichment</span>
+          <strong>{enrichmentProgressLabel(system)}</strong>
+        </div>
+        <div
+          class="meter"
+          role="progressbar"
+          aria-label="Metadata enrichment progress"
+          aria-valuemin="0"
+          aria-valuemax={enrichment.total}
+          aria-valuenow={enrichment.enriched}
+        >
+          <span class="meter-fill" style="width: {enrichment.percent}%"></span>
+        </div>
+        <p class="muted enrichment-note">
+          {formatCount(enrichment.remaining)} left · {formatCount(enrichedLast24h)} in the last 24h ·
+          {projectedDays === null ? 'no recent throughput' : `~${Math.ceil(projectedDays)}d at that rate`}
+        </p>
+        {#if capResets}
+          <p class="muted enrichment-note">
+            Spotify cap lifts {formatDateTime(capResets.toISOString())}
+          </p>
+        {/if}
+      </div>
       <dl>
         <div>
           <dt>Artists</dt>
@@ -213,6 +251,55 @@
       </dl>
       {#if system.metadata_last_error}
         <p class="error metadata-error">{system.metadata_last_error}</p>
+      {/if}
+    </section>
+
+    <section class="panel section-gap">
+      <div class="section-heading">
+        <h2>Enrichment runs</h2>
+        <span class="muted">{formatCount(enrichmentRuns.length)} most recent</span>
+      </div>
+
+      {#if enrichmentRuns.length === 0}
+        <p class="muted">
+          No runs recorded yet. The scheduled workflow writes one row per attempt.
+        </p>
+      {:else}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Trigger</th>
+                <th>Batch</th>
+                <th>Outcome</th>
+                <th>Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each enrichmentRuns as run}
+                {@const status = runStatus(run)}
+                <tr>
+                  <td><span class={statusClass(status)}>{status}</span></td>
+                  <td>{formatDateTime(run.started_at)}</td>
+                  <td>{run.trigger}</td>
+                  <td>
+                    {run.requested_limit === null ? 'all' : formatCount(run.requested_limit)}
+                    <span class="cell-note">×{run.concurrency}</span>
+                  </td>
+                  <td>
+                    {runOutcomeLabel(run)}
+                    {#if run.error}
+                      <span class="cell-note error">{run.error}</span>
+                    {/if}
+                  </td>
+                  <td>{formatDuration(run.duration_seconds)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {/if}
     </section>
   {/if}
@@ -277,6 +364,42 @@
     display: grid;
     align-content: start;
     gap: 10px;
+  }
+
+  .enrichment {
+    display: grid;
+    gap: 6px;
+  }
+
+  .enrichment-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .enrichment-title {
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+
+  .meter {
+    background: var(--accent-soft);
+    border: 1px solid var(--line);
+    height: 10px;
+    overflow: hidden;
+  }
+
+  .meter-fill {
+    background: var(--accent);
+    display: block;
+    height: 100%;
+  }
+
+  .enrichment-note {
+    font-size: 0.86rem;
+    margin: 0;
   }
 
   dl {

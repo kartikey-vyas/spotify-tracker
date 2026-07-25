@@ -26,6 +26,31 @@ function parseFlag(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function parseStringFlag(name: string, fallback: string): string {
+  const arg = process.argv.find((a) => a.startsWith(`--${name}=`));
+  if (!arg) return fallback;
+  return arg.slice(name.length + 3) || fallback;
+}
+
+export type RunOutcome = {
+  enriched: number;
+  missing: number;
+  failed: number;
+  aborted: boolean;
+  abort_retry_after_seconds: number | null;
+  error: string | null;
+};
+
+/**
+ * Spotify signals the daily cap by way of a 429 whose retry-after is too long
+ * to sleep through. That number is how long until the quota resets, so it is
+ * the one value worth persisting from a failed run.
+ */
+export function abortRetryAfterSeconds(error: unknown): number | null {
+  const retryAfter = (error as { retryAfter?: unknown }).retryAfter;
+  return typeof retryAfter === 'number' && Number.isFinite(retryAfter) ? Math.round(retryAfter) : null;
+}
+
 /**
  * Order unenriched tracks by most-recent play. `events` must be sorted by
  * played_at descending; the first time a track id appears is its latest play.
@@ -126,9 +151,32 @@ async function loadRecencyOrder(
   return ordered;
 }
 
+async function startRun(
+  supabase: AdminClient,
+  row: { trigger: string; requested_limit: number | null; concurrency: number; worklist_size: number }
+): Promise<number | null> {
+  const { data, error } = await supabase.from('enrichment_runs').insert(row).select('id').single();
+  if (error) {
+    // Telemetry must never cost us an enrichment run.
+    console.warn(`Could not record run start: ${error.message}`);
+    return null;
+  }
+  return (data as { id: number }).id;
+}
+
+async function finishRun(supabase: AdminClient, runId: number | null, outcome: RunOutcome): Promise<void> {
+  if (runId == null) return;
+  const { error } = await supabase
+    .from('enrichment_runs')
+    .update({ ...outcome, finished_at: new Date().toISOString() })
+    .eq('id', runId);
+  if (error) console.warn(`Could not record run outcome: ${error.message}`);
+}
+
 export async function main(): Promise<void> {
   const concurrency = parseFlag('concurrency', 6);
   const limit = parseFlag('limit', Number.POSITIVE_INFINITY);
+  const trigger = parseStringFlag('trigger', 'local');
   const skipRefresh = process.argv.includes('--no-refresh');
 
   const supabase = createServiceClient();
@@ -157,6 +205,13 @@ export async function main(): Promise<void> {
   if (Number.isFinite(limit)) worklist = worklist.slice(0, limit);
   console.log(`Unenriched tracks: ${unenriched.size}; processing ${worklist.length} (concurrency ${concurrency})`);
 
+  const runId = await startRun(supabase, {
+    trigger,
+    requested_limit: Number.isFinite(limit) ? limit : null,
+    concurrency,
+    worklist_size: worklist.length
+  });
+
   const resolveAlbum = memoize(
     (album: SpotifyAlbum) => upsertAlbumFromSpotify(supabase, album),
     (album) => album.id
@@ -171,6 +226,7 @@ export async function main(): Promise<void> {
   let missing = 0;
   let failed = 0;
   let aborted = false;
+  let abortRetryAfter: number | null = null;
 
   // Fetch a track, refreshing the token once on a 401 (expired mid-run).
   const fetchTrack = async (spotifyId: string): Promise<SpotifyTrack | null> => {
@@ -238,12 +294,31 @@ export async function main(): Promise<void> {
       failed += 1;
       // Daily/abuse rate cap — stop the whole run rather than hammer Spotify.
       if ((error as { status?: number }).status === 429) {
-        if (!aborted) console.error('Hit Spotify daily rate cap — aborting run; re-run later to resume.');
+        const retryAfter = abortRetryAfterSeconds(error);
+        if (!aborted) {
+          abortRetryAfter = retryAfter;
+          console.error(
+            `Hit Spotify daily rate cap${retryAfter == null ? '' : ` (retry-after ${retryAfter}s)`} — aborting run; re-run later to resume.`
+          );
+        }
         aborted = true;
         return;
       }
       console.warn(`track ${track.spotify_track_id} failed: ${error instanceof Error ? error.message : error}`);
     }
+  });
+
+  // Recorded before the rollup refresh so the Spotify-facing numbers survive
+  // even if the (much longer) refresh below is interrupted. A row left with a
+  // null finished_at therefore means the pool itself died, which is worth
+  // being able to see.
+  await finishRun(supabase, runId, {
+    enriched: done,
+    missing,
+    failed,
+    aborted,
+    abort_retry_after_seconds: abortRetryAfter,
+    error: null
   });
 
   console.log(
