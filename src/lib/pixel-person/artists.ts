@@ -101,6 +101,15 @@ export function artistCharacterFor(name: string): CharacterDefinition | null {
   return null;
 }
 
+/**
+ * True when any presence maps to a registered artist character. The world uses
+ * this to detect the moment the artist rail becomes meaningful, because the
+ * first geometry scan runs before async-loaded artist elements exist.
+ */
+export function hasMatchedArtist(presences: ArtistPresence[]): boolean {
+  return presences.some((presence) => artistCharacterFor(presence.name) !== null);
+}
+
 /** Resolves any character id — artist or generic — for the spawn command path. */
 export function resolveCharacter(id?: string): CharacterDefinition {
   if (id && artistCharacters[id]) return artistCharacters[id];

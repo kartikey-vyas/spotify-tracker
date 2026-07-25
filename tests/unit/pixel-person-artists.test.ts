@@ -9,6 +9,7 @@ import {
 import {
   artistCharacterFor,
   artistCharacters,
+  hasMatchedArtist,
   normalizeArtistName,
   pickCharacter,
   resolveCharacter
@@ -195,6 +196,24 @@ describe('Frank Ocean', () => {
     }
     expect(pickCharacter(twice, () => 0.45).id).not.toBe('artist-frank-ocean');
     expect(pickCharacter(twice, () => 0.6).id).toBe('artist-frank-ocean');
+  });
+});
+
+describe('hasMatchedArtist', () => {
+  it('is false for an empty presence list', () => {
+    expect(hasMatchedArtist([])).toBe(false);
+  });
+
+  it('is false when no presence maps to a registered artist', () => {
+    expect(hasMatchedArtist([presence('Nobody At All', 1)])).toBe(false);
+  });
+
+  it('is true when any presence maps to a registered artist', () => {
+    expect(hasMatchedArtist([presence('Nobody At All', 1), presence('Frank Ocean', 4)])).toBe(true);
+  });
+
+  it('matches case- and spacing-insensitively, like artistCharacterFor', () => {
+    expect(hasMatchedArtist([presence('  FRANK  OCEAN ', 2)])).toBe(true);
   });
 });
 

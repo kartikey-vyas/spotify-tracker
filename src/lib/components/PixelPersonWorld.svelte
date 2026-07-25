@@ -3,7 +3,7 @@
   import { afterNavigate } from '$app/navigation';
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
-  import { pickCharacter, resolveCharacter } from '$lib/pixel-person/artists';
+  import { hasMatchedArtist, pickCharacter, resolveCharacter } from '$lib/pixel-person/artists';
   import {
     ambientPixelPersonPopulation,
     shouldEnablePixelPerson
@@ -73,6 +73,11 @@
   let lastScanScrollY = 0;
   let readyAt = 0;
   let geometryDirty = true;
+  // The first geometry scan runs before async artist elements (cover tiles, ranking
+  // rows) exist, so the initial character is picked from an empty pool. Re-roll once
+  // when the rail first has a registered artist in it; after that the character is
+  // stable for the page view.
+  let artistRerollDone = false;
   let forceRespawn = true;
   let ambientSuppressed = false;
   let enabled = false;
@@ -360,6 +365,19 @@
     });
     while (people.length < desiredPopulation) {
       people.push(createPersonAtSafeSpawn(now, people.length));
+    }
+    if (!artistRerollDone && hasMatchedArtist(geometry.artistPresences)) {
+      artistRerollDone = true;
+      for (const person of people) {
+        if (person.activity === 'drag') continue;
+        const rerolled = pickCharacter(geometry.artistPresences);
+        if (rerolled.id === person.definition.id) continue;
+        person.definition = rerolled;
+        // The outgoing character may have latched a signature pose the incoming
+        // one does not define; selectSpriteFrame would fall back to idle, but
+        // clearing it keeps the runtime honest.
+        person.idlePose = 'idle';
+      }
     }
     forceRespawn = false;
   }
