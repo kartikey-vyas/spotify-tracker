@@ -1,4 +1,4 @@
-import { DEV_ROUTE_DIRS, stripDevRoutes } from './lib/dev-routes';
+import { DEV_ROUTE_DIRS, stripDevRoutes } from './lib/dev-routes.js';
 
 async function main(): Promise<void> {
   const buildDir = process.argv[2] ?? 'build';
