@@ -14,8 +14,9 @@ async function exists(path: string): Promise<boolean> {
 }
 
 describe('dev route stripping', () => {
-  it('lists loader as a dev-only route', () => {
+  it('lists loader and sprites as dev-only routes', () => {
     expect(DEV_ROUTE_DIRS).toContain('loader');
+    expect(DEV_ROUTE_DIRS).toContain('sprites');
   });
 
   it('removes dev route directories and leaves everything else alone', async () => {

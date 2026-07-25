@@ -6,7 +6,7 @@ import { join } from 'node:path';
  * constant-folds out of the production bundle; this list removes the empty
  * prerendered shells that adapter-static still emits for them.
  */
-export const DEV_ROUTE_DIRS: readonly string[] = ['loader'];
+export const DEV_ROUTE_DIRS: readonly string[] = ['loader', 'sprites'];
 
 /** Removes each dev route directory from a build output. Returns what it targeted. */
 export async function stripDevRoutes(buildDir: string): Promise<string[]> {

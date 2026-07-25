@@ -403,6 +403,24 @@ function drawDangleDebug(
   context.restore();
 }
 
+/**
+ * Rasterizes one frame at `step` device pixels per sprite pixel. Callers own
+ * caching; `cachedFrame` is the game path, the sprite explorer is the other.
+ */
+export function rasterizeFrame(
+  frame: SpriteFrame,
+  palette: Record<string, string>,
+  outline: string,
+  step: number
+): HTMLCanvasElement {
+  const surface = document.createElement('canvas');
+  surface.width = frame.rows[0].length * step;
+  surface.height = frame.rows.length * step;
+  const context = surface.getContext('2d');
+  if (context) drawFrame(context, frame, palette, outline, 0, 0, step);
+  return surface;
+}
+
 function cachedFrame(
   frameKey: string,
   frame: SpriteFrame,
@@ -414,11 +432,7 @@ function cachedFrame(
   const cached = spriteCache.get(key);
   if (cached) return cached;
 
-  const surface = document.createElement('canvas');
-  surface.width = frame.rows[0].length * scale;
-  surface.height = frame.rows.length * scale;
-  const context = surface.getContext('2d');
-  if (context) drawFrame(context, frame, palette, outline, 0, 0, scale);
+  const surface = rasterizeFrame(frame, palette, outline, scale);
   spriteCache.set(key, surface);
   return surface;
 }
@@ -448,7 +462,7 @@ function drawFrame(
   }
 }
 
-function themeOutline(): string {
+export function themeOutline(): string {
   const theme = document.documentElement.dataset.theme ?? 'light';
   if (theme !== cachedTheme) {
     cachedTheme = theme;
