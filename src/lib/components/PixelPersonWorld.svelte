@@ -101,6 +101,7 @@
     ambientSuppressed = false;
     forceRespawn = true;
     geometryDirty = true;
+    artistRerollDone = false;
     placedRecords = [];
     readyAt = performance.now() + 300;
     refreshAvailability();
