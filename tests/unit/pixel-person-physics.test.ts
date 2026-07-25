@@ -47,7 +47,7 @@ describe('pixel person character registry', () => {
     expect(tinyPerson.pixelWidth).toBe(16);
     expect(tinyPerson.pixelHeight).toBe(22);
     expect(tinyPerson.scale).toBe(1.5);
-    // Footprint is held at the pre-existing 24x32 so world tuning still applies.
+    // Footprint is held at the pre-existing 24x33 so world tuning still applies.
     expect(tinyPerson.pixelWidth * tinyPerson.scale).toBe(24);
     expect(tinyPerson.body.width).toBe(14);
     expect(tinyPerson.body.height).toBe(31);

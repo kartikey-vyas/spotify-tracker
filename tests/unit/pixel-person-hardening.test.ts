@@ -25,9 +25,10 @@ import type {
 function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
   return {
     x: 10,
-    y: 30,
+    // Feet at y=60 (29 + body height 31), matching the default floor collider's top.
+    y: 29,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -113,7 +114,7 @@ describe('ladder mantle landing', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 170, supportId: 'lower-shelf' }),
+      body({ x: 143, y: 169, supportId: 'lower-shelf' }),
       0
     );
     person.activity = 'wander';
