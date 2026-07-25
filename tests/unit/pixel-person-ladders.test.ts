@@ -12,9 +12,9 @@ import type {
 function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
   return {
     x: 10,
-    y: 30,
+    y: 29,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -62,10 +62,10 @@ describe('ladder climb-down rides', () => {
   it('rides a planned ladder down and dismounts onto the shelf below', () => {
     const world = geometry({ colliders: [upperShelf(), lowerShelf(), ladder()] });
     const spatial = new SpatialHash(world.colliders);
-    // Standing on the UPPER shelf, feet at y=60, at the ladder's goal x.
+    // Standing on the UPPER shelf, feet at y=60 (29 + body height 31), at the ladder's goal x.
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 30, supportId: 'upper-shelf' }),
+      body({ x: 143, y: 29, supportId: 'upper-shelf' }),
       0
     );
     person.activity = 'wander';
@@ -108,7 +108,7 @@ describe('ladder climb-down rides', () => {
     for (let trial = 0; trial < 60; trial += 1) {
       const person = createPixelPerson(
         tinyPerson,
-        body({ x: 40, y: 30, supportId: 'upper-shelf' }),
+        body({ x: 40, y: 29, supportId: 'upper-shelf' }),
         0
       );
       person.activityUntil = 0;
@@ -124,7 +124,7 @@ describe('ladder climb-down rides', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 30, supportId: 'upper-shelf' }),
+      body({ x: 143, y: 29, supportId: 'upper-shelf' }),
       0
     );
     person.activity = 'wander';
@@ -219,7 +219,7 @@ describe('errand-driven ladder routing', () => {
     });
     const spatial = new SpatialHash(world.colliders);
     // On the LOWER shelf, feet at y=160.
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
     stepPixelPerson(person, world, spatial, [], 0.05, 50);
 
@@ -237,7 +237,7 @@ describe('errand-driven ladder routing', () => {
     });
     const spatial = new SpatialHash(world.colliders);
     // On the UPPER shelf, feet at y=60.
-    const person = errandPerson({ x: 40, y: 30, supportId: 'upper-shelf' });
+    const person = errandPerson({ x: 40, y: 29, supportId: 'upper-shelf' });
 
     stepPixelPerson(person, world, spatial, [], 0.05, 50);
 
@@ -252,7 +252,7 @@ describe('errand-driven ladder routing', () => {
       itemSources: [highSource()]
     });
     const spatial = new SpatialHash(world.colliders);
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
     stepPixelPerson(person, world, spatial, [], 0.05, 50);
 
@@ -266,7 +266,7 @@ describe('errand-driven ladder routing', () => {
       itemSources: [highSource(), lowSource()]
     });
     const spatial = new SpatialHash(world.colliders);
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
     stepPixelPerson(person, world, spatial, [], 0.05, 50);
 
@@ -281,7 +281,7 @@ describe('errand-driven ladder routing', () => {
       itemSources: [highSource()]
     });
     const spatial = new SpatialHash(world.colliders);
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
     // Route -> walk -> ride -> re-plan on the upper shelf -> seek -> stoop.
     const allowed = ['wander', 'idle', 'climb', 'mantle', 'seek-record', 'record-stoop'];

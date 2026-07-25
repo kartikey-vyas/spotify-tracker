@@ -25,7 +25,7 @@ function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
     x: -7,
     y: 0,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -221,7 +221,7 @@ describe('pixel person drag lifecycle', () => {
     beginPixelPersonDrag(person, 7, { x: 50, y: 30 }, 10);
 
     expect(person.crawling).toBe(false);
-    expect(person.body.height).toBe(30);
+    expect(person.body.height).toBe(31);
     expect(person.animation).toBe('dangle');
   });
 
