@@ -3,11 +3,11 @@
   import { afterNavigate } from '$app/navigation';
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
+  import { pickCharacter, resolveCharacter } from '$lib/pixel-person/artists';
   import {
     ambientPixelPersonPopulation,
     shouldEnablePixelPerson
   } from '$lib/pixel-person/availability';
-  import { getCharacter, randomCharacter } from '$lib/pixel-person/characters';
   import { pixelPersonController } from '$lib/pixel-person/controller';
   import {
     clientToDocument,
@@ -369,7 +369,7 @@
     slot: number,
     id = `pixel-person-${nextPersonId++}`
   ): PixelPersonRuntime {
-    const definition = randomCharacter();
+    const definition = pickCharacter(geometry.artistPresences);
     return createPixelPerson(
       definition,
       findSafeSpawn(geometry, definition, slot),
@@ -391,7 +391,7 @@
         refreshAvailability();
       } else if (command.type === 'spawn') {
         if (people.length >= MAX_PIXEL_PEOPLE) continue;
-        const definition = getCharacter(command.characterId);
+        const definition = resolveCharacter(command.characterId);
         const body: PhysicsBody = {
           x: command.position.x,
           y: command.position.y,
