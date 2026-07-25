@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { bridgeWalkableTops, findSafeSpawn } from '../../src/lib/pixel-person/geometry';
 import { SpatialHash, stepPhysics } from '../../src/lib/pixel-person/physics';
@@ -690,6 +690,101 @@ describe('invisible ladders', () => {
     }
 
     expect(planned).toBe(true);
+  });
+});
+
+describe('artist record affinity', () => {
+  const frank = { ...tinyPerson, id: 'artist-frank-ocean', artistKey: 'frank ocean' };
+
+  it('walks past a nearer cover to reach its own artist', () => {
+    const nearOther = recordSource({ id: 'near-other', x: 60, artistName: 'Someone Else' });
+    const farOwn = recordSource({ id: 'far-own', x: 220, artistName: 'Frank Ocean' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [nearOther, farOwn]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('far-own');
+  });
+
+  it('matches the artist name regardless of case and punctuation', () => {
+    const own = recordSource({ id: 'own', x: 220, artistName: '  FRANK  OCEAN ' });
+    const other = recordSource({ id: 'other', x: 60, artistName: 'Someone Else' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [other, own]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('own');
+  });
+
+  it('falls back to the nearest source for a character with no artist key', () => {
+    // With no artistKey the `own` filter stays empty and the pool is exactly
+    // what it was pre-affinity: the nearest candidates, picked at random.
+    // With two candidates that pick is a coin flip, so pin it to index 0 —
+    // the nearest one, since the pool is distance-sorted — to assert the
+    // fallback ordering itself rather than getting lucky on the random draw.
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const nearOther = recordSource({ id: 'near-other', x: 60, artistName: 'Someone Else' });
+      const farOwn = recordSource({ id: 'far-own', x: 220, artistName: 'Frank Ocean' });
+      const world = geometry({
+        colliders: [collider({ y: 130 })],
+        itemSources: [nearOther, farOwn]
+      });
+      const person = createPixelPerson(tinyPerson, body({ y: 99 }), 0);
+      person.activityUntil = 0;
+      person.nextRecordAt = 0;
+
+      stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+      expect(person.recordErrand?.sourceId).toBe('near-other');
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it('takes someone else’s record when its own was carried recently', () => {
+    const own = recordSource({ id: 'own', x: 220, artistName: 'Frank Ocean' });
+    const other = recordSource({ id: 'other', x: 60, artistName: 'Someone Else' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [own, other]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+    person.recentRecordSourceIds = ['own'];
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('other');
+  });
+
+  it('ignores untagged sources rather than treating them as a match', () => {
+    const untagged = recordSource({ id: 'untagged', x: 60 });
+    const own = recordSource({ id: 'own', x: 220, artistName: 'Frank Ocean' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [untagged, own]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('own');
   });
 });
 

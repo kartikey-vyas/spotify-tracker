@@ -1,4 +1,5 @@
 import type { CharacterDefinition } from './types';
+import { normalizeArtistName } from './artists';
 import {
   createDangle,
   releaseDangle,
@@ -956,6 +957,13 @@ function sourceReachableAtLevel(
   return source.y < feetY && source.y + source.height > feetY - bodyHeight;
 }
 
+/** True when the source is a cover by the person's own artist. */
+function isOwnArtistSource(person: PixelPersonRuntime, source: ItemSource): boolean {
+  const key = person.definition.artistKey;
+  if (!key || !source.artistName) return false;
+  return normalizeArtistName(source.artistName) === key;
+}
+
 function chooseRecordSource(
   person: PixelPersonRuntime,
   geometry: WorldGeometry
@@ -980,7 +988,12 @@ function chooseRecordSource(
   const fresh = candidates.filter(
     (source) => !person.recentRecordSourceIds.includes(source.id)
   );
-  const pool = (fresh.length > 0 ? fresh : candidates).slice(0, 4);
+  const eligible = fresh.length > 0 ? fresh : candidates;
+  // An artist character walks past other covers to reach their own. This must
+  // narrow the pool rather than just order it: the final pick is random, so
+  // sorting alone would still take someone else's record half the time.
+  const own = eligible.filter((source) => isOwnArtistSource(person, source));
+  const pool = (own.length > 0 ? own : eligible).slice(0, 4);
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
