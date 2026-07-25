@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { artistCharacters } from '$lib/pixel-person/artists';
   import { characterRegistry } from '$lib/pixel-person/characters';
   import { rasterizeFrame, themeOutline } from '$lib/pixel-person/render';
   import { applyTheme, themes, type Theme } from '$lib/theme';
@@ -11,7 +12,12 @@
   let mounted = false;
   let outline = '#111';
 
-  const characters: CharacterDefinition[] = Object.values(characterRegistry);
+  // Artist characters live outside characterRegistry so they never spawn
+  // unprompted, but authoring them needs the same preview.
+  const characters: CharacterDefinition[] = [
+    ...Object.values(characterRegistry),
+    ...Object.values(artistCharacters)
+  ];
 
   function setTheme(value: Theme): void {
     applyTheme(value);

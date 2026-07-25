@@ -1,9 +1,4 @@
-import type {
-  AnimationName,
-  CharacterDefinition,
-  SpriteAnimation,
-  SpriteFrame
-} from './types';
+import type { CharacterDefinition, SpriteAnimation, SpriteFrame } from './types';
 
 const WIDTH = 16;
 const HEIGHT = 22;
@@ -458,7 +453,9 @@ export function animation(
   return { frames, frameDurationMs, loop };
 }
 
-const animations: Record<AnimationName, SpriteAnimation> = {
+// Generics carry the base ten poses and no signature; the signature is the one
+// thing an artist character adds on top of the shared rig.
+const animations: CharacterDefinition['animations'] = {
   idle: animation([idleA, idleB], 620),
   walk: animation([walkA, walkB], 145),
   jump: animation([jump], 250, false),

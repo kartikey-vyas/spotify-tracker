@@ -172,6 +172,8 @@ export interface PixelPersonRuntime {
   facing: Facing;
   animation: AnimationName;
   animationStartedAt: number;
+  /** Which pose the idle activity holds; latched so locomotion cannot clobber it. */
+  idlePose: 'idle' | 'signature';
   activity: Activity;
   activityUntil: number;
   goalX: number;
@@ -216,6 +218,7 @@ export function createPixelPerson(
     facing: 1,
     animation: 'idle',
     animationStartedAt: now,
+    idlePose: 'idle',
     activity: 'idle',
     activityUntil: now + 900,
     goalX: body.x,
@@ -852,10 +855,12 @@ function chooseNextActivity(
   }
 
   if (Math.random() < 0.3) {
+    const hasSignature = Boolean(person.definition.animations.signature);
+    person.idlePose = hasSignature && Math.random() < 0.25 ? 'signature' : 'idle';
     person.activity = 'idle';
     person.activityUntil = now + 900 + Math.random() * 1_900;
     person.goalX = person.body.x;
-    setAnimation(person, 'idle', now);
+    setAnimation(person, person.idlePose, now);
     return;
   }
 
@@ -1937,7 +1942,10 @@ function setLocomotionAnimation(person: PixelPersonRuntime, now: number): void {
   } else if (Math.abs(person.body.vx) > 3) {
     setAnimation(person, 'walk', now);
   } else {
-    setAnimation(person, 'idle', now);
+    // Gating on the activity is what keeps this safe: several paths exit
+    // listening, stooping, hiding and climbing with a direct setAnimation
+    // to 'idle', and without the gate a stale latched pose would reappear.
+    setAnimation(person, person.activity === 'idle' ? person.idlePose : 'idle', now);
   }
 }
 
@@ -1959,6 +1967,7 @@ function cancelSpecialMovement(person: PixelPersonRuntime): void {
   person.listen = null;
   // person.carrying is deliberately kept: records survive activity changes.
   person.drag = null;
+  person.idlePose = 'idle';
 }
 
 function sameGeometryGroup(collider: Collider, occluder: Occluder): boolean {

@@ -11,7 +11,9 @@ export function selectSpriteFrame(
   animationStartedAt: number,
   now: number
 ): SelectedSpriteFrame {
-  const animation = definition.animations[animationName];
+  // A character without a signature pose falls back to idle rather than
+  // dereferencing undefined.
+  const animation = definition.animations[animationName] ?? definition.animations.idle;
   const elapsed = Math.max(0, now - animationStartedAt);
   const rawIndex = Math.floor(elapsed / animation.frameDurationMs);
   const index = animation.loop
