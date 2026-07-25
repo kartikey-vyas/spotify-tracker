@@ -41,12 +41,35 @@ const spriteCache = new Map<string, HTMLCanvasElement>();
 let cachedTheme = '';
 let cachedOutline = '#111';
 
+/**
+ * Device pixels per sprite pixel. Rasterizing at this step keeps every pixel
+ * edge on a device-pixel boundary, which is what lets `scale` be fractional:
+ * the constraint is that `scale * dpr` be integral, not `scale` itself.
+ */
+export function deviceStep(scale: number, dpr: number): number {
+  return Math.max(1, Math.round(scale * dpr));
+}
+
+/**
+ * Cache identity for a rasterized frame. The step must be part of it — once
+ * rasterization depends on dpr, browser zoom would otherwise serve bitmaps
+ * rendered for the previous ratio.
+ */
+export function spriteCacheKey(frameKey: string, outline: string, step: number): string {
+  return `${frameKey}:${outline}:${step}`;
+}
+
 // Browser zoom changes devicePixelRatio and innerWidth INVERSELY, so the
 // physical pixel size alone cannot detect it — the applied dpr and CSS size
 // are tracked explicitly or zoom leaves a stale transform and inline size.
 let appliedDpr = 0;
 let appliedCssWidth = 0;
 let appliedCssHeight = 0;
+
+/** `appliedDpr` is 0 until sizeCanvas runs; fall back to the live ratio. */
+function currentDpr(): number {
+  return appliedDpr || Math.min(window.devicePixelRatio || 1, 2);
+}
 
 export function sizeCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   const context = canvas.getContext('2d');
@@ -354,6 +377,7 @@ function drawPerson(
   const spriteX = Math.round(person.body.x - definition.body.offsetX - window.scrollX);
   const spriteY = Math.round(spriteDocumentY(person) - window.scrollY);
   const spriteWidth = definition.pixelWidth * definition.scale;
+  const spriteHeight = definition.pixelHeight * definition.scale;
   const sprite = cachedFrame(
     `${definition.id}:${person.animation}:${frameIndex}`,
     frame,
@@ -371,13 +395,13 @@ function drawPerson(
     );
     context.rotate(-person.drag.angle);
     if (person.facing === -1) context.scale(-1, 1);
-    context.drawImage(sprite, -gripX, -gripY);
+    context.drawImage(sprite, -gripX, -gripY, spriteWidth, spriteHeight);
   } else if (person.facing === -1) {
     context.translate(spriteX + spriteWidth, spriteY);
     context.scale(-1, 1);
-    context.drawImage(sprite, 0, 0);
+    context.drawImage(sprite, 0, 0, spriteWidth, spriteHeight);
   } else {
-    context.drawImage(sprite, spriteX, spriteY);
+    context.drawImage(sprite, spriteX, spriteY, spriteWidth, spriteHeight);
   }
   context.restore();
 }
@@ -428,11 +452,12 @@ function cachedFrame(
   scale: number
 ): HTMLCanvasElement {
   const outline = themeOutline();
-  const key = `${frameKey}:${outline}`;
+  const step = deviceStep(scale, currentDpr());
+  const key = spriteCacheKey(frameKey, outline, step);
   const cached = spriteCache.get(key);
   if (cached) return cached;
 
-  const surface = rasterizeFrame(frame, palette, outline, scale);
+  const surface = rasterizeFrame(frame, palette, outline, step);
   spriteCache.set(key, surface);
   return surface;
 }
