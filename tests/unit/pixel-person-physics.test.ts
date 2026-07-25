@@ -174,6 +174,7 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -209,6 +210,7 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -239,6 +241,7 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -263,6 +266,7 @@ describe('pixel person physics', () => {
       colliders: [],
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -291,6 +295,7 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -326,6 +331,7 @@ describe('pixel person physics', () => {
       colliders: [panel],
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 390, height: 844 },
       viewportBounds: { x: 0, y: 0, width: 390, height: 844 }
     };
@@ -411,6 +417,7 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 200, height: 200 },
       viewportBounds: { x: 0, y: 0, width: 200, height: 200 }
     };

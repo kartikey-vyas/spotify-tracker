@@ -372,7 +372,7 @@
           <h2>Top artists {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        <StatList rows={topArtists} loading={bandSkeleton} />
+        <StatList rows={topArtists} loading={bandSkeleton} entityKind="artist" />
       </div>
 
       <div>

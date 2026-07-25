@@ -32,6 +32,7 @@ function geometry(overrides: Partial<WorldGeometry> = {}): WorldGeometry {
     colliders: [],
     occluders: [],
     itemSources: [],
+    artistPresences: [],
     scanBounds: { x: -360, y: -280, width: 1220, height: 1560 },
     viewportBounds: { x: 0, y: 0, width: 500, height: 1000 },
     ...overrides

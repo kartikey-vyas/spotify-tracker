@@ -44,12 +44,23 @@ export interface ItemSource extends Rect {
   id: string;
   kind: ItemSourceKind;
   imageUrl: string;
+  /** Display name of the album's artist, when the element also declares one. */
+  artistName?: string;
+}
+
+/** An artist represented somewhere on the page — a list row, a cover tile. */
+export interface ArtistPresence extends Rect {
+  id: string;
+  name: string;
+  /** 1-based position in whatever ranking rendered it; absent when unranked. */
+  rank?: number;
 }
 
 export interface WorldGeometry {
   colliders: Collider[];
   occluders: Occluder[];
   itemSources: ItemSource[];
+  artistPresences: ArtistPresence[];
   scanBounds: Rect;
   viewportBounds: Rect;
 }

@@ -1,3 +1,4 @@
+import { parseArtistPresence } from './artist-presence';
 import { hasBodyClearance, intersects } from './physics';
 import type {
   CharacterDefinition,
@@ -89,6 +90,7 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
   const colliders: Collider[] = [];
   const occluders: WorldGeometry['occluders'] = [];
   const itemSources: WorldGeometry['itemSources'] = [];
+  const artistPresences: WorldGeometry['artistPresences'] = [];
   const elements = [root, ...root.querySelectorAll<HTMLElement>('*')];
 
   for (const element of elements) {
@@ -124,9 +126,23 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
       occluders.push({ ...rect, id: `${groupId}:occluder`, groupId });
     }
 
+    const presence = parseArtistPresence(
+      rect,
+      groupId,
+      element.getAttribute('data-pixel-artist'),
+      element.getAttribute('data-pixel-artist-rank')
+    );
+    if (presence) artistPresences.push(presence);
+
     const recordUrl = element.getAttribute('data-pixel-record');
     if (recordUrl) {
-      itemSources.push({ ...rect, id: groupId, kind: 'record', imageUrl: recordUrl });
+      itemSources.push({
+        ...rect,
+        id: groupId,
+        kind: 'record',
+        imageUrl: recordUrl,
+        artistName: presence?.name
+      });
     }
   }
 
@@ -164,7 +180,7 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
     });
   }
 
-  return { colliders, occluders, itemSources, scanBounds, viewportBounds };
+  return { colliders, occluders, itemSources, artistPresences, scanBounds, viewportBounds };
 }
 
 /**

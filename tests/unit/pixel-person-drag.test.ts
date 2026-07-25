@@ -188,6 +188,7 @@ describe('pixel person drag lifecycle', () => {
       colliders: [],
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };

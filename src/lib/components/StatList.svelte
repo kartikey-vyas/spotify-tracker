@@ -4,6 +4,9 @@
   export let rows: RankingRow[] = [];
   export let loading = false;
   export let placeholderCount = 8;
+  /** Set to 'artist' to expose rows to the pixel-person artist rail. Off by default
+      because this component also renders tracks, which must never be tagged. */
+  export let entityKind: 'artist' | null = null;
 
   $: placeholders = Array.from({ length: placeholderCount });
 </script>
@@ -16,8 +19,11 @@
   </ol>
 {:else}
   <ol class="stat-list">
-    {#each rows as row}
-      <li>
+    {#each rows as row, index (row.entity_id)}
+      <li
+        data-pixel-artist={entityKind === 'artist' ? row.entity_name : undefined}
+        data-pixel-artist-rank={index + 1}
+      >
         <span class="name">{row.entity_name}</span>
         <span class="count">{row.plays.toLocaleString()}</span>
       </li>
