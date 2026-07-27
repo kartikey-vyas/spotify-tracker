@@ -13,6 +13,7 @@
     enrichmentProgressLabel,
     formatCount,
     formatDuration,
+    isCapPending,
     projectedDaysRemaining,
     runOutcomeLabel,
     runStatus,
@@ -43,6 +44,7 @@
   $: enrichedLast24h = enrichedInWindow(enrichmentRuns, 24);
   $: projectedDays = projectedDaysRemaining(enrichment.remaining, enrichedLast24h);
   $: capResets = capResetAt(enrichmentRuns);
+  $: capPending = isCapPending(enrichmentRuns);
 
   onMount(async () => {
     await loadDashboard();
@@ -209,9 +211,9 @@
           {formatCount(enrichment.remaining)} left · {formatCount(enrichedLast24h)} in the last 24h ·
           {projectedDays === null ? 'no recent throughput' : `~${Math.ceil(projectedDays)}d at that rate`}
         </p>
-        {#if capResets}
+        {#if capPending}
           <p class="muted enrichment-note">
-            Spotify cap lifts {formatDateTime(capResets.toISOString())}
+            Spotify cap lifts {formatDateTime(capResets!.toISOString())}
           </p>
         {/if}
       </div>

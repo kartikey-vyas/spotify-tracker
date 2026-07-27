@@ -91,14 +91,22 @@ async function pool<T>(items: T[], concurrency: number, worker: (item: T, index:
   await Promise.all(runners);
 }
 
-/** Memoize a per-key resolver so the same id is only written once, even under concurrency. */
+/**
+ * Memoize a per-key resolver so the same id is only written once, even under
+ * concurrency. A rejection is evicted rather than cached: otherwise one
+ * transient artist upsert failure would be replayed to every later track
+ * sharing that artist, failing them all without a retry.
+ */
 function memoize<T, R>(fn: (value: T) => Promise<R>, keyOf: (value: T) => string): (value: T) => Promise<R> {
   const cache = new Map<string, Promise<R>>();
   return (value: T) => {
     const key = keyOf(value);
     let hit = cache.get(key);
     if (!hit) {
-      hit = fn(value);
+      hit = fn(value).catch((error) => {
+        cache.delete(key);
+        throw error;
+      });
       cache.set(key, hit);
     }
     return hit;
