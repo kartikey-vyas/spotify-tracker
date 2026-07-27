@@ -126,6 +126,46 @@ export async function refreshSpotifyAccessToken(refreshToken: string): Promise<S
   );
 }
 
+/**
+ * Catalog endpoints (/v1/tracks/{id} and friends) need no user context, so
+ * metadata enrichment authenticates as the app rather than borrowing someone's
+ * refresh token.
+ */
+export async function clientCredentialsToken(): Promise<string> {
+  const payload = await tokenRequest(new URLSearchParams({ grant_type: 'client_credentials' }));
+  return payload.access_token;
+}
+
+// Above this, a 429's retry-after means a daily/abuse cap rather than a
+// transient burst. Sleeping through one would hang the caller for hours — it
+// once hung an enrichment run for days — so it is surfaced as a typed error and
+// the caller decides. Mirrors MAX_RETRY_AFTER_SECONDS in scripts/lib/spotify.ts.
+const MAX_RETRY_AFTER_SECONDS = 120;
+
+export type SpotifyApiError = Error & { status: number; retryAfter?: number };
+
+/**
+ * True only for a genuine daily/abuse cap, not for a burst that merely used up
+ * its retries. The distinction matters because `enrichment_runs` stores the
+ * retry-after to tune the cron schedule from: recording a 1-second burst as a
+ * cap would poison exactly the number that table exists to collect.
+ */
+export function isRateCapError(error: unknown): error is SpotifyApiError {
+  const retryAfter = (error as SpotifyApiError)?.retryAfter;
+  return (
+    (error as SpotifyApiError)?.status === 429 &&
+    typeof retryAfter === 'number' &&
+    retryAfter > MAX_RETRY_AFTER_SECONDS
+  );
+}
+
+function apiError(message: string, status: number, retryAfter?: number): SpotifyApiError {
+  const error = new Error(message) as SpotifyApiError;
+  error.status = status;
+  if (retryAfter !== undefined) error.retryAfter = retryAfter;
+  return error;
+}
+
 export async function spotifyApiFetch<T>(
   path: string,
   accessToken: string,
@@ -141,8 +181,11 @@ export async function spotifyApiFetch<T>(
     }
   });
 
-  if (response.status === 429 && attempt <= 4) {
+  if (response.status === 429) {
     const retryAfter = Number(response.headers.get('retry-after') ?? '1');
+    if (retryAfter > MAX_RETRY_AFTER_SECONDS || attempt > 4) {
+      throw apiError(`Spotify rate limit exceeded on ${path}: retry-after ${retryAfter}s`, 429, retryAfter);
+    }
     await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfter) * 1000));
     return spotifyApiFetch<T>(path, accessToken, init, attempt + 1);
   }
@@ -153,10 +196,24 @@ export async function spotifyApiFetch<T>(
   }
 
   if (!response.ok) {
-    throw new Error(`Spotify API ${path} failed with HTTP ${response.status}`);
+    throw apiError(`Spotify API ${path} failed with HTTP ${response.status}`, response.status);
   }
 
   return (await response.json()) as T;
+}
+
+/**
+ * Fetch by id, returning null when Spotify reports it does not exist, so one
+ * dead id does not abort a whole batch. Mirrors getByIdOrNull in
+ * scripts/lib/spotify.ts.
+ */
+export async function getByIdOrNull<T>(path: string, accessToken: string): Promise<T | null> {
+  try {
+    return await spotifyApiFetch<T>(path, accessToken);
+  } catch (error) {
+    if ((error as SpotifyApiError)?.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function getSpotifyMe(accessToken: string): Promise<SpotifyMe> {

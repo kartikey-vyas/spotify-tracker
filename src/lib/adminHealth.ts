@@ -11,6 +11,8 @@ export type AdminSystemHealth = {
   artist_count: number;
   album_count: number;
   track_count: number;
+  tracks_enriched: number;
+  tracks_unenriched: number;
   tracks_missing_duration: number;
   albums_missing_image: number;
   artists_stale_or_unrefreshed: number;
@@ -52,9 +54,27 @@ export type AdminUserHealth = {
   latest_rollup_updated_at: string | null;
 };
 
+export type AdminEnrichmentRun = {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  trigger: string;
+  requested_limit: number | null;
+  concurrency: number;
+  worklist_size: number | null;
+  enriched: number;
+  missing: number;
+  failed: number;
+  aborted: boolean;
+  abort_retry_after_seconds: number | null;
+  error: string | null;
+  duration_seconds: number | null;
+};
+
 export type AdminDashboard = {
   system: AdminSystemHealth;
   users: AdminUserHealth[];
+  enrichmentRuns: AdminEnrichmentRun[];
 };
 
 export const CRON_WARNING_MINUTES = 30;
@@ -193,4 +213,105 @@ export function gapDiagnosticLabel(user: AdminUserHealth): string {
 
 export function catalogTotalsLabel(system: AdminSystemHealth): string {
   return `${formatCount(system.track_count)} tracks / ${formatCount(system.album_count)} albums / ${formatCount(system.artist_count)} artists`;
+}
+
+export type EnrichmentProgress = {
+  enriched: number;
+  remaining: number;
+  total: number;
+  percent: number;
+};
+
+/**
+ * Progress of `pnpm enrich:backfill` over the tracks it can actually work on.
+ * The denominator is tracks with a Spotify id, matching the script's worklist —
+ * a track without one is unreachable, not pending.
+ */
+export function enrichmentProgress(
+  system: Pick<AdminSystemHealth, 'tracks_enriched' | 'tracks_unenriched'>
+): EnrichmentProgress {
+  const enriched = Math.max(0, system.tracks_enriched ?? 0);
+  const remaining = Math.max(0, system.tracks_unenriched ?? 0);
+  const total = enriched + remaining;
+  return {
+    enriched,
+    remaining,
+    total,
+    percent: total === 0 ? 0 : (enriched / total) * 100
+  };
+}
+
+export function enrichmentProgressLabel(
+  system: Pick<AdminSystemHealth, 'tracks_enriched' | 'tracks_unenriched'>
+): string {
+  const { enriched, total, percent } = enrichmentProgress(system);
+  if (total === 0) return 'no enrichable tracks';
+  return `${formatCount(enriched)} / ${formatCount(total)} (${percent.toFixed(1)}%)`;
+}
+
+/** Tracks enriched across every run that started within the trailing window. */
+export function enrichedInWindow(runs: AdminEnrichmentRun[], hours: number, now = new Date()): number {
+  const cutoff = now.getTime() - hours * 60 * minuteMs;
+  return runs.reduce((total, run) => {
+    const started = timestampMs(run.started_at);
+    if (started === null || started < cutoff) return total;
+    return total + Math.max(0, run.enriched);
+  }, 0);
+}
+
+/**
+ * Days to drain `remaining` at the observed 24h rate. Null when nothing has
+ * been enriched in the window — a rate of zero projects to infinity, which is
+ * not a useful thing to render.
+ */
+export function projectedDaysRemaining(remaining: number, perDay: number): number | null {
+  if (remaining <= 0) return 0;
+  if (perDay <= 0) return null;
+  return remaining / perDay;
+}
+
+export function formatDuration(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return 'n/a';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const leftoverMinutes = minutes % 60;
+  if (hours < 24) return leftoverMinutes === 0 ? `${hours}h` : `${hours}h ${leftoverMinutes}m`;
+  const days = Math.floor(hours / 24);
+  const leftoverHours = hours % 24;
+  return leftoverHours === 0 ? `${days}d` : `${days}d ${leftoverHours}h`;
+}
+
+/** One-line outcome for a run row: what it achieved, or why it stopped. */
+export function runOutcomeLabel(run: AdminEnrichmentRun): string {
+  if (run.aborted) {
+    const retry = run.abort_retry_after_seconds;
+    const wait = retry === null ? '' : `, retry-after ${formatDuration(retry)}`;
+    return `rate capped after ${formatCount(run.enriched)}${wait}`;
+  }
+  if (run.finished_at === null) return `unfinished (${formatCount(run.enriched)} enriched)`;
+  const parts = [`${formatCount(run.enriched)} enriched`];
+  if (run.missing > 0) parts.push(`${formatCount(run.missing)} missing`);
+  if (run.failed > 0) parts.push(`${formatCount(run.failed)} failed`);
+  return parts.join(', ');
+}
+
+export function runStatus(run: AdminEnrichmentRun): HealthStatus {
+  if (run.aborted) return 'warning';
+  if (run.finished_at === null) return 'critical';
+  if (run.failed > 0) return 'warning';
+  return 'healthy';
+}
+
+/**
+ * When Spotify's cap is expected to lift, derived from the most recent aborted
+ * run's retry-after. Null when no run has been capped or the header was absent.
+ */
+export function capResetAt(runs: AdminEnrichmentRun[]): Date | null {
+  const capped = runs.find((run) => run.aborted && run.abort_retry_after_seconds !== null);
+  if (!capped) return null;
+  const started = timestampMs(capped.finished_at ?? capped.started_at);
+  if (started === null) return null;
+  return new Date(started + (capped.abort_retry_after_seconds ?? 0) * 1000);
 }
