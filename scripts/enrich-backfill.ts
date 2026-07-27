@@ -17,6 +17,12 @@ import { upsertAlbumFromSpotify, upsertArtistFromSpotify } from './lib/spotify-d
 
 const USER = '6873a96d-3c4a-49a2-b487-1e7a78226280';
 
+// A 300-date chunk exceeded Supabase's statement timeout on 2026-07-26 (367
+// dates from a 40-track batch), failing the job after the tracks had already
+// been enriched and leaving those dates' rollups stale. Larger `--limit` values
+// touch proportionally more dates, so this has to stay well clear of the limit.
+const REFRESH_CHUNK_SIZE = 100;
+
 type UnenrichedTrack = { id: number; spotify_track_id: string };
 
 function parseFlag(name: string, fallback: number): number {
@@ -327,10 +333,10 @@ export async function main(): Promise<void> {
 
   if (!skipRefresh && affectedDates.size > 0) {
     const dates = [...affectedDates].sort();
-    console.log(`Refreshing rollups for ${dates.length} dates in chunks of 300...`);
-    for (let i = 0; i < dates.length; i += 300) {
-      await refreshUserPublicStats(supabase, USER, dates.slice(i, i + 300));
-      console.log(`  refreshed ${Math.min(i + 300, dates.length)}/${dates.length}`);
+    console.log(`Refreshing rollups for ${dates.length} dates in chunks of ${REFRESH_CHUNK_SIZE}...`);
+    for (let i = 0; i < dates.length; i += REFRESH_CHUNK_SIZE) {
+      await refreshUserPublicStats(supabase, USER, dates.slice(i, i + REFRESH_CHUNK_SIZE));
+      console.log(`  refreshed ${Math.min(i + REFRESH_CHUNK_SIZE, dates.length)}/${dates.length}`);
     }
   }
   console.log('Done.');

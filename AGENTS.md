@@ -44,6 +44,8 @@ This repo has three TypeScript environments plus local Python tooling with diffe
 
 There is intentional duplication of helpers (dates, hashing, Spotify dimensions, env) across `scripts/lib/` and `supabase/functions/_shared/` because Node and Deno cannot share modules. When changing logic in one, check whether the parallel copy needs the same change.
 
+Edge functions bundle `_shared/` at deploy time, so **editing a `_shared/` file changes nothing in production until every function importing it is redeployed**. `grep -l '_shared/<file>' supabase/functions/*/index.ts` finds them; `_shared/spotify.ts` currently backs `enrich-backfill`, `spotify-callback`, `spotify-connect` and `sync-due-users`.
+
 ## Data architecture
 
 - **Per-user rows** are keyed by `user_id`: `profiles`, `spotify_connections`, `listening_events`, `rollup_daily_entity_stats`, `sync_state`, `overview_cache`, `public_activity_recent`.
@@ -85,12 +87,22 @@ The TypeScript importer requires `--user-id`; do not add back the null-user path
 
 Sync scheduling has **moved from GitHub Actions into the database** (pg_cron + pg_net) because scheduled Actions were unreliable. See `supabase/migrations/20260619142000_schedule_sync_due_users_cron.sql`: `trigger_sync_due_users()` reads `project_url` and `sync_secret_key` from Supabase **Vault** and POSTs to `sync-due-users` every 15 minutes. The two Vault secrets must be created once per project (see the migration header) and are never committed. The old `.github/workflows/sync-recently-played.yml` has been deleted; README references to it are stale.
 
+**Metadata enrichment now runs the same way**, for the same reason — its GitHub Actions workflow fired 11 times against 14 requested over 43 hours, drifting up to 2h31m. `20260727130000_schedule_enrich_backfill_cron.sql` adds two jobs reusing the same Vault secrets:
+
+- `enrich-backfill` every 15 min POSTs the `enrich-backfill` edge function (default 30 tracks).
+- `drain-rollup-refresh-queue` every 15 min (offset by 5) calls `drain_rollup_refresh_queue(50)` directly — no HTTP hop, the work is in-database.
+
+The split exists because rollup refresh is far more expensive than enrichment: a 40-track batch produced 367 affected dates, and refreshing them in one 300-date call exceeded the statement timeout, failing the job *after* the tracks were enriched. The edge function now only queues dates into `rollup_refresh_queue`; the drain job refreshes them 50 at a time (~11s).
+
+Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. `/admin` renders progress plus the last 50 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
+
 ## Edge Functions deploy
 
 ```bash
 supabase db push
 supabase functions deploy spotify-callback --no-verify-jwt
 supabase functions deploy sync-due-users --no-verify-jwt
+supabase functions deploy enrich-backfill --no-verify-jwt
 supabase functions deploy spotify-connect          # requires JWT
 supabase functions deploy complete-onboarding
 supabase functions delete accept-invite
