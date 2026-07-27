@@ -32,6 +32,7 @@
     moveDraggedPixelPerson,
     rebaseDraggedPixelPerson,
     releasePixelPersonDrag,
+    setPersonDefinition,
     stepPixelPerson,
     STUCK_RECOVERY_MS,
     type PixelPersonRuntime
@@ -371,13 +372,7 @@
       artistRerollDone = true;
       for (const person of people) {
         if (person.activity === 'drag') continue;
-        const rerolled = pickCharacter(geometry.artistPresences);
-        if (rerolled.id === person.definition.id) continue;
-        person.definition = rerolled;
-        // The outgoing character may have latched a signature pose the incoming
-        // one does not define; selectSpriteFrame would fall back to idle, but
-        // clearing it keeps the runtime honest.
-        person.idlePose = 'idle';
+        setPersonDefinition(person, pickCharacter(geometry.artistPresences));
       }
     }
     forceRespawn = false;

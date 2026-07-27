@@ -66,15 +66,25 @@ let appliedDpr = 0;
 let appliedCssWidth = 0;
 let appliedCssHeight = 0;
 
+/**
+ * The device pixel ratio the canvas is transformed by, capped so a 3x display
+ * does not triple the raster cost. Sprites rasterize against this same value —
+ * if the two ever disagree, cached sprites are drawn at a different density
+ * than the canvas expects, so both callers read it from here.
+ */
+function clampedDpr(): number {
+  return Math.min(window.devicePixelRatio || 1, 2);
+}
+
 /** `appliedDpr` is 0 until sizeCanvas runs; fall back to the live ratio. */
 function currentDpr(): number {
-  return appliedDpr || Math.min(window.devicePixelRatio || 1, 2);
+  return appliedDpr || clampedDpr();
 }
 
 export function sizeCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   const context = canvas.getContext('2d');
   if (!context) return null;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = clampedDpr();
   const pixelWidth = Math.round(window.innerWidth * dpr);
   const pixelHeight = Math.round(window.innerHeight * dpr);
   if (

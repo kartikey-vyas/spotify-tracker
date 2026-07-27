@@ -6,12 +6,11 @@ import {
   createPixelPerson,
   stepPixelPerson
 } from '../../src/lib/pixel-person/simulation';
+import { normalizeArtistName } from '../../src/lib/pixel-person/artist-name';
 import {
   artistCharacterFor,
-  artistCharacters,
   artistRegistry,
   hasMatchedArtist,
-  normalizeArtistName,
   pickCharacter,
   resolveCharacter
 } from '../../src/lib/pixel-person/artists';
@@ -99,34 +98,32 @@ describe('pickCharacter', () => {
   });
 });
 
-describe('artistCharacters', () => {
-  it('keys every entry by the definition its own id', () => {
-    // pickCharacter re-looks-up artistCharacters[character.id]; a key/id
-    // mismatch would silently drop the character from the pool, with no
-    // type error to catch it.
-    for (const [key, character] of Object.entries(artistCharacters)) {
-      expect(character.id).toBe(key);
-    }
-    expect(Object.keys(artistCharacters).length).toBeGreaterThan(0);
-  });
-
-  it('declares every artistKey already normalized', () => {
-    // isOwnArtistSource normalizes only the source side and compares directly
-    // against `definition.artistKey`, so an un-normalized artistKey (e.g.
-    // 'Sigur Rós' instead of 'sigur ros') would spawn and walk correctly but
-    // silently never match its own records — no type error, no failing test,
-    // just a character that never seeks its own covers. This asserts the
-    // convention every future artist entry must follow, and that the
-    // registry actually resolves that key back to the character.
-    for (const character of Object.values(artistCharacters)) {
-      const key = character.artistKey;
+describe('artistRegistry', () => {
+  it('declares every artistKey already normalized, and resolvable back to its character', () => {
+    // isOwnArtistSource compares a normalized source name against
+    // `definition.artistKey`, so an un-normalized artistKey (e.g. 'Sigur Rós'
+    // instead of 'sigur ros') would spawn and walk correctly but silently
+    // never match its own records — no type error, no failing test, just a
+    // character that never seeks its own covers. This asserts the convention
+    // every future artist entry must follow, and round-trips the key through
+    // the real lookup rather than re-deriving it.
+    expect(artistRegistry.length).toBeGreaterThan(0);
+    for (const entry of artistRegistry) {
+      const key = entry.character.artistKey;
       expect(key).toBeTruthy();
       if (!key) continue;
       expect(key).toBe(normalizeArtistName(key));
-      const entry = artistRegistry.find((candidate) =>
-        candidate.match.some((name) => normalizeArtistName(name) === key)
-      );
-      expect(entry?.characterId).toBe(character.id);
+      expect(artistCharacterFor(key)).toBe(entry.character);
+    }
+  });
+
+  it('normalizes match names once at registration', () => {
+    // artistEntry() normalizes on the way in so artistCharacterFor can compare
+    // directly instead of re-normalizing static strings on every lookup.
+    for (const entry of artistRegistry) {
+      for (const name of entry.match) {
+        expect(name).toBe(normalizeArtistName(name));
+      }
     }
   });
 });

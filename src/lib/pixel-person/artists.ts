@@ -1,3 +1,4 @@
+import { normalizeArtistName } from './artist-name';
 import { animation, characterRegistry, frame, getCharacter, tinyPerson } from './characters';
 import type { ArtistPresence, CharacterDefinition } from './types';
 
@@ -12,9 +13,9 @@ const UNRANKED_RANK = 8;
 const RANK_WEIGHT = 8;
 
 export interface ArtistCharacterEntry {
-  /** Names that map to this character; compared after normalisation. */
+  /** Names that map to this character, already normalised by `artistEntry`. */
   match: string[];
-  characterId: string;
+  character: CharacterDefinition;
 }
 
 /**
@@ -23,9 +24,16 @@ export interface ArtistCharacterEntry {
  * spawn Frank regardless of whether he is on the page — artists must only
  * spawn when present on the page, which is why they are folded into the pool
  * separately, weighted by presence.
+ *
+ * One array, holding the character itself rather than an id into a second map:
+ * a single structure cannot drift out of sync with itself.
  */
-export const artistCharacters: Record<string, CharacterDefinition> = {};
 export const artistRegistry: ArtistCharacterEntry[] = [];
+
+/** Registers an artist, normalising its match names once instead of per lookup. */
+function artistEntry(match: string[], character: CharacterDefinition): ArtistCharacterEntry {
+  return { match: match.map(normalizeArtistName), character };
+}
 
 // The blond pose: forearm rising on the left, hand over the ear and temple.
 // Head, face and legs match idleA so it reads as the same figure — only the
@@ -84,28 +92,12 @@ const frankOcean: CharacterDefinition = {
   }
 };
 
-artistCharacters[frankOcean.id] = frankOcean;
-artistRegistry.push({ match: ['frank ocean'], characterId: frankOcean.id });
-
-/** Collapses a display name to a stable match key. */
-export function normalizeArtistName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
+artistRegistry.push(artistEntry(['frank ocean'], frankOcean));
 
 export function artistCharacterFor(name: string): CharacterDefinition | null {
   const key = normalizeArtistName(name);
   if (!key) return null;
-  for (const entry of artistRegistry) {
-    if (entry.match.some((candidate) => normalizeArtistName(candidate) === key)) {
-      return artistCharacters[entry.characterId] ?? null;
-    }
-  }
-  return null;
+  return artistRegistry.find((entry) => entry.match.includes(key))?.character ?? null;
 }
 
 /**
@@ -119,8 +111,9 @@ export function hasMatchedArtist(presences: ArtistPresence[]): boolean {
 
 /** Resolves any character id — artist or generic — for the spawn command path. */
 export function resolveCharacter(id?: string): CharacterDefinition {
-  if (id && artistCharacters[id]) return artistCharacters[id];
-  return getCharacter(id);
+  if (!id) return getCharacter(id);
+  const artist = artistRegistry.find((entry) => entry.character.id === id);
+  return artist ? artist.character : getCharacter(id);
 }
 
 /**
@@ -138,18 +131,18 @@ export function pickCharacter(
   ).map((character) => ({ character, weight: 1 }));
 
   // Best (lowest) rank wins, so an artist in both the cover wall and the list
-  // does not get counted twice.
-  const bestRank = new Map<string, number>();
+  // does not get counted twice. Keyed by the definition itself — they are
+  // singletons, so identity dedupes without a second lookup.
+  const bestRank = new Map<CharacterDefinition, number>();
   for (const presence of presences) {
     const character = artistCharacterFor(presence.name);
     if (!character) continue;
     const rank = presence.rank ?? UNRANKED_RANK;
-    const existing = bestRank.get(character.id);
-    if (existing === undefined || rank < existing) bestRank.set(character.id, rank);
+    const existing = bestRank.get(character);
+    if (existing === undefined || rank < existing) bestRank.set(character, rank);
   }
-  for (const [id, rank] of bestRank) {
-    const character = artistCharacters[id];
-    if (character) pool.push({ character, weight: RANK_WEIGHT / (rank + 1) });
+  for (const [character, rank] of bestRank) {
+    pool.push({ character, weight: RANK_WEIGHT / (rank + 1) });
   }
 
   const total = pool.reduce((sum, entry) => sum + entry.weight, 0);

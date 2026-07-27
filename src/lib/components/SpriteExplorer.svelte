@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { artistCharacters } from '$lib/pixel-person/artists';
+  import { artistRegistry } from '$lib/pixel-person/artists';
   import { characterRegistry } from '$lib/pixel-person/characters';
   import { rasterizeFrame, themeOutline } from '$lib/pixel-person/render';
   import { applyTheme, themes, type Theme } from '$lib/theme';
@@ -16,7 +16,7 @@
   // unprompted, but authoring them needs the same preview.
   const characters: CharacterDefinition[] = [
     ...Object.values(characterRegistry),
-    ...Object.values(artistCharacters)
+    ...artistRegistry.map((entry) => entry.character)
   ];
 
   function setTheme(value: Theme): void {
