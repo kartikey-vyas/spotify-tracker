@@ -315,3 +315,12 @@ export function capResetAt(runs: AdminEnrichmentRun[]): Date | null {
   if (started === null) return null;
   return new Date(started + (capped.abort_retry_after_seconds ?? 0) * 1000);
 }
+
+/**
+ * Whether a cap is still in force. Without the time check the last abort's
+ * reset time would render forever, receding further into the past each day.
+ */
+export function isCapPending(runs: AdminEnrichmentRun[], now = new Date()): boolean {
+  const resetAt = capResetAt(runs);
+  return resetAt !== null && resetAt.getTime() > now.getTime();
+}

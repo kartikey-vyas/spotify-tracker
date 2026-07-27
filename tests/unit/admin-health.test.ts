@@ -8,6 +8,7 @@ import {
   enrichmentProgressLabel,
   formatDuration,
   gapDiagnosticLabel,
+  isCapPending,
   isUserSyncStale,
   projectedDaysRemaining,
   runOutcomeLabel,
@@ -236,5 +237,30 @@ describe('enrichment run telemetry', () => {
     expect(formatDuration(3600)).toBe('1h');
     expect(formatDuration(82_800)).toBe('23h');
     expect(formatDuration(null)).toBe('n/a');
+  });
+});
+
+describe('isCapPending', () => {
+  it('is true while the cap reset is still in the future', () => {
+    const capped = run({
+      aborted: true,
+      finished_at: isoMinutesAgo(30),
+      abort_retry_after_seconds: 3600
+    });
+    expect(isCapPending([capped], now)).toBe(true);
+  });
+
+  it('is false once the reset time has passed, so a stale abort stops rendering', () => {
+    const capped = run({
+      aborted: true,
+      finished_at: isoMinutesAgo(60 * 48),
+      abort_retry_after_seconds: 3600
+    });
+    expect(capResetAt([capped])).not.toBeNull();
+    expect(isCapPending([capped], now)).toBe(false);
+  });
+
+  it('is false when nothing has been capped', () => {
+    expect(isCapPending([run()], now)).toBe(false);
   });
 });
