@@ -677,6 +677,36 @@ const animations: CharacterDefinition['animations'] = {
   listen: animation([listenA, listenB], 480)
 };
 
+/**
+ * Maps `<animation>:<frameIndex>` to the source identifier of the frame literal
+ * behind it, for the dev-only sprite editor — the runtime knows
+ * `animations.idle.frames[0]` but not that it is written as `const idleA`.
+ *
+ * It cannot be derived by convention: `hide` reuses `idleB` as its second
+ * frame, so `hide:1` edits `idleB` and changes the idle animation too. The
+ * editor surfaces that rather than hiding it.
+ */
+export const FRAME_SOURCE_NAMES: Readonly<Record<string, string>> = {
+  'idle:0': 'idleA',
+  'idle:1': 'idleB',
+  'walk:0': 'walkA',
+  'walk:1': 'walkB',
+  'jump:0': 'jump',
+  'fall:0': 'fall',
+  'crawl:0': 'crawlA',
+  'crawl:1': 'crawlB',
+  'climb:0': 'climbA',
+  'climb:1': 'climbB',
+  'mantle:0': 'mantleA',
+  'mantle:1': 'mantleB',
+  'hide:0': 'hideA',
+  'hide:1': 'idleB',
+  'dangle:0': 'dangleA',
+  'dangle:1': 'dangleB',
+  'listen:0': 'listenA',
+  'listen:1': 'listenB'
+};
+
 export const tinyPerson: CharacterDefinition = {
   id: 'tiny-person',
   pixelWidth: WIDTH,

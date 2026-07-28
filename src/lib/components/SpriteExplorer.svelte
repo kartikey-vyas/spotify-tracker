@@ -52,7 +52,8 @@
     <h1>Sprite explorer</h1>
     <p class="lede">
       Every character, animation and frame, rasterized through the same path the canvas uses.
-      Dev-only surface for iterating on the pixel art.
+      Dev-only surface for iterating on the pixel art. Want to paint instead of hand-typing rows?
+      Head to the <a href="./edit/">sprite editor</a>.
     </p>
   </div>
 

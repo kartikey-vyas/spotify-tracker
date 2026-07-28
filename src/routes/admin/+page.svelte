@@ -310,6 +310,7 @@
         <p class="muted">Development-only previews. These are stripped from production builds.</p>
         <ul class="dev-links">
           <li><a href="{base}/sprites/">Sprite explorer</a></li>
+          <li><a href="{base}/sprites/edit/">Sprite editor</a></li>
           <li><a href="{base}/loader/">SpotifyLoader preview</a></li>
         </ul>
       </section>
