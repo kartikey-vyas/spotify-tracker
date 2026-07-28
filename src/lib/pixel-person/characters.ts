@@ -753,15 +753,9 @@ export function withPalette(
   return { ...base, id, palette: { ...base.palette, ...paletteOverrides } };
 }
 
-const sunnyPerson = withPalette(tinyPerson, 'tiny-person-sunny', {
-  f: '#e8c170',
-  b: '#4a3a2e',
-  g: '#c9a154',
-  h: '#e8c170',
-  t: '#c14b4b',
-  p: '#54586e'
-});
-
+// One generic alternate, not three. The dropped 'sunny' and 'plum' were hue
+// swaps of the same figure, so a population of four read as one person in four
+// shirts; moss earns its place by being the only one that moves skin tone too.
 const mossPerson = withPalette(tinyPerson, 'tiny-person-moss', {
   f: '#2f2b26',
   b: '#232a20',
@@ -772,20 +766,9 @@ const mossPerson = withPalette(tinyPerson, 'tiny-person-moss', {
   p: '#5d5266'
 });
 
-const plumPerson = withPalette(tinyPerson, 'tiny-person-plum', {
-  f: '#a8623d',
-  b: '#3a2f3d',
-  g: '#8a4e30',
-  h: '#a8623d',
-  t: '#9e5f8a',
-  p: '#39546b'
-});
-
 export const characterRegistry: Record<string, CharacterDefinition> = {
   [tinyPerson.id]: tinyPerson,
-  [sunnyPerson.id]: sunnyPerson,
-  [mossPerson.id]: mossPerson,
-  [plumPerson.id]: plumPerson
+  [mossPerson.id]: mossPerson
 };
 
 export function getCharacter(id = tinyPerson.id): CharacterDefinition {

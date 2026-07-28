@@ -143,45 +143,70 @@ describe('Frank Ocean', () => {
     }
   });
 
+  /**
+   * Where Frank's slice of the roll space starts. Generics weigh 1 each and go
+   * into the pool first; he is appended weighing `8 / (rank + 1)`. Derived from
+   * the registry rather than hardcoded, so adding or dropping a generic
+   * character does not turn these into false failures — the rule is what is
+   * under test, not today's population count.
+   */
+  function frankBoundary(rank: number): number {
+    const generics = Object.keys(characterRegistry).length;
+    return generics / (generics + 8 / (rank + 1));
+  }
+
   it('outranks the generics when he is the top artist', () => {
-    // Rank 1 weights 8 / (1 + 1) = 4.0 against 4 generics at 1.0 each: he owns
-    // exactly the top 50% of the roll space, which is appended after the
-    // generics. The boundary is asserted both sides so a different numerator
-    // or divisor (weight 8 -> boundary 0.33; weight 1 -> boundary 0.8) fails.
-    expect(pickCharacter([presence('Frank Ocean', 1)], () => 0.99).id).toBe('artist-frank-ocean');
-    expect(pickCharacter([presence('Frank Ocean', 1)], () => 0.5).id).toBe('artist-frank-ocean');
-    expect(pickCharacter([presence('Frank Ocean', 1)], () => 0.49).id).not.toBe(
+    const boundary = frankBoundary(1);
+    // Asserted both sides of the boundary, so a different numerator or divisor
+    // moves it and fails: weight 8 and weight 1 both land elsewhere.
+    expect(pickCharacter([presence('Frank Ocean', 1)], () => 0.999).id).toBe('artist-frank-ocean');
+    expect(pickCharacter([presence('Frank Ocean', 1)], () => boundary + 0.01).id).toBe(
       'artist-frank-ocean'
     );
+    expect(pickCharacter([presence('Frank Ocean', 1)], () => boundary - 0.01).id).not.toBe(
+      'artist-frank-ocean'
+    );
+    // A top artist is more likely than not: his slice is the larger half.
+    expect(boundary).toBeLessThan(0.5);
   });
 
   it('is far less likely at rank 8 than at rank 1', () => {
-    const atRankOne = pickCharacter([presence('Frank Ocean', 1)], () => 0.6);
-    const atRankEight = pickCharacter([presence('Frank Ocean', 8)], () => 0.6);
-    expect(atRankOne.id).toBe('artist-frank-ocean');
-    expect(atRankEight.id).not.toBe('artist-frank-ocean');
-    // Rank 8 weights 8 / 9 against 4.0 generic weight, so his slice is the top
-    // ~18% rather than the top 50%: the boundary sits between 0.8 and 0.9.
-    expect(pickCharacter([presence('Frank Ocean', 8)], () => 0.8).id).not.toBe(
+    const rankOne = frankBoundary(1);
+    const rankEight = frankBoundary(8);
+    // The whole point of the curve: a #8 artist has to clear a far higher roll.
+    expect(rankEight).toBeGreaterThan(rankOne);
+
+    expect(pickCharacter([presence('Frank Ocean', 1)], () => rankOne + 0.01).id).toBe(
       'artist-frank-ocean'
     );
-    expect(pickCharacter([presence('Frank Ocean', 8)], () => 0.9).id).toBe('artist-frank-ocean');
+    expect(pickCharacter([presence('Frank Ocean', 8)], () => rankOne + 0.01).id).not.toBe(
+      'artist-frank-ocean'
+    );
+    expect(pickCharacter([presence('Frank Ocean', 8)], () => rankEight - 0.01).id).not.toBe(
+      'artist-frank-ocean'
+    );
+    expect(pickCharacter([presence('Frank Ocean', 8)], () => rankEight + 0.01).id).toBe(
+      'artist-frank-ocean'
+    );
   });
 
   it('counts once at his best rank when present twice', () => {
     const twice = [presence('Frank Ocean', 5), presence('Frank Ocean', 1)];
     const once = [presence('Frank Ocean', 1)];
-    // Deduped at rank 1 -> weight 4.0, same as the single rank-1 case.
-    expect(pickCharacter(twice, () => 0.99).id).toBe('artist-frank-ocean');
-    expect(pickCharacter(twice, () => 0.4).id).not.toBe('artist-frank-ocean');
-    // Sweeping the whole roll space pins both halves of the rule: counting him
-    // twice moves his boundary to ~0.43 (0.45 would wrongly pick him) and
-    // keeping the worse rank moves it to 0.75 (0.6 would wrongly miss him).
-    for (const roll of [0, 0.2, 0.4, 0.45, 0.49, 0.5, 0.6, 0.75, 0.8, 0.9, 0.999]) {
+    const boundary = frankBoundary(1);
+
+    // Deduped at rank 1 -> identical to the single rank-1 case on both sides.
+    expect(pickCharacter(twice, () => boundary + 0.01).id).toBe('artist-frank-ocean');
+    expect(pickCharacter(twice, () => boundary - 0.01).id).not.toBe('artist-frank-ocean');
+    // Sweeping the whole space pins both halves of the rule: counting him twice
+    // would widen his slice, and keeping the worse rank would narrow it.
+    for (const roll of [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.999]) {
       expect(pickCharacter(twice, () => roll).id).toBe(pickCharacter(once, () => roll).id);
     }
-    expect(pickCharacter(twice, () => 0.45).id).not.toBe('artist-frank-ocean');
-    expect(pickCharacter(twice, () => 0.6).id).toBe('artist-frank-ocean');
+    // Had dedup kept the worse rank, his slice would start at frankBoundary(5)
+    // instead; a roll just under that still picks him only because rank 1 won.
+    expect(frankBoundary(5)).toBeGreaterThan(boundary);
+    expect(pickCharacter(twice, () => frankBoundary(5) - 0.01).id).toBe('artist-frank-ocean');
   });
 });
 

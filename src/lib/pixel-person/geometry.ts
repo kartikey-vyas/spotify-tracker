@@ -312,8 +312,10 @@ export function findSafeSpawn(
     });
 
   // A `near` spawn wants the closest candidate, not one of the slot's rotation.
-  const slotIndex = near ? 0 : Math.abs(slot) % Math.max(1, candidates.length);
-  const selected = candidates.length > 0 ? candidates[slotIndex] : null;
+  const selected =
+    candidates.length === 0
+      ? null
+      : candidates[near ? 0 : Math.abs(slot) % candidates.length];
   if (selected) {
     return {
       x: selected.x,
