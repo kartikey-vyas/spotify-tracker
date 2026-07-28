@@ -1,14 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { artistRegistry } from '$lib/pixel-person/artists';
-  import { FRAME_SOURCE_NAMES, characterRegistry, tinyPerson } from '$lib/pixel-person/characters';
+  import { characterRegistry, tinyPerson } from '$lib/pixel-person/characters';
   import { rasterizeFrame, themeOutline } from '$lib/pixel-person/render';
   import { applyTheme, themes, type Theme } from '$lib/theme';
   import type { AnimationName, CharacterDefinition, SpriteFrame } from '$lib/pixel-person/types';
 
-  // The one file the save endpoint accepts for frame edits (artists.ts has no
-  // frame literals of its own — every character shares tinyPerson.animations).
-  const FILE = 'src/lib/pixel-person/characters.ts';
   const WIDTH = 24;
   const HEIGHT = 32;
   const CELL_PX = 14;
@@ -25,14 +22,19 @@
 
   const animationNames = Object.keys(tinyPerson.animations) as AnimationName[];
 
-  // Reverse of FRAME_SOURCE_NAMES: source identifier -> every `anim:index` key
-  // that writes to it. `idleB` maps from both `idle:1` and `hide:1`, which is
-  // exactly the surprise this UI has to surface.
-  const sourceUsage = new Map<string, string[]>();
-  for (const [key, source] of Object.entries(FRAME_SOURCE_NAMES)) {
-    const list = sourceUsage.get(source) ?? [];
-    list.push(key);
-    sourceUsage.set(source, list);
+  /**
+   * Reverse of a character's frame map: source identifier -> every `anim:index`
+   * that writes to it. `idleB` maps from both `idle:1` and `hide:1`, which is
+   * exactly the surprise this UI has to surface.
+   */
+  function usageOf(character: CharacterDefinition): Map<string, string[]> {
+    const usage = new Map<string, string[]>();
+    for (const [key, source] of Object.entries(character.frameSource.names)) {
+      const list = usage.get(source) ?? [];
+      list.push(key);
+      usage.set(source, list);
+    }
+    return usage;
   }
 
   let mounted = false;
@@ -57,12 +59,15 @@
   }
 
   $: character = characters.find((entry) => entry.id === characterId) ?? tinyPerson;
-  $: animation = tinyPerson.animations[animationName];
+  // Read the frames off the SELECTED character, not the base rig. Characters
+  // that fork their frames (artists) have entirely different pixels here.
+  $: animation = character.animations[animationName];
   $: frames = animation?.frames ?? [];
   $: frameKey = `${animationName}:${frameIndex}`;
-  $: sourceName = FRAME_SOURCE_NAMES[frameKey];
+  $: sourceFile = character.frameSource.file;
+  $: sourceName = character.frameSource.names[frameKey];
   $: sharedWith = sourceName
-    ? (sourceUsage.get(sourceName) ?? []).filter((key) => key !== frameKey)
+    ? (usageOf(character).get(sourceName) ?? []).filter((key) => key !== frameKey)
     : [];
   $: currentRows = grid.map((row) => row.join(''));
   $: isDirty = savedRows.length > 0 && currentRows.some((row, index) => row !== savedRows[index]);
@@ -70,12 +75,17 @@
   $: otherFrameIndex = frames.length > 1 ? (frameIndex === 0 ? 1 : 0) : -1;
   $: onionFrame = onionSkin && otherFrameIndex >= 0 ? frames[otherFrameIndex] : null;
 
-  function resolveColor(key: string): string {
-    if (key === '.') return 'transparent';
-    const raw = character.palette[key];
-    if (!raw) return 'transparent';
-    return raw === '$outline' ? outline : raw;
-  }
+  // Declared reactively, not as a plain function: the template calls
+  // `resolveColor(cell)`, whose only tracked dependency is `cell`. As a plain
+  // function closing over `character`, switching character left every cell
+  // painted in the previous palette.
+  $: resolveColor = ((palette: Record<string, string>, outlineColor: string) =>
+    (key: string): string => {
+      if (key === '.') return 'transparent';
+      const raw = palette[key];
+      if (!raw) return 'transparent';
+      return raw === '$outline' ? outlineColor : raw;
+    })(character.palette, outline);
 
   function loadFrame(): void {
     const source = frames[frameIndex];
@@ -91,6 +101,18 @@
   function confirmDiscard(): boolean {
     if (!isDirty) return true;
     return confirm('Discard unsaved changes to this frame?');
+  }
+
+  function selectCharacter(id: string): void {
+    if (id === characterId) return;
+    if (!confirmDiscard()) {
+      // Snap the <select> back so it cannot disagree with what is on the grid.
+      characterId = characterId;
+      return;
+    }
+    characterId = id;
+    saveMessage = null;
+    loadFrame();
   }
 
   function selectAnimation(name: AnimationName): void {
@@ -141,7 +163,7 @@
       const response = await fetch('/__sprite/save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ file: FILE, frame: sourceName, rows: currentRows })
+        body: JSON.stringify({ file: sourceFile, frame: sourceName, rows: currentRows })
       });
       const data = await response.json();
       if (!response.ok || data.error) {
@@ -189,8 +211,9 @@
     <span class="eyebrow">Dev</span>
     <h1>Sprite editor</h1>
     <p class="lede">
-      Paint the shared 24×32 pixel-person frames by hand instead of hand-typing row strings.
-      Saves splice straight into <code>{FILE}</code>; Vite HMR reloads the change live.
+      Paint 24×32 pixel-person frames by hand instead of hand-typing row strings.
+      Saves splice straight into the file that owns the selected character's frames;
+      Vite HMR reloads the change live.
     </p>
   </div>
 
@@ -205,15 +228,23 @@
     <section class="panel controls">
       <div class="field">
         <label for="character-select">Character (palette preview)</label>
-        <select id="character-select" bind:value={characterId}>
+        <select
+          id="character-select"
+          value={characterId}
+          on:change={(event) => selectCharacter(event.currentTarget.value)}
+        >
           {#each characters as c (c.id)}
             <option value={c.id}>{c.id}</option>
           {/each}
         </select>
         <p class="muted small">
-          Every character shares the same frame data — this only changes which palette the
-          preview and grid render with. Editing always writes the one shared frame below,
-          regardless of which character is selected here.
+          {#if sharedWith.length > 0}
+            Heads up: <code>{sourceName}</code> also backs
+            {sharedWith.join(', ')} — editing it changes those too.
+          {:else}
+            Editing writes <code>{sourceName}</code> in <code>{sourceFile}</code>, which only
+            this character uses.
+          {/if}
         </p>
       </div>
 
@@ -244,7 +275,7 @@
       </div>
 
       <p class="muted small">
-        Editing source frame <code>{sourceName ?? '(none)'}</code> in <code>{FILE}</code>.
+        Editing source frame <code>{sourceName ?? '(none)'}</code> in <code>{sourceFile}</code>.
       </p>
 
       {#if sharedWith.length > 0}

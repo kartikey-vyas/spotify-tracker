@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { FRAME_SOURCE_NAMES, tinyPerson } from '../../src/lib/pixel-person/characters';
+import { tinyPerson } from '../../src/lib/pixel-person/characters';
+import { artistRegistry } from '../../src/lib/pixel-person/artists';
 import {
   EDITABLE_SOURCES,
   FRAME_HEIGHT,
@@ -148,28 +149,48 @@ describe('spliceFrame', () => {
   });
 });
 
-describe('FRAME_SOURCE_NAMES', () => {
-  it('covers every frame of every animation, and nothing more', () => {
+describe('frameSource maps', () => {
+  const everyCharacter = [tinyPerson, ...artistRegistry.map((entry) => entry.character)];
+
+  it('covers every frame of every animation, for every character', () => {
     // The editor resolves a frame to its source identifier through this map; a
     // missing entry means that frame silently cannot be saved.
-    const expected = new Set<string>();
-    for (const [name, animation] of Object.entries(tinyPerson.animations)) {
-      animation.frames.forEach((_frame, index) => expected.add(`${name}:${index}`));
+    for (const character of everyCharacter) {
+      const expected = new Set<string>();
+      for (const [name, animation] of Object.entries(character.animations)) {
+        animation.frames.forEach((_frame, index) => expected.add(`${name}:${index}`));
+      }
+      expect(new Set(Object.keys(character.frameSource.names))).toEqual(expected);
     }
-    expect(new Set(Object.keys(FRAME_SOURCE_NAMES))).toEqual(expected);
   });
 
-  it('names a frame that actually exists in the source file', async () => {
-    const source = await readFile('src/lib/pixel-person/characters.ts', 'utf8');
-    for (const identifier of Object.values(FRAME_SOURCE_NAMES)) {
-      expect(source).toContain(`const ${identifier} = frame([`);
+  it('names frames that actually exist in the file it points at', async () => {
+    for (const character of everyCharacter) {
+      const source = await readFile(character.frameSource.file, 'utf8');
+      for (const identifier of Object.values(character.frameSource.names)) {
+        expect(source).toContain(`const ${identifier} = frame([`);
+      }
     }
   });
 
   it('points shared frames at the same identifier', () => {
-    // hide reuses idleB; the map must say so or editing hide:1 would write to a
-    // frame literal that does not back it.
-    expect(FRAME_SOURCE_NAMES['hide:1']).toBe(FRAME_SOURCE_NAMES['idle:1']);
-    expect(tinyPerson.animations.hide.frames[1]).toBe(tinyPerson.animations.idle.frames[1]);
+    // hide reuses the idle B-frame in every character; the map must say so, or
+    // editing hide:1 would write to a literal that does not back it.
+    for (const character of everyCharacter) {
+      expect(character.frameSource.names['hide:1']).toBe(character.frameSource.names['idle:1']);
+      expect(character.animations.hide.frames[1]).toBe(character.animations.idle.frames[1]);
+    }
+  });
+
+  it('gives forked characters their own literals, in their own file', () => {
+    const frank = artistRegistry[0].character;
+    expect(frank.frameSource.file).not.toBe(tinyPerson.frameSource.file);
+    // No identifier may be shared across the two, or an edit to one would
+    // silently reach the other.
+    const generic = new Set(Object.values(tinyPerson.frameSource.names));
+    for (const name of Object.values(frank.frameSource.names)) {
+      expect(generic.has(name)).toBe(false);
+    }
+    expect(frank.animations.idle.frames[0]).not.toBe(tinyPerson.animations.idle.frames[0]);
   });
 });

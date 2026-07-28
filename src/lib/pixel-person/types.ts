@@ -99,6 +99,18 @@ export interface SpriteAnimation {
   loop: boolean;
 }
 
+/**
+ * Where a character's frame literals live in source, for the dev-only sprite
+ * editor. Characters that share frames share this, which is how the editor can
+ * warn that an edit reaches more than the character on screen.
+ */
+export interface FrameSource {
+  /** Repo-relative file holding the literals. */
+  file: string;
+  /** `<animation>:<frameIndex>` -> the frame's source identifier. */
+  names: Readonly<Record<string, string>>;
+}
+
 export interface CharacterDefinition {
   id: string;
   pixelWidth: number;
@@ -113,6 +125,7 @@ export interface CharacterDefinition {
     height: number;
   };
   animations: Record<AnimationName, SpriteAnimation>;
+  frameSource: FrameSource;
   /** Normalised artist name for artist characters; drives record affinity. */
   artistKey?: string;
 }
