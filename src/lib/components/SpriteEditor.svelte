@@ -37,6 +37,9 @@
     return usage;
   }
 
+  /** Survives the HMR remount a save triggers, so the editor stays where it was. */
+  const SELECTION_KEY = 'sprite-editor-selection';
+
   let mounted = false;
   let outline = '#111';
 
@@ -61,8 +64,7 @@
   $: character = characters.find((entry) => entry.id === characterId) ?? tinyPerson;
   // Read the frames off the SELECTED character, not the base rig. Characters
   // that fork their frames (artists) have entirely different pixels here.
-  $: animation = character.animations[animationName];
-  $: frames = animation?.frames ?? [];
+  $: frames = framesFor(character, animationName);
   $: frameKey = `${animationName}:${frameIndex}`;
   $: sourceFile = character.frameSource.file;
   $: sourceName = character.frameSource.names[frameKey];
@@ -87,15 +89,26 @@
       return raw === '$outline' ? outlineColor : raw;
     })(character.palette, outline);
 
-  function loadFrame(): void {
-    const source = frames[frameIndex];
+  /**
+   * Every caller passes the frames it just selected. That is the whole point:
+   * `frames` is a `$:` value, so a handler that assigns `characterId` and then
+   * reads `frames` in the same tick gets the PREVIOUS character's pixels — the
+   * palette recolours but the art is the old character's.
+   */
+  function loadFrame(available: SpriteFrame[]): void {
+    const source = available[frameIndex] ?? available[0];
     if (!source) {
       grid = [];
       savedRows = [];
       return;
     }
+    if (!available[frameIndex]) frameIndex = 0;
     savedRows = [...source.rows];
     grid = source.rows.map((row) => row.split(''));
+  }
+
+  function framesFor(entry: CharacterDefinition, name: AnimationName): SpriteFrame[] {
+    return entry.animations[name]?.frames ?? [];
   }
 
   function confirmDiscard(): boolean {
@@ -103,33 +116,48 @@
     return confirm('Discard unsaved changes to this frame?');
   }
 
-  function selectCharacter(id: string): void {
-    if (id === characterId) return;
-    if (!confirmDiscard()) {
-      // Snap the <select> back so it cannot disagree with what is on the grid.
-      characterId = characterId;
-      return;
-    }
-    characterId = id;
-    saveMessage = null;
-    loadFrame();
+  /**
+   * Restores the `<select>` to what state actually holds. Assigning the same
+   * string back to `characterId` would not do it: Svelte's `safe_not_equal`
+   * treats an unchanged primitive as clean, so the DOM would keep the value the
+   * user just cancelled.
+   */
+  function cancelSelect(select: HTMLSelectElement, value: string): void {
+    select.value = value;
   }
 
-  function selectAnimation(name: AnimationName): void {
-    if (name === animationName) return;
-    if (!confirmDiscard()) return;
-    animationName = name;
+  function selectCharacter(event: Event): void {
+    const select = event.currentTarget as HTMLSelectElement;
+    if (select.value === characterId) return;
+    if (!confirmDiscard()) return cancelSelect(select, characterId);
+    const next = characters.find((entry) => entry.id === select.value);
+    if (!next) return cancelSelect(select, characterId);
+    characterId = next.id;
+    saveMessage = null;
+    loadFrame(framesFor(next, animationName));
+    persistSelection();
+  }
+
+  function selectAnimation(event: Event): void {
+    const select = event.currentTarget as HTMLSelectElement;
+    if (select.value === animationName) return;
+    if (!confirmDiscard()) return cancelSelect(select, animationName);
+    animationName = select.value as AnimationName;
     frameIndex = 0;
     saveMessage = null;
-    loadFrame();
+    loadFrame(framesFor(character, animationName));
+    persistSelection();
   }
 
-  function selectFrame(index: number): void {
-    if (index === frameIndex) return;
-    if (!confirmDiscard()) return;
-    frameIndex = index;
+  function selectFrame(event: Event): void {
+    const select = event.currentTarget as HTMLSelectElement;
+    if (Number(select.value) === frameIndex) return;
+    if (!confirmDiscard()) return cancelSelect(select, String(frameIndex));
+    frameIndex = Number(select.value);
     saveMessage = null;
-    loadFrame();
+    // The animation is unchanged, so `frames` is already the right list here.
+    loadFrame(frames);
+    persistSelection();
   }
 
   function paintCell(row: number, col: number): void {
@@ -148,7 +176,7 @@
   }
 
   function revert(): void {
-    loadFrame();
+    loadFrame(frames);
     saveMessage = null;
   }
 
@@ -194,9 +222,44 @@
     return { update: render };
   }
 
+  function persistSelection(): void {
+    sessionStorage.setItem(
+      SELECTION_KEY,
+      JSON.stringify({ character: characterId, animation: animationName, frame: frameIndex })
+    );
+  }
+
+  /**
+   * Saving rewrites a source file, which HMR reacts to by re-running this
+   * module with fresh state — dropping the selection back to the default
+   * character. Parking it per-tab means the remount lands back on the frame
+   * that was just edited, now read from the updated module.
+   */
+  function restoreSelection(): void {
+    const raw = sessionStorage.getItem(SELECTION_KEY);
+    if (!raw) return;
+    let saved: { character?: unknown; animation?: unknown; frame?: unknown };
+    try {
+      saved = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const restored = characters.find((entry) => entry.id === saved.character);
+    if (!restored) return;
+    characterId = restored.id;
+    if ((animationNames as string[]).includes(saved.animation as string)) {
+      animationName = saved.animation as AnimationName;
+    }
+    // `loadFrame` clamps an out-of-range index, so a stale frame number from a
+    // longer animation lands on frame 0 rather than clearing the grid.
+    frameIndex = typeof saved.frame === 'number' ? saved.frame : 0;
+    loadFrame(framesFor(restored, animationName));
+  }
+
   onMount(() => {
     outline = themeOutline();
-    loadFrame();
+    loadFrame(framesFor(character, animationName));
+    restoreSelection();
     mounted = true;
     const stopPainting = () => {
       isPointerDown = false;
@@ -231,7 +294,7 @@
         <select
           id="character-select"
           value={characterId}
-          on:change={(event) => selectCharacter(event.currentTarget.value)}
+          on:change={selectCharacter}
         >
           {#each characters as c (c.id)}
             <option value={c.id}>{c.id}</option>
@@ -253,7 +316,7 @@
         <select
           id="animation-select"
           value={animationName}
-          on:change={(event) => selectAnimation((event.currentTarget as HTMLSelectElement).value as AnimationName)}
+          on:change={selectAnimation}
         >
           {#each animationNames as name (name)}
             <option value={name}>{name}</option>
@@ -266,7 +329,7 @@
         <select
           id="frame-select"
           value={frameIndex}
-          on:change={(event) => selectFrame(Number((event.currentTarget as HTMLSelectElement).value))}
+          on:change={selectFrame}
         >
           {#each frames as _frame, index (index)}
             <option value={index}>{index}</option>
