@@ -128,7 +128,7 @@ describe('walkable top bridging', () => {
     person.goalX = 260;
 
     for (let step = 1; step <= 130; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(person.body.grounded).toBe(true);
       expect(person.body.vy).toBe(0);
     }
@@ -147,7 +147,7 @@ describe('pixel person record errands', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('tile-1');
@@ -167,7 +167,7 @@ describe('pixel person record errands', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('same-row');
   });
@@ -179,7 +179,7 @@ describe('pixel person record errands', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand).toBeNull();
     expect(person.activity).not.toBe('seek-record');
@@ -201,7 +201,7 @@ describe('pixel person record errands', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash([panel]), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash([panel]), 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.plannedClimb).toBeNull();
@@ -215,12 +215,12 @@ describe('pixel person record errands', () => {
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
     const spatial = new SpatialHash(world.colliders);
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100);
+    stepPixelPerson(person, world, spatial, 0.05, 100);
     expect(person.activity).toBe('record-stoop');
     expect(person.animation).toBe('hide');
     expect(person.carrying).toBeNull();
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 700);
+    stepPixelPerson(person, world, spatial, 0.05, 700);
     expect(person.carrying?.sourceId).toBe('tile-1');
     expect(person.carrying!.putDownAt - 700).toBeGreaterThanOrEqual(5_000);
     expect(person.carrying!.putDownAt - 700).toBeLessThanOrEqual(15_000);
@@ -237,7 +237,7 @@ describe('pixel person record errands', () => {
     person.activityUntil = 10_000;
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand).toBeNull();
     expect(person.activity).not.toBe('seek-record');
@@ -257,7 +257,7 @@ describe('pixel person record errands', () => {
       deliverGoalX: 400
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100, events);
+    stepPixelPerson(person, world, spatial, 0.05, 100, events);
     expect(person.activity).toBe('listen');
     expect(person.animation).toBe('listen');
     expect(person.body.vx).toBe(0);
@@ -266,15 +266,15 @@ describe('pixel person record errands', () => {
     expect(person.carrying).not.toBeNull();
 
     // Still listening mid-session; nothing placed yet.
-    stepPixelPerson(person, world, spatial, [], 0.05, 4_000, events);
+    stepPixelPerson(person, world, spatial, 0.05, 4_000, events);
     expect(person.activity).toBe('listen');
     expect(events).toHaveLength(0);
 
     // Session over -> stoop -> place.
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_000, events);
+    stepPixelPerson(person, world, spatial, 0.05, 20_000, events);
     expect(person.activity).toBe('record-stoop');
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_700, events);
+    stepPixelPerson(person, world, spatial, 0.05, 20_700, events);
     expect(person.carrying).toBeNull();
     expect(person.nextRecordAt - 20_700).toBeGreaterThanOrEqual(6_000);
     expect(person.nextRecordAt - 20_700).toBeLessThanOrEqual(14_000);
@@ -305,9 +305,9 @@ describe('pixel person record errands', () => {
       deliverGoalX: 400
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100);
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_000);
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_700);
+    stepPixelPerson(person, world, spatial, 0.05, 100);
+    stepPixelPerson(person, world, spatial, 0.05, 20_000);
+    stepPixelPerson(person, world, spatial, 0.05, 20_700);
 
     expect(person.carrying).toBeNull();
   });
@@ -345,7 +345,7 @@ describe('pixel person record errands', () => {
       deliverGoalX: 460
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).toBe('wander');
     expect(person.carrying).not.toBeNull();
@@ -366,7 +366,7 @@ describe('pixel person record errands', () => {
       deliverGoalX: 460
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).toBe('listen');
   });
@@ -381,7 +381,7 @@ describe('pixel person record errands', () => {
     person.nextRecordAt = 0;
     person.recentRecordSourceIds = ['tile-1'];
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('tile-2');
@@ -394,7 +394,7 @@ describe('pixel person record errands', () => {
     person.nextRecordAt = 0;
     person.recentRecordSourceIds = ['tile-1'];
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('tile-1');
   });
@@ -408,8 +408,8 @@ describe('pixel person record errands', () => {
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
     person.recentRecordSourceIds = ['a', 'b', 'c', 'd', 'e', 'f'];
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100);
-    stepPixelPerson(person, world, spatial, [], 0.05, 700);
+    stepPixelPerson(person, world, spatial, 0.05, 100);
+    stepPixelPerson(person, world, spatial, 0.05, 700);
 
     expect(person.recentRecordSourceIds).toHaveLength(6);
     expect(person.recentRecordSourceIds[0]).toBe('b');
@@ -426,8 +426,8 @@ describe('pixel person record errands', () => {
       person.activityUntil = 99_000;
       person.recordErrand = { sourceId: 'wall', imageUrl: wide.imageUrl };
 
-      stepPixelPerson(person, world, spatial, [], 0.05, 100);
-      stepPixelPerson(person, world, spatial, [], 0.05, 700);
+      stepPixelPerson(person, world, spatial, 0.05, 100);
+      stepPixelPerson(person, world, spatial, 0.05, 700);
 
       expect(person.carrying).not.toBeNull();
       expect(person.carrying!.deliverGoalX).toBeGreaterThanOrEqual(16);
@@ -450,7 +450,7 @@ describe('pixel person record errands', () => {
 
     let bailedAtMs: number | null = null;
     for (let step = 1; step <= 500; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       if (person.stuckForMs >= STUCK_RECOVERY_MS) {
         bailedAtMs = step * 50;
         break;
@@ -475,13 +475,13 @@ describe('pixel person record errands', () => {
       putDownAt: 99_000,
       deliverGoalX: 400
     };
-    stepPixelPerson(carrier, world, spatial, [], 0.05, 50);
+    stepPixelPerson(carrier, world, spatial, 0.05, 50);
     expect(carrier.activity).not.toBe('seek-hide');
 
     const idler = createPixelPerson(tinyPerson, body(), 0);
     idler.activityUntil = 0;
     idler.nextHideAt = 0;
-    stepPixelPerson(idler, world, spatial, [], 0.05, 50);
+    stepPixelPerson(idler, world, spatial, 0.05, 50);
     expect(idler.activity).toBe('seek-hide');
   });
 
@@ -538,13 +538,13 @@ describe('crawl bail-out', () => {
     person.nextRecordAt = 99_000;
     person.goalX = 100;
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
     expect(person.crawling).toBe(true);
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 5_000);
+    stepPixelPerson(person, world, spatial, 0.05, 5_000);
     expect(person.stuckForMs).toBeLessThan(STUCK_RECOVERY_MS);
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 13_000);
+    stepPixelPerson(person, world, spatial, 0.05, 13_000);
     expect(person.stuckForMs).toBeGreaterThanOrEqual(STUCK_RECOVERY_MS);
   });
 });
@@ -562,7 +562,7 @@ describe('record discoverability', () => {
       const person = createPixelPerson(tinyPerson, body({ x: 40 }), 0);
       person.activityUntil = 0;
       person.nextRecordAt = 0;
-      stepPixelPerson(person, world, spatial, [], 0.001, 50);
+      stepPixelPerson(person, world, spatial, 0.001, 50);
       expect(person.activity).not.toBe('seek-record');
       if (person.activity === 'wander') {
         wanders += 1;
@@ -632,7 +632,7 @@ describe('invisible ladders', () => {
     person.nextRecordAt = 999_000;
     person.nextHideAt = 999_000;
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
     expect(person.activity).toBe('climb');
     expect(person.climb?.wall.id).toBe('ladder-1');
 
@@ -641,7 +641,7 @@ describe('invisible ladders', () => {
       ((person.activity as string) === 'climb' || (person.activity as string) === 'mantle') &&
       step < 200
     ) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       step += 1;
     }
 
@@ -662,7 +662,7 @@ describe('invisible ladders', () => {
     person.goalX = 143;
     person.plannedLadder = { ladderId: 'ladder-1', goalX: 143 };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).not.toBe('climb');
     expect(person.plannedLadder).toBeNull();
@@ -685,7 +685,7 @@ describe('invisible ladders', () => {
       person.activityUntil = 0;
       person.nextRecordAt = 999_000;
       person.nextHideAt = 999_000;
-      stepPixelPerson(person, world, spatial, [], 0.001, 50);
+      stepPixelPerson(person, world, spatial, 0.001, 50);
       if (person.plannedLadder?.ladderId === 'ladder-1') planned = true;
     }
 
@@ -707,7 +707,7 @@ describe('artist record affinity', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('far-own');
   });
@@ -723,7 +723,7 @@ describe('artist record affinity', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('own');
   });
@@ -746,7 +746,7 @@ describe('artist record affinity', () => {
       person.activityUntil = 0;
       person.nextRecordAt = 0;
 
-      stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+      stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
       expect(person.recordErrand?.sourceId).toBe('near-other');
     } finally {
@@ -766,7 +766,7 @@ describe('artist record affinity', () => {
     person.nextRecordAt = 0;
     person.recentRecordSourceIds = ['own'];
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('other');
   });
@@ -782,7 +782,7 @@ describe('artist record affinity', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('own');
   });

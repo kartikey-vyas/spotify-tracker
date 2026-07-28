@@ -99,7 +99,6 @@
   let suppressedClick: { until: number; point: Point } | null = null;
   let placedRecords: PlacedRecord[] = [];
   let nextRecordEntityId = 1;
-  const pendingSimulationCommands: PixelPersonCommand[] = [];
   const simulationEvents: PixelWorldEvent[] = [];
 
   afterNavigate(() => {
@@ -265,7 +264,6 @@
           people[index],
           geometry,
           spatial,
-          pendingSimulationCommands,
           elapsedSeconds,
           now,
           simulationEvents
@@ -291,7 +289,6 @@
       }
       people.length = survivors;
     }
-    pendingSimulationCommands.length = 0;
     if (activePointerId !== null && !findActivePerson()?.drag) finishPointerDrag(now, false);
 
     syncRecordState(now);
@@ -466,13 +463,6 @@
             Boolean(command.characterId)
           )
         );
-      } else if (command.type === 'despawn') {
-        people = people.filter((person) => person.id !== command.id);
-        if (activePersonId === command.id) finishPointerDrag(now, false);
-        manualPopulation = Math.min(manualPopulation, people.length);
-        ambientSuppressed = people.length === 0;
-      } else {
-        pendingSimulationCommands.push(command);
       }
     }
   }

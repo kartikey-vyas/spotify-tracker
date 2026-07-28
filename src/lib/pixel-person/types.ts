@@ -166,7 +166,4 @@ export interface PhysicsConfig {
 
 export type PixelPersonCommand =
   | { type: 'summon' }
-  | { type: 'spawn'; position: Point; characterId?: string }
-  | { type: 'move'; position: Point }
-  | { type: 'flee'; position: Point }
-  | { type: 'despawn'; id: string };
+  | { type: 'spawn'; position: Point; characterId?: string };

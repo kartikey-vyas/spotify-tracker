@@ -28,7 +28,6 @@ import type {
   Occluder,
   PhysicsBody,
   PhysicsConfig,
-  PixelPersonCommand,
   PixelWorldEvent,
   Point,
   Rect,
@@ -259,13 +258,10 @@ export function stepPixelPerson(
   person: PixelPersonRuntime,
   geometry: WorldGeometry,
   spatial: SpatialHash,
-  commands: PixelPersonCommand[],
   elapsedSeconds: number,
   now: number,
   events?: PixelWorldEvent[]
 ): PixelPersonRuntime | null {
-  if (applyCommands(person, commands, now) === null) return null;
-
   const dt = Math.max(0, Math.min(elapsedSeconds, 1 / 20));
   if (person.activity === 'drag' && person.drag) {
     const result = stepDangle(person.drag, person.body, dt);
@@ -726,30 +722,6 @@ function resizedBodyFromFeet(body: PhysicsBody, height: number): PhysicsBody {
   const resized = { ...body };
   resizeBodyFromFeet(resized, height);
   return resized;
-}
-
-function applyCommands(
-  person: PixelPersonRuntime,
-  commands: PixelPersonCommand[],
-  now: number
-): PixelPersonRuntime | null {
-  for (const command of commands) {
-    if (command.type === 'despawn' && command.id === person.id) return null;
-    if (command.type === 'move') {
-      cancelSpecialMovement(person);
-      person.goalX = command.position.x;
-      person.activity = 'wander';
-      person.activityUntil = now + 8_000;
-    }
-    if (command.type === 'flee') {
-      cancelSpecialMovement(person);
-      const direction = person.body.x + person.body.width / 2 < command.position.x ? -1 : 1;
-      person.goalX = person.body.x + direction * 240;
-      person.activity = 'wander';
-      person.activityUntil = now + 5_000;
-    }
-  }
-  return person;
 }
 
 function chooseNextActivity(

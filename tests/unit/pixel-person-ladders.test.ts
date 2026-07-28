@@ -76,7 +76,7 @@ describe('ladder climb-down rides', () => {
     person.nextRecordAt = 999_000;
     person.nextHideAt = 999_000;
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
     expect(person.activity).toBe('climb');
     expect(person.climb?.wall.id).toBe('ladder-1');
     expect(person.climb?.direction).toBe('down');
@@ -85,7 +85,7 @@ describe('ladder climb-down rides', () => {
 
     let step = 2;
     while ((person.activity as string) === 'climb' && step < 200) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       step += 1;
     }
     expect(person.climb).toBeNull();
@@ -93,7 +93,7 @@ describe('ladder climb-down rides', () => {
     // Physics takes over from the dismount and settles them on the shelf.
     let landing = 0;
     while (!person.body.grounded && landing < 20) {
-      stepPixelPerson(person, world, spatial, [], 0.05, (step + landing) * 50);
+      stepPixelPerson(person, world, spatial, 0.05, (step + landing) * 50);
       landing += 1;
     }
 
@@ -115,7 +115,7 @@ describe('ladder climb-down rides', () => {
       person.activityUntil = 0;
       person.nextRecordAt = 999_000;
       person.nextHideAt = 999_000;
-      stepPixelPerson(person, world, spatial, [], 0.001, 50);
+      stepPixelPerson(person, world, spatial, 0.001, 50);
       expect(person.plannedLadder).toBeNull();
     }
   });
@@ -133,7 +133,7 @@ describe('ladder climb-down rides', () => {
     person.goalX = 143;
     person.plannedLadder = { ladderId: 'ladder-1', goalX: 143, direction: 'down' };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).not.toBe('climb');
     expect(person.climb).toBeNull();
@@ -160,7 +160,7 @@ describe('ladder climb-down rides', () => {
     person.activity = 'climb';
     person.climb = { wall, top: wall, side: 'right', direction: 'down', returnY: 61 };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.climb).not.toBeNull();
     expect(person.climb?.direction).toBe('up');
@@ -222,7 +222,7 @@ describe('errand-driven ladder routing', () => {
     // On the LOWER shelf, feet at y=160.
     const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).not.toBe('seek-record');
     expect(person.recordErrand).toBeNull();
@@ -240,7 +240,7 @@ describe('errand-driven ladder routing', () => {
     // On the UPPER shelf, feet at y=60.
     const person = errandPerson({ x: 40, y: 29, supportId: 'upper-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.plannedLadder?.ladderId).toBe('ladder-1');
     expect(person.plannedLadder?.direction).toBe('down');
@@ -255,7 +255,7 @@ describe('errand-driven ladder routing', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.plannedLadder).toBeNull();
     expect(person.nextRecordAt - 50).toBe(6_000);
@@ -269,7 +269,7 @@ describe('errand-driven ladder routing', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('low-source');
@@ -288,7 +288,7 @@ describe('errand-driven ladder routing', () => {
     const allowed = ['wander', 'idle', 'climb', 'mantle', 'seek-record', 'record-stoop'];
     let step = 1;
     while (!person.carrying && step <= 400) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(allowed).toContain(person.activity as string);
       step += 1;
     }

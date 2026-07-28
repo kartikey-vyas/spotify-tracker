@@ -189,7 +189,7 @@ describe('pixel person physics', () => {
     person.goalX = 100;
     const spatial = new SpatialHash(colliders);
 
-    stepPixelPerson(person, geometry, spatial, [], 0.05, 50);
+    stepPixelPerson(person, geometry, spatial, 0.05, 50);
 
     expect(person.crawling).toBe(true);
     expect(person.animation).toBe('crawl');
@@ -197,7 +197,7 @@ describe('pixel person physics', () => {
     expect(person.body.y + person.body.height).toBe(60);
 
     for (let step = 2; step <= 12; step += 1) {
-      stepPixelPerson(person, geometry, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, geometry, spatial, 0.05, step * 50);
     }
     expect(person.body.x).toBeGreaterThan(4);
     expect(person.body.vx).toBeLessThanOrEqual(24);
@@ -224,10 +224,10 @@ describe('pixel person physics', () => {
     person.activityUntil = 10_000;
     person.goalX = 100;
     const spatial = new SpatialHash(colliders);
-    stepPixelPerson(person, geometry, spatial, [], 0.05, 50);
+    stepPixelPerson(person, geometry, spatial, 0.05, 50);
     person.body.x = 70;
 
-    stepPixelPerson(person, geometry, spatial, [], 0.05, 100);
+    stepPixelPerson(person, geometry, spatial, 0.05, 100);
 
     expect(person.crawling).toBe(false);
     expect(person.body.height).toBe(31);
@@ -255,7 +255,7 @@ describe('pixel person physics', () => {
     person.activityUntil = 10_000;
     person.goalX = 100;
 
-    stepPixelPerson(person, geometry, new SpatialHash(colliders), [], 0.05, 50);
+    stepPixelPerson(person, geometry, new SpatialHash(colliders), 0.05, 50);
 
     expect(person.crawling).toBe(false);
     expect(person.body.height).toBe(31);
@@ -279,9 +279,9 @@ describe('pixel person physics', () => {
       startedAt: 0
     };
 
-    stepPixelPerson(person, geometry, spatial, [], 0.1, 1400);
+    stepPixelPerson(person, geometry, spatial, 0.1, 1400);
     const previousX = person.body.x;
-    stepPixelPerson(person, geometry, spatial, [], 0.1, 1500);
+    stepPixelPerson(person, geometry, spatial, 0.1, 1500);
 
     expect((person.body.x - previousX) / 0.1).toBeLessThanOrEqual(52.1);
     expect(person.activity).toBe('mantle');
@@ -311,7 +311,7 @@ describe('pixel person physics', () => {
 
     const spatial = new SpatialHash(colliders);
     for (let step = 1; step <= 30; step += 1) {
-      stepPixelPerson(person, geometry, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, geometry, spatial, 0.05, step * 50);
     }
 
     expect(person.climb).toBeNull();
@@ -351,7 +351,7 @@ describe('pixel person physics', () => {
       goalX: 362
     };
 
-    stepPixelPerson(person, geometry, new SpatialHash([panel]), [], 0.05, 100);
+    stepPixelPerson(person, geometry, new SpatialHash([panel]), 0.05, 100);
 
     expect(person.mantle).toBeNull();
     expect(person.activity).toBe('wander');
@@ -431,7 +431,7 @@ describe('pixel person physics', () => {
     person.activityUntil = 10_000;
     person.goalX = 86;
 
-    stepPixelPerson(person, geometry, new SpatialHash(colliders), [], 0.05, 100);
+    stepPixelPerson(person, geometry, new SpatialHash(colliders), 0.05, 100);
 
     expect(person.activity).toBe('climb');
     expect(person.climb).toMatchObject({ wall: right, top, side: 'left', direction: 'up' });
@@ -442,7 +442,7 @@ describe('pixel person physics', () => {
       step <= 70 && (person.activity as string) === 'climb';
       step += 1
     ) {
-      stepPixelPerson(person, geometry, new SpatialHash(colliders), [], 0.05, step * 50);
+      stepPixelPerson(person, geometry, new SpatialHash(colliders), 0.05, step * 50);
     }
 
     expect(person.activity).toBe('mantle');
@@ -462,16 +462,10 @@ describe('pixel person interaction seam', () => {
     const controller = new PixelPersonController();
     controller.summon();
     controller.spawnAt({ x: 20, y: 30 }, 'tiny-person');
-    controller.moveTo({ x: 100, y: 30 });
-    controller.fleeFrom({ x: 70, y: 30 });
-    controller.despawn('pixel-person-1');
 
-    expect(controller.drain().map((command) => command.type)).toEqual([
-      'summon',
-      'spawn',
-      'move',
-      'flee',
-      'despawn'
+    expect(controller.drain()).toEqual([
+      { type: 'summon' },
+      { type: 'spawn', position: { x: 20, y: 30 }, characterId: 'tiny-person' }
     ]);
     expect(controller.drain()).toEqual([]);
   });

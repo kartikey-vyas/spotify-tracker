@@ -77,7 +77,7 @@ describe('stale collider hardening', () => {
     person.activity = 'climb';
     person.climb = { wall: wallBefore, top: wallBefore, side: 'left', direction: 'up', returnY: null };
 
-    stepPixelPerson(person, worldAfter, new SpatialHash(worldAfter.colliders), [], 0.05, 50);
+    stepPixelPerson(person, worldAfter, new SpatialHash(worldAfter.colliders), 0.05, 50);
 
     expect(person.climb).toBeNull();
     expect(person.activity).toBe('idle');
@@ -97,7 +97,7 @@ describe('stale collider hardening', () => {
       supportId: 'gone-collider'
     };
 
-    stepPixelPerson(person, world, new SpatialHash([]), [], 0.05, 5_000);
+    stepPixelPerson(person, world, new SpatialHash([]), 0.05, 5_000);
 
     expect(person.mantle).toBeNull();
     expect(person.body.grounded).toBe(false);
@@ -127,7 +127,7 @@ describe('ladder mantle landing', () => {
 
     let step = 1;
     while (step < 300) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       step += 1;
       if (
         (person.activity as string) !== 'climb' &&
@@ -154,7 +154,7 @@ describe('confinement requires thwarted movement', () => {
     person.nextHideAt = 999_000;
 
     for (let now = 100; now <= 17_000; now += 100) {
-      stepPixelPerson(person, world, spatial, [], 0.1, now);
+      stepPixelPerson(person, world, spatial, 0.1, now);
     }
 
     expect(person.stuckForMs).toBeLessThan(STUCK_RECOVERY_MS);
@@ -211,7 +211,7 @@ describe('crawl transition hygiene', () => {
     person.goalX = 100;
     person.plannedLadder = { ladderId: 'somewhere', goalX: 400 };
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.crawling).toBe(true);
     expect(person.plannedLadder).toBeNull();
@@ -241,7 +241,7 @@ describe('cliff sense at walkable edges', () => {
     const person = walker();
 
     for (let step = 1; step <= 120; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(person.body.grounded).toBe(true);
       // Never leaves the shelf: some part of the body always overlaps it.
       expect(person.body.x).toBeLessThan(100);
@@ -257,7 +257,7 @@ describe('cliff sense at walkable edges', () => {
 
     let wentAirborne = false;
     for (let step = 1; step <= 200; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       if (!person.body.grounded) wentAirborne = true;
       if (wentAirborne && person.body.grounded) break;
     }
@@ -279,7 +279,7 @@ describe('cliff sense at walkable edges', () => {
 
     let wentAirborne = false;
     for (let step = 1; step <= 120 && !wentAirborne; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       if (!person.body.grounded) wentAirborne = true;
     }
 
