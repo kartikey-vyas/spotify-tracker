@@ -3,7 +3,12 @@
   import { afterNavigate } from '$app/navigation';
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
-  import { hasMatchedArtist, pickCharacter, resolveCharacter } from '$lib/pixel-person/artists';
+  import {
+    artistCharacterFor,
+    hasMatchedArtist,
+    pickCharacter,
+    resolveCharacter
+  } from '$lib/pixel-person/artists';
   import {
     ambientPixelPersonPopulation,
     shouldEnablePixelPerson
@@ -38,6 +43,7 @@
     type PixelPersonRuntime
   } from '$lib/pixel-person/simulation';
   import type {
+    CharacterDefinition,
     DroppedRecord,
     PixelPersonCommand,
     PixelWorldEvent,
@@ -273,7 +279,12 @@
         if (stepped.stuckForMs >= STUCK_RECOVERY_MS || fellOutOfWorld) {
           const dropped = dropCarriedRecord(stepped);
           if (!fellOutOfWorld) placeRecord(dropped, now);
-          people[survivors++] = createPersonAtSafeSpawn(now, index, stepped.id);
+          people[survivors++] = createPersonAtSafeSpawn(
+            now,
+            index,
+            stepped.id,
+            pinnedDefinition(stepped)
+          );
         } else {
           people[survivors++] = stepped;
         }
@@ -359,9 +370,13 @@
           .some(
             (collider) => collider.kind !== 'ladder' && intersects(person.body, collider)
           );
+      // A pinned character was asked for by name, so a blanket reshuffle leaves
+      // them where they are. Genuine recovery (fallen out of the world, stuck
+      // inside geometry) still applies — it just brings the same person back.
+      if (person.pinnedCharacter && !outsideVisibleWorld && !embeddedInGeometry) return person;
       if (forceRespawn || outsideVisibleWorld || embeddedInGeometry) {
         placeRecord(dropCarriedRecord(person), now);
-        return createPersonAtSafeSpawn(now, index);
+        return createPersonAtSafeSpawn(now, index, undefined, pinnedDefinition(person));
       }
       return person;
     });
@@ -371,24 +386,31 @@
     if (!artistRerollDone && hasMatchedArtist(geometry.artistPresences)) {
       artistRerollDone = true;
       for (const person of people) {
-        if (person.activity === 'drag') continue;
+        if (person.activity === 'drag' || person.pinnedCharacter) continue;
         setPersonDefinition(person, pickCharacter(geometry.artistPresences));
       }
     }
     forceRespawn = false;
   }
 
+  /** The character to rebuild a person as, or undefined to roll a fresh one. */
+  function pinnedDefinition(person: PixelPersonRuntime): CharacterDefinition | undefined {
+    return person.pinnedCharacter ? person.definition : undefined;
+  }
+
   function createPersonAtSafeSpawn(
     now: number,
     slot: number,
-    id = `pixel-person-${nextPersonId++}`
+    id = `pixel-person-${nextPersonId++}`,
+    keep?: CharacterDefinition
   ): PixelPersonRuntime {
-    const definition = pickCharacter(geometry.artistPresences);
+    const definition = keep ?? pickCharacter(geometry.artistPresences);
     return createPixelPerson(
       definition,
       findSafeSpawn(geometry, definition, slot),
       now,
-      id
+      id,
+      Boolean(keep)
     );
   }
 
@@ -406,21 +428,44 @@
       } else if (command.type === 'spawn') {
         if (people.length >= MAX_PIXEL_PEOPLE) continue;
         const definition = resolveCharacter(command.characterId);
-        const body: PhysicsBody = {
-          x: command.position.x,
-          y: command.position.y,
-          width: definition.body.width,
-          height: definition.body.height,
-          vx: 0,
-          vy: 0,
-          grounded: false,
-          supportId: null
-        };
-        people.push(
-          createPixelPerson(definition, body, now, `pixel-person-${nextPersonId++}`)
-        );
-        manualPopulation = Math.max(manualPopulation, people.length);
         ambientSuppressed = false;
+        // Raise the cap and switch the world on BEFORE pushing. A spawn is as
+        // explicit a request as the summon button, so it wakes a world the
+        // viewport gate had switched off.
+        manualPopulation = Math.min(
+          MAX_PIXEL_PEOPLE,
+          Math.max(manualPopulation, people.length + 1)
+        );
+        refreshAvailability();
+        // Reduced motion and unsupported routes stay off; nothing to spawn into.
+        if (!enabled) continue;
+        // Land them on a real surface near the click. With no geometry yet
+        // (the world was off until a moment ago) fall back to the raw point and
+        // let the next scan recover them — pinned, so they come back as
+        // themselves.
+        const body: PhysicsBody =
+          geometry.colliders.length > 0
+            ? findSafeSpawn(geometry, definition, 0, command.position)
+            : {
+                x: command.position.x,
+                y: command.position.y,
+                width: definition.body.width,
+                height: definition.body.height,
+                vx: 0,
+                vy: 0,
+                grounded: false,
+                supportId: null
+              };
+        people.push(
+          createPixelPerson(
+            definition,
+            body,
+            now,
+            `pixel-person-${nextPersonId++}`,
+            // Named characters are pinned; an anonymous spawn stays ambient.
+            Boolean(command.characterId)
+          )
+        );
       } else if (command.type === 'despawn') {
         people = people.filter((person) => person.id !== command.id);
         if (activePersonId === command.id) finishPointerDrag(now, false);
@@ -559,17 +604,46 @@
   }
 
   function onClick(event: MouseEvent): void {
-    if (!suppressedClick) return;
-    const closeToRelease =
-      Math.hypot(
-        event.clientX - suppressedClick.point.x,
-        event.clientY - suppressedClick.point.y
-      ) <= CLICK_SUPPRESS_RADIUS_PX;
-    if (performance.now() <= suppressedClick.until && closeToRelease) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
+    if (suppressedClick) {
+      const closeToRelease =
+        Math.hypot(
+          event.clientX - suppressedClick.point.x,
+          event.clientY - suppressedClick.point.y
+        ) <= CLICK_SUPPRESS_RADIUS_PX;
+      const suppress = performance.now() <= suppressedClick.until && closeToRelease;
+      suppressedClick = null;
+      // The click that ended a drag is not a click on what lies underneath.
+      if (suppress) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
     }
-    suppressedClick = null;
+    summonClickedArtist(event);
+  }
+
+  /**
+   * Easter egg: clicking an artist the sprite library knows summons them.
+   *
+   * Reads the same `data-pixel-artist` rail the geometry scan uses, so any list
+   * that opts into the rail gets this for free and no presentation component
+   * needs to know the pixel world exists. Deliberately mouse-only — the rows
+   * are data, not controls, and making every artist row focusable to advertise
+   * a joke would be a worse page.
+   */
+  function summonClickedArtist(event: MouseEvent): void {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    // Never hijack a real control: cover tiles carrying the rail can be links.
+    if (target.closest('a, button, input, select, textarea, label')) return;
+    const row = target.closest('[data-pixel-artist]');
+    if (!row) return;
+    const character = artistCharacterFor(row.getAttribute('data-pixel-artist') ?? '');
+    if (!character) return;
+    pixelPersonController.spawnAt(
+      clientToDocument({ x: event.clientX, y: event.clientY }),
+      character.id
+    );
   }
 
   function onWindowBlur(): void {
@@ -641,6 +715,8 @@
     canvas.dataset.pixelPeople = JSON.stringify(
       people.map((person) => ({
         id: person.id,
+        character: person.definition.id,
+        pinned: person.pinnedCharacter,
         x: Number(person.body.x.toFixed(1)),
         y: Number(person.body.y.toFixed(1)),
         vx: Number(person.body.vx.toFixed(1)),

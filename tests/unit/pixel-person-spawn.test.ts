@@ -103,3 +103,55 @@ describe('spawn spread', () => {
     expect(spawn.grounded).toBe(true);
   });
 });
+
+// Backs click-to-summon: the character has to land on the row that was
+// clicked, not wherever the ambient spawner would have put them.
+describe('spawning near a point', () => {
+  const shelves = () => [
+    shelf('shelf-150', 150),
+    shelf('shelf-420', 420),
+    shelf('shelf-620', 620),
+    shelf('shelf-750', 750)
+  ];
+
+  it('lands on the shelf nearest the point, not the slot-0 band', () => {
+    const world = geometry({ colliders: shelves() });
+
+    // Slot 0 alone would choose the 0.62 band at y=620; the point overrides it.
+    expect(findSafeSpawn(world, tinyPerson, 0).supportId).toBe('shelf-620');
+    expect(findSafeSpawn(world, tinyPerson, 0, { x: 400, y: 755 }).supportId).toBe('shelf-750');
+    expect(findSafeSpawn(world, tinyPerson, 0, { x: 400, y: 160 }).supportId).toBe('shelf-150');
+  });
+
+  it('lands horizontally near the point rather than at the shelf centre', () => {
+    const world = geometry({ colliders: shelves() });
+
+    const left = findSafeSpawn(world, tinyPerson, 0, { x: 60, y: 420 });
+    const right = findSafeSpawn(world, tinyPerson, 0, { x: 440, y: 420 });
+
+    expect(left.supportId).toBe('shelf-420');
+    expect(right.supportId).toBe('shelf-420');
+    expect(left.x).toBeLessThan(right.x);
+    // Shelf spans x 50..450, so a click at either end must not pick its middle.
+    expect(left.x).toBeLessThan(150);
+    expect(right.x).toBeGreaterThan(350);
+  });
+
+  it('ignores the slot rotation, so repeat clicks land on the same shelf', () => {
+    const world = geometry({ colliders: shelves() });
+    const point = { x: 400, y: 755 };
+
+    for (let slot = 0; slot <= 5; slot += 1) {
+      expect(findSafeSpawn(world, tinyPerson, slot, point).supportId).toBe('shelf-750');
+    }
+  });
+
+  it('still falls back to the viewport floor when the point has no shelf near it', () => {
+    const world = geometry({ colliders: [viewportFloor(1000)] });
+
+    const spawn = findSafeSpawn(world, tinyPerson, 0, { x: 200, y: 300 });
+
+    expect(spawn.supportId).toBe('viewport-floor');
+    expect(spawn.grounded).toBe(true);
+  });
+});

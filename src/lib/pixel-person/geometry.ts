@@ -261,10 +261,17 @@ export function bridgeWalkableTops(colliders: Collider[]): Collider[] {
   return bridges;
 }
 
+/**
+ * Picks a surface with body clearance to stand on. `near` overrides the usual
+ * band-and-centre heuristic with "closest to this page point", which is what a
+ * click-to-spawn wants: land on the thing that was clicked, not in the spot the
+ * ambient spawner would have chosen.
+ */
 export function findSafeSpawn(
   geometry: WorldGeometry,
   character: CharacterDefinition,
-  slot = 0
+  slot = 0,
+  near?: Point
 ): PhysicsBody {
   const { width, height } = character.body;
   const viewport = geometry.viewportBounds;
@@ -296,16 +303,17 @@ export function findSafeSpawn(
       return hasBodyClearance(body, geometry.colliders, support.id);
     })
     .sort((left, right) => {
-      const leftScore =
-        spawnScore(left.support, left.x, idealY, viewportCenterX) -
-        itemSourceBonus(geometry, left.x, width, left.support.y);
-      const rightScore =
-        spawnScore(right.support, right.x, idealY, viewportCenterX) -
-        itemSourceBonus(geometry, right.x, width, right.support.y);
-      return leftScore - rightScore;
+      const score = ({ support, x }: { support: Collider; x: number }): number =>
+        near
+          ? Math.hypot(x + width / 2 - near.x, support.y - near.y)
+          : spawnScore(support, x, idealY, viewportCenterX) -
+            itemSourceBonus(geometry, x, width, support.y);
+      return score(left) - score(right);
     });
 
-  const selected = candidates.length > 0 ? candidates[Math.abs(slot) % candidates.length] : null;
+  // A `near` spawn wants the closest candidate, not one of the slot's rotation.
+  const slotIndex = near ? 0 : Math.abs(slot) % Math.max(1, candidates.length);
+  const selected = candidates.length > 0 ? candidates[slotIndex] : null;
   if (selected) {
     return {
       x: selected.x,

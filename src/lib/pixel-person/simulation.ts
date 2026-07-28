@@ -169,6 +169,12 @@ interface CarriedRecord {
 export interface PixelPersonRuntime {
   id: string;
   definition: CharacterDefinition;
+  /**
+   * True when this character was asked for by name rather than rolled. The
+   * world re-rolls and re-spawns its ambient population freely; someone who
+   * clicked an artist to summon that artist must not have them swapped out.
+   */
+  pinnedCharacter: boolean;
   body: PhysicsBody;
   facing: Facing;
   animation: AnimationName;
@@ -208,11 +214,13 @@ export function createPixelPerson(
   definition: CharacterDefinition,
   body: PhysicsBody,
   now: number,
-  id = 'pixel-person-1'
+  id = 'pixel-person-1',
+  pinnedCharacter = false
 ): PixelPersonRuntime {
   return {
     id,
     definition,
+    pinnedCharacter,
     body,
     facing: 1,
     animation: 'idle',
