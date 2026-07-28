@@ -703,6 +703,10 @@ export const tinyPerson: CharacterDefinition = {
     // wrapping the face, which on a buzzcut looks like a helmet.
     f: '#744c34',
     s: '#efaa78',
+    // Lit skin. Separates a limb drawn in FRONT of another same-coloured mass —
+    // without it, an arm raised across the face is one flat silhouette and the
+    // outline has to carry the whole read.
+    k: '#ffc79a',
     t: '#4ba7c8',
     p: '#625b9a',
     // Boots are NOT '$outline'. Sharing the outline colour turned each foot
