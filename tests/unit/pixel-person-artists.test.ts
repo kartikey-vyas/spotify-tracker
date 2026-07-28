@@ -1,11 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { characterRegistry, tinyPerson } from '../../src/lib/pixel-person/characters';
-import { SpatialHash } from '../../src/lib/pixel-person/physics';
-import { selectSpriteFrame } from '../../src/lib/pixel-person/sprite';
-import {
-  createPixelPerson,
-  stepPixelPerson
-} from '../../src/lib/pixel-person/simulation';
 import { normalizeArtistName } from '../../src/lib/pixel-person/artist-name';
 import {
   artistCharacterFor,
@@ -14,32 +8,10 @@ import {
   pickCharacter,
   resolveCharacter
 } from '../../src/lib/pixel-person/artists';
-import type {
-  ArtistPresence,
-  PhysicsBody,
-  WorldGeometry
-} from '../../src/lib/pixel-person/types';
+import type { ArtistPresence } from '../../src/lib/pixel-person/types';
 
 function presence(name: string, rank?: number): ArtistPresence {
   return { x: 0, y: 0, width: 10, height: 10, id: `p-${name}-${rank ?? 'x'}`, name, rank };
-}
-
-function groundedBody(): PhysicsBody {
-  // Feet at y=60 (29 + body height 31), matching the floor collider's top.
-  return { x: 10, y: 29, width: 14, height: 31, vx: 0, vy: 0, grounded: true, supportId: 'floor' };
-}
-
-function flatWorld(): WorldGeometry {
-  return {
-    colliders: [
-      { id: 'floor', kind: 'border', edge: 'top', x: 0, y: 60, width: 400, height: 2 }
-    ],
-    occluders: [],
-    itemSources: [],
-    artistPresences: [],
-    scanBounds: { x: 0, y: 0, width: 2000, height: 1000 },
-    viewportBounds: { x: 0, y: 0, width: 2000, height: 1000 }
-  };
 }
 
 describe('normalizeArtistName', () => {
@@ -146,10 +118,6 @@ describe('Frank Ocean', () => {
     expect(artistCharacterFor('Frank Ocean')?.artistKey).toBe('frank ocean');
   });
 
-  it('defines a signature pose', () => {
-    expect(artistCharacterFor('Frank Ocean')?.animations.signature).toBeTruthy();
-  });
-
   it('keeps the base rig dimensions', () => {
     const frank = artistCharacterFor('Frank Ocean');
     expect(frank?.pixelWidth).toBe(24);
@@ -232,80 +200,5 @@ describe('hasMatchedArtist', () => {
 
   it('matches case- and spacing-insensitively, like artistCharacterFor', () => {
     expect(hasMatchedArtist([presence('  FRANK  OCEAN ', 2)])).toBe(true);
-  });
-});
-
-describe('the latched signature idle pose', () => {
-  it('falls back to idle when a character has no signature animation', () => {
-    // Generics have no signature; selectSpriteFrame must not dereference undefined.
-    expect(tinyPerson.animations.signature).toBeUndefined();
-    const selected = selectSpriteFrame(tinyPerson, 'signature', 0, 0);
-    expect(selected.frame).toBe(tinyPerson.animations.idle.frames[0]);
-  });
-
-  it('survives the locomotion pass, which forces idle on every grounded step', () => {
-    const frank = artistCharacterFor('Frank Ocean');
-    expect(frank).toBeTruthy();
-    if (!frank) return;
-    const world = flatWorld();
-    const hash = new SpatialHash(world.colliders);
-    const person = createPixelPerson(frank, groundedBody(), 0);
-    person.activity = 'idle';
-    // Far enough out that the step never rerolls the activity mid-test.
-    person.activityUntil = 900_000;
-    person.idlePose = 'signature';
-    person.animation = 'signature';
-
-    for (let now = 100; now <= 1_000; now += 100) {
-      stepPixelPerson(person, world, hash, [], 0.05, now);
-      expect(person.animation).toBe('signature');
-    }
-  });
-
-  it('does not reappear while the person is in a non-idle activity', () => {
-    const frank = artistCharacterFor('Frank Ocean');
-    if (!frank) return;
-    // 0.9 keeps chooseNextActivity out of its `Math.random() < 0.3` idle
-    // branch, so the activity stays 'wander' and the assertion is not a
-    // coin flip on whether a fresh pose got latched.
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0.9);
-    try {
-      const world = flatWorld();
-      const hash = new SpatialHash(world.colliders);
-      const person = createPixelPerson(frank, groundedBody(), 0);
-      // Several exits (listen, stoop, hide, climb) leave the activity set to
-      // something other than 'idle' and call setAnimation(person, 'idle');
-      // the activity gate is what stops a stale latch resurfacing there.
-      person.idlePose = 'signature';
-      person.animation = 'signature';
-      person.activity = 'wander';
-      person.activityUntil = 900_000;
-      person.goalX = 300;
-
-      // Tiny steps keep |vx| under the walk threshold, so the locomotion pass
-      // takes its "grounded and slow" branch while the activity is 'wander' —
-      // exactly where an ungated latch would put the pose back on screen.
-      for (let now = 5; now <= 20; now += 5) {
-        person.body.vx = 0;
-        stepPixelPerson(person, world, hash, [], 0.005, now);
-        expect(Math.abs(person.body.vx)).toBeLessThanOrEqual(3);
-        expect(person.activity).toBe('wander');
-        expect(person.animation).toBe('idle');
-      }
-    } finally {
-      random.mockRestore();
-    }
-  });
-
-  it('never latches a signature onto a character that has none', () => {
-    const world = flatWorld();
-    const hash = new SpatialHash(world.colliders);
-    const person = createPixelPerson(tinyPerson, groundedBody(), 0);
-    expect(person.idlePose).toBe('idle');
-    for (let now = 100; now <= 40_000; now += 100) {
-      stepPixelPerson(person, world, hash, [], 0.05, now);
-      expect(person.animation).not.toBe('signature');
-      expect(person.idlePose).toBe('idle');
-    }
   });
 });

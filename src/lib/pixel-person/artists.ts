@@ -1,5 +1,5 @@
 import { normalizeArtistName } from './artist-name';
-import { animation, characterRegistry, frame, getCharacter, tinyPerson } from './characters';
+import { characterRegistry, getCharacter, tinyPerson } from './characters';
 import type { ArtistPresence, CharacterDefinition } from './types';
 
 /**
@@ -35,62 +35,6 @@ function artistEntry(match: string[], character: CharacterDefinition): ArtistCha
   return { match: match.map(normalizeArtistName), character };
 }
 
-// The blond pose: forearm rising on the left to a hand cupped over the ear and
-// temple. Head, face and legs match idleA so it reads as the same figure —
-// only the left arm moves.
-//
-// The hard part is that Frank's palette collapses `s`, `f` and `t` onto one
-// brown, so hand, face, arm and torso are all the same colour — the silhouette
-// has to do the whole job. At 16x22 the hand was 2x2 and read as a blob. Here
-// it is a closed 4-wide, 6-tall mass, and four things separate it:
-//   - It is drawn in front of the head. The head is 12 wide from column 6; the
-//     hand covers columns 6-7 and overhangs left to column 3, so it breaks the
-//     head's own outline instead of sitting beside it.
-//   - Its whole contour is `o`, including the seam at column 8 where it crosses
-//     the face. Outlining the *arm* turns it into a post; outlining only the
-//     hand's contour reads as a hand's edge, the same trick the torso already
-//     uses for the idle hands.
-//   - A raised finger: rows 1-2 step in to 2 pixels above the 4-wide hand, and
-//     that notch against the green crown is the strongest single cue here.
-//   - The wrist steps 4 -> 3 -> 2 down rows 9-13, so the forearm is visibly
-//     thinner than the hand rather than one continuous bar.
-// The arm merges into the torso at row 14 by taking over the shoulder's own
-// outline column, which is what keeps it attached rather than adjacent.
-const frankSignature = frame([
-  '........................',
-  '.....oo.gggggggg........',
-  '....okkoggggggggg.......',
-  '...okkkkoggggggggg......',
-  '...okkkkohhhhhhhhh......',
-  '..okkkkkohhhhhhhhh......',
-  '..okkkkkossssssssf......',
-  '...okkkkossssssssf......',
-  '...okkkkosssssoosf......',
-  '...okkkosssssssssf......',
-  '...okkossssssssss.......',
-  '...okko.ssssssss........',
-  '...okko..ssssss.........',
-  '....okk..ssssss.........',
-  '....okktttttttttto......',
-  '.....otttttttttttto.....',
-  '.....otttttttttttto.....',
-  '.....otttttttttttto.....',
-  '.....otttttttttttto.....',
-  '.....osttttttttttso.....',
-  '.....osttttttttttso.....',
-  '......otttttttttto......',
-  '......oppppppppppo......',
-  '......oppppppppppo......',
-  '......oppp....pppo......',
-  '......oppp....pppo......',
-  '......oppp....pppo......',
-  '......oppp....pppo......',
-  '......oppp....pppo......',
-  '......obbb....bbbo......',
-  '......obbb....bbbo......',
-  '.....obbbb....bbbbo.....'
-]);
-
 const frankOcean: CharacterDefinition = {
   ...tinyPerson,
   id: 'artist-frank-ocean',
@@ -105,15 +49,11 @@ const frankOcean: CharacterDefinition = {
     // the temple column the green wrapped the whole head and read as a helmet.
     f: '#6b4230',
     s: '#6b4230',
-    k: '#8a5740', // hand raised in front of the face, catching light
     t: '#6b4230', // bare torso, matching the skin
     p: '#2b3a4a',
     b: '#26313d'
   },
-  animations: {
-    ...tinyPerson.animations,
-    signature: animation([frankSignature], 900)
-  }
+  animations: tinyPerson.animations
 };
 
 artistRegistry.push(artistEntry(['frank ocean'], frankOcean));

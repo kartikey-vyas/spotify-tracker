@@ -8,8 +8,7 @@ export type AnimationName =
   | 'mantle'
   | 'hide'
   | 'dangle'
-  | 'listen'
-  | 'signature';
+  | 'listen';
 
 export type Facing = -1 | 1;
 
@@ -113,10 +112,7 @@ export interface CharacterDefinition {
     width: number;
     height: number;
   };
-  /** Every character owns the base ten poses; only artists add a signature. */
-  animations: Record<Exclude<AnimationName, 'signature'>, SpriteAnimation> & {
-    signature?: SpriteAnimation;
-  };
+  animations: Record<AnimationName, SpriteAnimation>;
   /** Normalised artist name for artist characters; drives record affinity. */
   artistKey?: string;
 }

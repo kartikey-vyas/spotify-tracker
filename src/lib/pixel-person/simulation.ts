@@ -173,8 +173,6 @@ export interface PixelPersonRuntime {
   facing: Facing;
   animation: AnimationName;
   animationStartedAt: number;
-  /** Which pose the idle activity holds; latched so locomotion cannot clobber it. */
-  idlePose: 'idle' | 'signature';
   activity: Activity;
   activityUntil: number;
   goalX: number;
@@ -219,7 +217,6 @@ export function createPixelPerson(
     facing: 1,
     animation: 'idle',
     animationStartedAt: now,
-    idlePose: 'idle',
     activity: 'idle',
     activityUntil: now + 900,
     goalX: body.x,
@@ -856,12 +853,10 @@ function chooseNextActivity(
   }
 
   if (Math.random() < 0.3) {
-    const hasSignature = Boolean(person.definition.animations.signature);
-    person.idlePose = hasSignature && Math.random() < 0.25 ? 'signature' : 'idle';
     person.activity = 'idle';
     person.activityUntil = now + 900 + Math.random() * 1_900;
     person.goalX = person.body.x;
-    setAnimation(person, person.idlePose, now);
+    setAnimation(person, 'idle', now);
     return;
   }
 
@@ -1180,11 +1175,8 @@ function dropPayload(person: PixelPersonRuntime): DroppedRecord {
  * Swaps a live person's character without disturbing its motion — used when the
  * artist rail populates after spawn and the character has to be re-picked.
  *
- * Owned here rather than by the caller so the invariants a swap requires live
- * with the runtime they protect. Today that is just the latched idle pose: the
- * outgoing character may have latched `signature`, which the incoming one need
- * not define. `selectSpriteFrame` would fall back to idle anyway, but leaving a
- * pose latched for an animation the character lacks is a lie in the state.
+ * Owned here rather than by the caller so any invariant a swap comes to need
+ * lives with the runtime it protects.
  *
  * Callers must ensure both definitions share a body box; every character does
  * today, so position and velocity carry over untouched.
@@ -1195,7 +1187,6 @@ export function setPersonDefinition(
 ): void {
   if (person.definition.id === definition.id) return;
   person.definition = definition;
-  person.idlePose = 'idle';
 }
 
 /** Abandons a planned pickup, e.g. when its artwork failed to load. */
@@ -1978,10 +1969,7 @@ function setLocomotionAnimation(person: PixelPersonRuntime, now: number): void {
   } else if (Math.abs(person.body.vx) > 3) {
     setAnimation(person, 'walk', now);
   } else {
-    // Gating on the activity is what keeps this safe: several paths exit
-    // listening, stooping, hiding and climbing with a direct setAnimation
-    // to 'idle', and without the gate a stale latched pose would reappear.
-    setAnimation(person, person.activity === 'idle' ? person.idlePose : 'idle', now);
+    setAnimation(person, 'idle', now);
   }
 }
 
@@ -2003,7 +1991,6 @@ function cancelSpecialMovement(person: PixelPersonRuntime): void {
   person.listen = null;
   // person.carrying is deliberately kept: records survive activity changes.
   person.drag = null;
-  person.idlePose = 'idle';
 }
 
 function sameGeometryGroup(collider: Collider, occluder: Occluder): boolean {
