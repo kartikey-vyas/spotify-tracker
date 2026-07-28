@@ -41,6 +41,24 @@ const spriteCache = new Map<string, HTMLCanvasElement>();
 let cachedTheme = '';
 let cachedOutline = '#111';
 
+/**
+ * Device pixels per sprite pixel. Rasterizing at this step keeps every pixel
+ * edge on a device-pixel boundary, which is what lets `scale` be fractional:
+ * the constraint is that `scale * dpr` be integral, not `scale` itself.
+ */
+export function deviceStep(scale: number, dpr: number): number {
+  return Math.max(1, Math.round(scale * dpr));
+}
+
+/**
+ * Cache identity for a rasterized frame. The step must be part of it — once
+ * rasterization depends on dpr, browser zoom would otherwise serve bitmaps
+ * rendered for the previous ratio.
+ */
+export function spriteCacheKey(frameKey: string, outline: string, step: number): string {
+  return `${frameKey}:${outline}:${step}`;
+}
+
 // Browser zoom changes devicePixelRatio and innerWidth INVERSELY, so the
 // physical pixel size alone cannot detect it — the applied dpr and CSS size
 // are tracked explicitly or zoom leaves a stale transform and inline size.
@@ -48,10 +66,25 @@ let appliedDpr = 0;
 let appliedCssWidth = 0;
 let appliedCssHeight = 0;
 
+/**
+ * The device pixel ratio the canvas is transformed by, capped so a 3x display
+ * does not triple the raster cost. Sprites rasterize against this same value —
+ * if the two ever disagree, cached sprites are drawn at a different density
+ * than the canvas expects, so both callers read it from here.
+ */
+function clampedDpr(): number {
+  return Math.min(window.devicePixelRatio || 1, 2);
+}
+
+/** `appliedDpr` is 0 until sizeCanvas runs; fall back to the live ratio. */
+function currentDpr(): number {
+  return appliedDpr || clampedDpr();
+}
+
 export function sizeCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   const context = canvas.getContext('2d');
   if (!context) return null;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = clampedDpr();
   const pixelWidth = Math.round(window.innerWidth * dpr);
   const pixelHeight = Math.round(window.innerHeight * dpr);
   if (
@@ -123,7 +156,7 @@ function renderSignature(
       now
     ).index;
     signature +=
-      `|${person.id}:${Math.round(person.body.x)}:${Math.round(person.body.y)}` +
+      `|${person.id}:${person.definition.id}:${Math.round(person.body.x)}:${Math.round(person.body.y)}` +
       `:${person.body.height}:${person.facing}:${person.animation}:${frameIndex}` +
       `:${person.hiddenOccluderId ?? ''}`;
     if (person.carrying) {
@@ -354,6 +387,7 @@ function drawPerson(
   const spriteX = Math.round(person.body.x - definition.body.offsetX - window.scrollX);
   const spriteY = Math.round(spriteDocumentY(person) - window.scrollY);
   const spriteWidth = definition.pixelWidth * definition.scale;
+  const spriteHeight = definition.pixelHeight * definition.scale;
   const sprite = cachedFrame(
     `${definition.id}:${person.animation}:${frameIndex}`,
     frame,
@@ -371,13 +405,13 @@ function drawPerson(
     );
     context.rotate(-person.drag.angle);
     if (person.facing === -1) context.scale(-1, 1);
-    context.drawImage(sprite, -gripX, -gripY);
+    context.drawImage(sprite, -gripX, -gripY, spriteWidth, spriteHeight);
   } else if (person.facing === -1) {
     context.translate(spriteX + spriteWidth, spriteY);
     context.scale(-1, 1);
-    context.drawImage(sprite, 0, 0);
+    context.drawImage(sprite, 0, 0, spriteWidth, spriteHeight);
   } else {
-    context.drawImage(sprite, spriteX, spriteY);
+    context.drawImage(sprite, spriteX, spriteY, spriteWidth, spriteHeight);
   }
   context.restore();
 }
@@ -403,6 +437,24 @@ function drawDangleDebug(
   context.restore();
 }
 
+/**
+ * Rasterizes one frame at `step` device pixels per sprite pixel. Callers own
+ * caching; `cachedFrame` is the game path, the sprite explorer is the other.
+ */
+export function rasterizeFrame(
+  frame: SpriteFrame,
+  palette: Record<string, string>,
+  outline: string,
+  step: number
+): HTMLCanvasElement {
+  const surface = document.createElement('canvas');
+  surface.width = frame.rows[0].length * step;
+  surface.height = frame.rows.length * step;
+  const context = surface.getContext('2d');
+  if (context) drawFrame(context, frame, palette, outline, 0, 0, step);
+  return surface;
+}
+
 function cachedFrame(
   frameKey: string,
   frame: SpriteFrame,
@@ -410,15 +462,12 @@ function cachedFrame(
   scale: number
 ): HTMLCanvasElement {
   const outline = themeOutline();
-  const key = `${frameKey}:${outline}`;
+  const step = deviceStep(scale, currentDpr());
+  const key = spriteCacheKey(frameKey, outline, step);
   const cached = spriteCache.get(key);
   if (cached) return cached;
 
-  const surface = document.createElement('canvas');
-  surface.width = frame.rows[0].length * scale;
-  surface.height = frame.rows.length * scale;
-  const context = surface.getContext('2d');
-  if (context) drawFrame(context, frame, palette, outline, 0, 0, scale);
+  const surface = rasterizeFrame(frame, palette, outline, step);
   spriteCache.set(key, surface);
   return surface;
 }
@@ -448,12 +497,22 @@ function drawFrame(
   }
 }
 
-function themeOutline(): string {
+/**
+ * Silhouette colour for sprites. Reads `--muted` rather than `--text`: the
+ * outline runs the full height of every limb, and at full text contrast that
+ * traced the figure in stark white (dark themes) or black (light ones), which
+ * read as heavy banding rather than an edge. `--muted` still separates the
+ * sprite from `--bg` in every theme, at a weight that recedes.
+ */
+export function themeOutline(): string {
   const theme = document.documentElement.dataset.theme ?? 'light';
   if (theme !== cachedTheme) {
     cachedTheme = theme;
+    const styles = getComputedStyle(document.documentElement);
     cachedOutline =
-      getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#111';
+      styles.getPropertyValue('--muted').trim() ||
+      styles.getPropertyValue('--text').trim() ||
+      '#111';
   }
   return cachedOutline;
 }

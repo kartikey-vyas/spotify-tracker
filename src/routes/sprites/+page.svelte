@@ -3,7 +3,7 @@
 </script>
 
 {#if dev}
-  {#await import('$lib/components/LoaderPreview.svelte') then Preview}
-    <Preview.default />
+  {#await import('$lib/components/SpriteExplorer.svelte') then Explorer}
+    <Explorer.default />
   {/await}
 {/if}

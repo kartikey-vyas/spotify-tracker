@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { bridgeWalkableTops, findSafeSpawn } from '../../src/lib/pixel-person/geometry';
 import { SpatialHash, stepPhysics } from '../../src/lib/pixel-person/physics';
@@ -22,9 +22,10 @@ import type {
 function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
   return {
     x: 10,
-    y: 30,
+    // Feet at y=60 (29 + body height 31), matching the default floor collider's top.
+    y: 29,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -64,6 +65,7 @@ function geometry(overrides: Partial<WorldGeometry> = {}): WorldGeometry {
     colliders: [collider()],
     occluders: [],
     itemSources: [recordSource()],
+    artistPresences: [],
     scanBounds: { x: 0, y: 0, width: 500, height: 500 },
     viewportBounds: { x: 0, y: 0, width: 500, height: 500 },
     ...overrides
@@ -126,7 +128,7 @@ describe('walkable top bridging', () => {
     person.goalX = 260;
 
     for (let step = 1; step <= 130; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(person.body.grounded).toBe(true);
       expect(person.body.vy).toBe(0);
     }
@@ -140,12 +142,12 @@ describe('pixel person record errands', () => {
   it('plans an errand toward a reachable cover once the cooldown elapses', () => {
     // Standing on the shelf under the tile row: body overlaps the source.
     const world = geometry({ colliders: [collider({ y: 130 })] });
-    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
+    const person = createPixelPerson(tinyPerson, body({ y: 99 }), 0);
     person.activity = 'idle';
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('tile-1');
@@ -161,11 +163,11 @@ describe('pixel person record errands', () => {
       colliders: [collider({ y: 130 })],
       itemSources: [sameRow, rowBelow]
     });
-    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
+    const person = createPixelPerson(tinyPerson, body({ y: 99 }), 0);
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('same-row');
   });
@@ -177,7 +179,7 @@ describe('pixel person record errands', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand).toBeNull();
     expect(person.activity).not.toBe('seek-record');
@@ -194,12 +196,12 @@ describe('pixel person record errands', () => {
       height: 90
     });
     const world = geometry({ colliders: [panel] });
-    const person = createPixelPerson(tinyPerson, body({ y: 100, supportId: 'panel' }), 0);
+    const person = createPixelPerson(tinyPerson, body({ y: 99, supportId: 'panel' }), 0);
     person.activity = 'idle';
     person.activityUntil = 0;
     person.nextRecordAt = 0;
 
-    stepPixelPerson(person, world, new SpatialHash([panel]), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash([panel]), 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.plannedClimb).toBeNull();
@@ -207,18 +209,18 @@ describe('pixel person record errands', () => {
 
   it('arrives, stoops with the crouch animation, and starts carrying', () => {
     const world = geometry({ colliders: [collider({ y: 130 })] });
-    const person = createPixelPerson(tinyPerson, body({ x: 141, y: 100 }), 0);
+    const person = createPixelPerson(tinyPerson, body({ x: 141, y: 99 }), 0);
     person.activity = 'seek-record';
     person.activityUntil = 10_000;
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
     const spatial = new SpatialHash(world.colliders);
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100);
+    stepPixelPerson(person, world, spatial, 0.05, 100);
     expect(person.activity).toBe('record-stoop');
     expect(person.animation).toBe('hide');
     expect(person.carrying).toBeNull();
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 700);
+    stepPixelPerson(person, world, spatial, 0.05, 700);
     expect(person.carrying?.sourceId).toBe('tile-1');
     expect(person.carrying!.putDownAt - 700).toBeGreaterThanOrEqual(5_000);
     expect(person.carrying!.putDownAt - 700).toBeLessThanOrEqual(15_000);
@@ -235,7 +237,7 @@ describe('pixel person record errands', () => {
     person.activityUntil = 10_000;
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand).toBeNull();
     expect(person.activity).not.toBe('seek-record');
@@ -255,7 +257,7 @@ describe('pixel person record errands', () => {
       deliverGoalX: 400
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100, events);
+    stepPixelPerson(person, world, spatial, 0.05, 100, events);
     expect(person.activity).toBe('listen');
     expect(person.animation).toBe('listen');
     expect(person.body.vx).toBe(0);
@@ -264,15 +266,15 @@ describe('pixel person record errands', () => {
     expect(person.carrying).not.toBeNull();
 
     // Still listening mid-session; nothing placed yet.
-    stepPixelPerson(person, world, spatial, [], 0.05, 4_000, events);
+    stepPixelPerson(person, world, spatial, 0.05, 4_000, events);
     expect(person.activity).toBe('listen');
     expect(events).toHaveLength(0);
 
     // Session over -> stoop -> place.
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_000, events);
+    stepPixelPerson(person, world, spatial, 0.05, 20_000, events);
     expect(person.activity).toBe('record-stoop');
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_700, events);
+    stepPixelPerson(person, world, spatial, 0.05, 20_700, events);
     expect(person.carrying).toBeNull();
     expect(person.nextRecordAt - 20_700).toBeGreaterThanOrEqual(6_000);
     expect(person.nextRecordAt - 20_700).toBeLessThanOrEqual(14_000);
@@ -303,9 +305,9 @@ describe('pixel person record errands', () => {
       deliverGoalX: 400
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100);
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_000);
-    stepPixelPerson(person, world, spatial, [], 0.05, 20_700);
+    stepPixelPerson(person, world, spatial, 0.05, 100);
+    stepPixelPerson(person, world, spatial, 0.05, 20_000);
+    stepPixelPerson(person, world, spatial, 0.05, 20_700);
 
     expect(person.carrying).toBeNull();
   });
@@ -343,7 +345,7 @@ describe('pixel person record errands', () => {
       deliverGoalX: 460
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).toBe('wander');
     expect(person.carrying).not.toBeNull();
@@ -364,7 +366,7 @@ describe('pixel person record errands', () => {
       deliverGoalX: 460
     };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).toBe('listen');
   });
@@ -374,12 +376,12 @@ describe('pixel person record errands', () => {
       colliders: [collider({ y: 130 })],
       itemSources: [recordSource(), recordSource({ id: 'tile-2', x: 210 })]
     });
-    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
+    const person = createPixelPerson(tinyPerson, body({ y: 99 }), 0);
     person.activityUntil = 0;
     person.nextRecordAt = 0;
     person.recentRecordSourceIds = ['tile-1'];
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('tile-2');
@@ -387,12 +389,12 @@ describe('pixel person record errands', () => {
 
   it('falls back to a repeat when everything nearby is recent', () => {
     const world = geometry({ colliders: [collider({ y: 130 })] });
-    const person = createPixelPerson(tinyPerson, body({ y: 100 }), 0);
+    const person = createPixelPerson(tinyPerson, body({ y: 99 }), 0);
     person.activityUntil = 0;
     person.nextRecordAt = 0;
     person.recentRecordSourceIds = ['tile-1'];
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.recordErrand?.sourceId).toBe('tile-1');
   });
@@ -400,14 +402,14 @@ describe('pixel person record errands', () => {
   it('caps the recent-album memory at its window size', () => {
     const world = geometry({ colliders: [collider({ y: 130 })] });
     const spatial = new SpatialHash(world.colliders);
-    const person = createPixelPerson(tinyPerson, body({ x: 141, y: 100 }), 0);
+    const person = createPixelPerson(tinyPerson, body({ x: 141, y: 99 }), 0);
     person.activity = 'seek-record';
     person.activityUntil = 99_000;
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
     person.recentRecordSourceIds = ['a', 'b', 'c', 'd', 'e', 'f'];
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 100);
-    stepPixelPerson(person, world, spatial, [], 0.05, 700);
+    stepPixelPerson(person, world, spatial, 0.05, 100);
+    stepPixelPerson(person, world, spatial, 0.05, 700);
 
     expect(person.recentRecordSourceIds).toHaveLength(6);
     expect(person.recentRecordSourceIds[0]).toBe('b');
@@ -419,13 +421,13 @@ describe('pixel person record errands', () => {
     const world = geometry({ colliders: [collider({ y: 130 })], itemSources: [wide] });
     const spatial = new SpatialHash(world.colliders);
     for (let trial = 0; trial < 30; trial += 1) {
-      const person = createPixelPerson(tinyPerson, body({ x: 243, y: 100 }), 0);
+      const person = createPixelPerson(tinyPerson, body({ x: 243, y: 99 }), 0);
       person.activity = 'seek-record';
       person.activityUntil = 99_000;
       person.recordErrand = { sourceId: 'wall', imageUrl: wide.imageUrl };
 
-      stepPixelPerson(person, world, spatial, [], 0.05, 100);
-      stepPixelPerson(person, world, spatial, [], 0.05, 700);
+      stepPixelPerson(person, world, spatial, 0.05, 100);
+      stepPixelPerson(person, world, spatial, 0.05, 700);
 
       expect(person.carrying).not.toBeNull();
       expect(person.carrying!.deliverGoalX).toBeGreaterThanOrEqual(16);
@@ -448,7 +450,7 @@ describe('pixel person record errands', () => {
 
     let bailedAtMs: number | null = null;
     for (let step = 1; step <= 500; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       if (person.stuckForMs >= STUCK_RECOVERY_MS) {
         bailedAtMs = step * 50;
         break;
@@ -473,13 +475,13 @@ describe('pixel person record errands', () => {
       putDownAt: 99_000,
       deliverGoalX: 400
     };
-    stepPixelPerson(carrier, world, spatial, [], 0.05, 50);
+    stepPixelPerson(carrier, world, spatial, 0.05, 50);
     expect(carrier.activity).not.toBe('seek-hide');
 
     const idler = createPixelPerson(tinyPerson, body(), 0);
     idler.activityUntil = 0;
     idler.nextHideAt = 0;
-    stepPixelPerson(idler, world, spatial, [], 0.05, 50);
+    stepPixelPerson(idler, world, spatial, 0.05, 50);
     expect(idler.activity).toBe('seek-hide');
   });
 
@@ -536,13 +538,13 @@ describe('crawl bail-out', () => {
     person.nextRecordAt = 99_000;
     person.goalX = 100;
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
     expect(person.crawling).toBe(true);
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 5_000);
+    stepPixelPerson(person, world, spatial, 0.05, 5_000);
     expect(person.stuckForMs).toBeLessThan(STUCK_RECOVERY_MS);
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 13_000);
+    stepPixelPerson(person, world, spatial, 0.05, 13_000);
     expect(person.stuckForMs).toBeGreaterThanOrEqual(STUCK_RECOVERY_MS);
   });
 });
@@ -560,7 +562,7 @@ describe('record discoverability', () => {
       const person = createPixelPerson(tinyPerson, body({ x: 40 }), 0);
       person.activityUntil = 0;
       person.nextRecordAt = 0;
-      stepPixelPerson(person, world, spatial, [], 0.001, 50);
+      stepPixelPerson(person, world, spatial, 0.001, 50);
       expect(person.activity).not.toBe('seek-record');
       if (person.activity === 'wander') {
         wanders += 1;
@@ -620,7 +622,7 @@ describe('invisible ladders', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 130, supportId: 'lower-shelf' }),
+      body({ x: 143, y: 129, supportId: 'lower-shelf' }),
       0
     );
     person.activity = 'wander';
@@ -630,7 +632,7 @@ describe('invisible ladders', () => {
     person.nextRecordAt = 999_000;
     person.nextHideAt = 999_000;
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
     expect(person.activity).toBe('climb');
     expect(person.climb?.wall.id).toBe('ladder-1');
 
@@ -639,7 +641,7 @@ describe('invisible ladders', () => {
       ((person.activity as string) === 'climb' || (person.activity as string) === 'mantle') &&
       step < 200
     ) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       step += 1;
     }
 
@@ -652,7 +654,7 @@ describe('invisible ladders', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 130, supportId: 'lower-shelf' }),
+      body({ x: 143, y: 129, supportId: 'lower-shelf' }),
       0
     );
     person.activity = 'wander';
@@ -660,7 +662,7 @@ describe('invisible ladders', () => {
     person.goalX = 143;
     person.plannedLadder = { ladderId: 'ladder-1', goalX: 143 };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).not.toBe('climb');
     expect(person.plannedLadder).toBeNull();
@@ -677,17 +679,112 @@ describe('invisible ladders', () => {
     for (let trial = 0; trial < 60 && !planned; trial += 1) {
       const person = createPixelPerson(
         tinyPerson,
-        body({ x: 40, y: 130, supportId: 'lower-shelf' }),
+        body({ x: 40, y: 129, supportId: 'lower-shelf' }),
         0
       );
       person.activityUntil = 0;
       person.nextRecordAt = 999_000;
       person.nextHideAt = 999_000;
-      stepPixelPerson(person, world, spatial, [], 0.001, 50);
+      stepPixelPerson(person, world, spatial, 0.001, 50);
       if (person.plannedLadder?.ladderId === 'ladder-1') planned = true;
     }
 
     expect(planned).toBe(true);
+  });
+});
+
+describe('artist record affinity', () => {
+  const frank = { ...tinyPerson, id: 'artist-frank-ocean', artistKey: 'frank ocean' };
+
+  it('walks past a nearer cover to reach its own artist', () => {
+    const nearOther = recordSource({ id: 'near-other', x: 60, artistName: 'Someone Else' });
+    const farOwn = recordSource({ id: 'far-own', x: 220, artistName: 'Frank Ocean' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [nearOther, farOwn]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('far-own');
+  });
+
+  it('matches the artist name regardless of case and punctuation', () => {
+    const own = recordSource({ id: 'own', x: 220, artistName: '  FRANK  OCEAN ' });
+    const other = recordSource({ id: 'other', x: 60, artistName: 'Someone Else' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [other, own]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('own');
+  });
+
+  it('falls back to the nearest source for a character with no artist key', () => {
+    // With no artistKey the `own` filter stays empty and the pool is exactly
+    // what it was pre-affinity: the nearest candidates, picked at random.
+    // With two candidates that pick is a coin flip, so pin it to index 0 —
+    // the nearest one, since the pool is distance-sorted — to assert the
+    // fallback ordering itself rather than getting lucky on the random draw.
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const nearOther = recordSource({ id: 'near-other', x: 60, artistName: 'Someone Else' });
+      const farOwn = recordSource({ id: 'far-own', x: 220, artistName: 'Frank Ocean' });
+      const world = geometry({
+        colliders: [collider({ y: 130 })],
+        itemSources: [nearOther, farOwn]
+      });
+      const person = createPixelPerson(tinyPerson, body({ y: 99 }), 0);
+      person.activityUntil = 0;
+      person.nextRecordAt = 0;
+
+      stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
+
+      expect(person.recordErrand?.sourceId).toBe('near-other');
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it('takes someone else’s record when its own was carried recently', () => {
+    const own = recordSource({ id: 'own', x: 220, artistName: 'Frank Ocean' });
+    const other = recordSource({ id: 'other', x: 60, artistName: 'Someone Else' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [own, other]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+    person.recentRecordSourceIds = ['own'];
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('other');
+  });
+
+  it('ignores untagged sources rather than treating them as a match', () => {
+    const untagged = recordSource({ id: 'untagged', x: 60 });
+    const own = recordSource({ id: 'own', x: 220, artistName: 'Frank Ocean' });
+    const world = geometry({
+      colliders: [collider({ y: 130 })],
+      itemSources: [untagged, own]
+    });
+    const person = createPixelPerson(frank, body({ y: 99 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
+
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
+
+    expect(person.recordErrand?.sourceId).toBe('own');
   });
 });
 

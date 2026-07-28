@@ -44,12 +44,23 @@ export interface ItemSource extends Rect {
   id: string;
   kind: ItemSourceKind;
   imageUrl: string;
+  /** Display name of the album's artist, when the element also declares one. */
+  artistName?: string;
+}
+
+/** An artist represented somewhere on the page — a list row, a cover tile. */
+export interface ArtistPresence extends Rect {
+  id: string;
+  name: string;
+  /** 1-based position in whatever ranking rendered it; absent when unranked. */
+  rank?: number;
 }
 
 export interface WorldGeometry {
   colliders: Collider[];
   occluders: Occluder[];
   itemSources: ItemSource[];
+  artistPresences: ArtistPresence[];
   scanBounds: Rect;
   viewportBounds: Rect;
 }
@@ -88,6 +99,18 @@ export interface SpriteAnimation {
   loop: boolean;
 }
 
+/**
+ * Where a character's frame literals live in source, for the dev-only sprite
+ * editor. Characters that share frames share this, which is how the editor can
+ * warn that an edit reaches more than the character on screen.
+ */
+export interface FrameSource {
+  /** Repo-relative file holding the literals. */
+  file: string;
+  /** `<animation>:<frameIndex>` -> the frame's source identifier. */
+  names: Readonly<Record<string, string>>;
+}
+
 export interface CharacterDefinition {
   id: string;
   pixelWidth: number;
@@ -102,6 +125,9 @@ export interface CharacterDefinition {
     height: number;
   };
   animations: Record<AnimationName, SpriteAnimation>;
+  frameSource: FrameSource;
+  /** Normalised artist name for artist characters; drives record affinity. */
+  artistKey?: string;
 }
 
 export interface PhysicsBody extends Rect {
@@ -140,7 +166,4 @@ export interface PhysicsConfig {
 
 export type PixelPersonCommand =
   | { type: 'summon' }
-  | { type: 'spawn'; position: Point; characterId?: string }
-  | { type: 'move'; position: Point }
-  | { type: 'flee'; position: Point }
-  | { type: 'despawn'; id: string };
+  | { type: 'spawn'; position: Point; characterId?: string };

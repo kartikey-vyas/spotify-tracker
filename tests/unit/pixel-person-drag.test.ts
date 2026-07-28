@@ -25,7 +25,7 @@ function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
     x: -7,
     y: 0,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -188,6 +188,7 @@ describe('pixel person drag lifecycle', () => {
       colliders: [],
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -199,7 +200,7 @@ describe('pixel person drag lifecycle', () => {
     expect(moveDraggedPixelPerson(person, 8, { x: 90, y: 30 }, 20)).toBe(false);
     expect(moveDraggedPixelPerson(person, 7, { x: 90, y: 30 }, 20)).toBe(true);
 
-    const stepped = stepPixelPerson(person, geometry, spatial, [], 1 / 60, 36);
+    const stepped = stepPixelPerson(person, geometry, spatial, 1 / 60, 36);
     expect(stepped?.body.grounded).toBe(false);
     expect(stepped?.body.x).toBeGreaterThan(40);
     expect(releasePixelPersonDrag(person, 8, spatial, 40)).toBe(false);
@@ -221,7 +222,7 @@ describe('pixel person drag lifecycle', () => {
     beginPixelPersonDrag(person, 7, { x: 50, y: 30 }, 10);
 
     expect(person.crawling).toBe(false);
-    expect(person.body.height).toBe(30);
+    expect(person.body.height).toBe(31);
     expect(person.animation).toBe('dangle');
   });
 

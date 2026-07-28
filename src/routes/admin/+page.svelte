@@ -1,5 +1,6 @@
 <script lang="ts">
   import { base } from '$app/paths';
+  import { dev } from '$app/environment';
   import { onMount } from 'svelte';
   import {
     catalogTotalsLabel,
@@ -304,6 +305,18 @@
         </div>
       {/if}
     </section>
+
+    {#if dev}
+      <section class="panel section-gap">
+        <h2>Dev tools</h2>
+        <p class="muted">Development-only previews. These are stripped from production builds.</p>
+        <ul class="dev-links">
+          <li><a href="{base}/sprites/">Sprite explorer</a></li>
+          <li><a href="{base}/sprites/edit/">Sprite editor</a></li>
+          <li><a href="{base}/loader/">SpotifyLoader preview</a></li>
+        </ul>
+      </section>
+    {/if}
   {/if}
 </section>
 
@@ -423,6 +436,11 @@
 
   .metadata-error {
     overflow-wrap: anywhere;
+  }
+
+  .dev-links {
+    margin: 0.5rem 0 0;
+    padding-left: 1.1rem;
   }
 
   @media (max-width: 1100px) {

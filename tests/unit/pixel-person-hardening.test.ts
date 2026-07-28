@@ -25,9 +25,10 @@ import type {
 function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
   return {
     x: 10,
-    y: 30,
+    // Feet at y=60 (29 + body height 31), matching the default floor collider's top.
+    y: 29,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -54,6 +55,7 @@ function geometry(overrides: Partial<WorldGeometry> = {}): WorldGeometry {
     colliders: [collider()],
     occluders: [],
     itemSources: [],
+    artistPresences: [],
     scanBounds: { x: 0, y: 0, width: 2000, height: 1000 },
     viewportBounds: { x: 0, y: 0, width: 2000, height: 1000 },
     ...overrides
@@ -75,7 +77,7 @@ describe('stale collider hardening', () => {
     person.activity = 'climb';
     person.climb = { wall: wallBefore, top: wallBefore, side: 'left', direction: 'up', returnY: null };
 
-    stepPixelPerson(person, worldAfter, new SpatialHash(worldAfter.colliders), [], 0.05, 50);
+    stepPixelPerson(person, worldAfter, new SpatialHash(worldAfter.colliders), 0.05, 50);
 
     expect(person.climb).toBeNull();
     expect(person.activity).toBe('idle');
@@ -95,7 +97,7 @@ describe('stale collider hardening', () => {
       supportId: 'gone-collider'
     };
 
-    stepPixelPerson(person, world, new SpatialHash([]), [], 0.05, 5_000);
+    stepPixelPerson(person, world, new SpatialHash([]), 0.05, 5_000);
 
     expect(person.mantle).toBeNull();
     expect(person.body.grounded).toBe(false);
@@ -113,7 +115,7 @@ describe('ladder mantle landing', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 170, supportId: 'lower-shelf' }),
+      body({ x: 143, y: 169, supportId: 'lower-shelf' }),
       0
     );
     person.activity = 'wander';
@@ -125,7 +127,7 @@ describe('ladder mantle landing', () => {
 
     let step = 1;
     while (step < 300) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       step += 1;
       if (
         (person.activity as string) !== 'climb' &&
@@ -152,7 +154,7 @@ describe('confinement requires thwarted movement', () => {
     person.nextHideAt = 999_000;
 
     for (let now = 100; now <= 17_000; now += 100) {
-      stepPixelPerson(person, world, spatial, [], 0.1, now);
+      stepPixelPerson(person, world, spatial, 0.1, now);
     }
 
     expect(person.stuckForMs).toBeLessThan(STUCK_RECOVERY_MS);
@@ -209,7 +211,7 @@ describe('crawl transition hygiene', () => {
     person.goalX = 100;
     person.plannedLadder = { ladderId: 'somewhere', goalX: 400 };
 
-    stepPixelPerson(person, world, new SpatialHash(world.colliders), [], 0.05, 50);
+    stepPixelPerson(person, world, new SpatialHash(world.colliders), 0.05, 50);
 
     expect(person.crawling).toBe(true);
     expect(person.plannedLadder).toBeNull();
@@ -239,7 +241,7 @@ describe('cliff sense at walkable edges', () => {
     const person = walker();
 
     for (let step = 1; step <= 120; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(person.body.grounded).toBe(true);
       // Never leaves the shelf: some part of the body always overlaps it.
       expect(person.body.x).toBeLessThan(100);
@@ -255,7 +257,7 @@ describe('cliff sense at walkable edges', () => {
 
     let wentAirborne = false;
     for (let step = 1; step <= 200; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       if (!person.body.grounded) wentAirborne = true;
       if (wentAirborne && person.body.grounded) break;
     }
@@ -277,7 +279,7 @@ describe('cliff sense at walkable edges', () => {
 
     let wentAirborne = false;
     for (let step = 1; step <= 120 && !wentAirborne; step += 1) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       if (!person.body.grounded) wentAirborne = true;
     }
 

@@ -1,103 +1,128 @@
-import type { CharacterDefinition, SpriteAnimation, SpriteFrame } from './types';
+import { normalizeArtistName } from './artist-name';
+import { animation, characterRegistry, frame, getCharacter, tinyPerson } from './characters';
+import type { ArtistPresence, CharacterDefinition } from './types';
 
-const WIDTH = 24;
-const HEIGHT = 32;
+/**
+ * Rank assumed for a matched artist whose element declared no rank. Fed into
+ * the same `RANK_WEIGHT / (rank + 1)` curve as a real rank, so this yields a
+ * weight of 8/9 ≈ 0.89 — slightly below a single generic's weight of 1, not
+ * above it.
+ */
+const UNRANKED_RANK = 8;
+/** Numerator of the rank weighting curve: weight = RANK_WEIGHT / (rank + 1). */
+const RANK_WEIGHT = 8;
 
-export function frame(rows: string[]): SpriteFrame {
-  if (rows.length !== HEIGHT || rows.some((row) => row.length !== WIDTH)) {
-    throw new Error(`Pixel person frames must be ${WIDTH}x${HEIGHT}.`);
-  }
-  return { rows };
+export interface ArtistCharacterEntry {
+  /** Names that map to this character, already normalised by `artistEntry`. */
+  match: string[];
+  character: CharacterDefinition;
 }
 
-// The rig reads as one figure across every pose: head mass 12 wide (rows 1-11
-// standing), shoulder line at row 14, hips at row 22, feet flush with row 31.
-// Only what should move, moves.
-const idleA = frame([
+/**
+ * Artist characters are deliberately NOT in `characterRegistry`. `pickCharacter`
+ * below builds its generic pool from that registry, so adding them there would
+ * spawn Frank regardless of whether he is on the page — artists must only
+ * spawn when present on the page, which is why they are folded into the pool
+ * separately, weighted by presence.
+ *
+ * One array, holding the character itself rather than an id into a second map:
+ * a single structure cannot drift out of sync with itself.
+ */
+export const artistRegistry: ArtistCharacterEntry[] = [];
+
+/** Registers an artist, normalising its match names once instead of per lookup. */
+function artistEntry(match: string[], character: CharacterDefinition): ArtistCharacterEntry {
+  return { match: match.map(normalizeArtistName), character };
+}
+
+// Frank owns his own copy of every frame so he can be shaped independently of
+// the generic rig. He began as a pure palette swap, which made the green
+// buzzcut free but left no pixel that was actually his.
+//
+// The cost of this fork is that fixes to the shared rig no longer reach him.
+// That is the intended trade for an artist character: past the point where one
+// is meant to look distinct, inheriting the generic silhouette stops being a
+// feature.
+const frankIdleA = frame([
   '........................',
   '........gggggggg........',
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhsssssssshh......',
+  '......hhsssssssshh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
   '.........ssssss.........',
   '.........ssssss.........',
-  '......tttttttttttt......',
-  '.....tttttttttttttt.....',
-  '.....tttttttttttttt.....',
-  '.....tttttttttttttt.....',
-  '.....tttttttttttttt.....',
-  '.....ssttttttttttss.....',
-  '.....ssttttttttttss.....',
-  '......tttttttttttt......',
-  '......pppppppppppp......',
-  '......pppppppppppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......bbbb....bbbb......',
+  '......fttttttttttf......',
+  '.....fstttttttttttf.....',
+  '.....fstttttttttttf.....',
+  '.....fttttttttttttf.....',
+  '.....stttttttttttts.....',
+  '.....s.tttttttttt.s.....',
+  '....fs.tttttttttt.sf....',
+  '....fs.tttttttttt.sf....',
+  '.......pppppppppp.......',
+  '.......pppppppppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......bbb....bbb.......',
   '......bbbb....bbbb......',
   '.....bbbbb....bbbbb.....'
 ]);
 
-// Breathing beat: the head settles a row and one of the two neck rows
-// disappears into the shoulders, so the figure reads as one body inhaling
-// rather than two poses. The shoulder line never moves.
-const idleB = frame([
+const frankIdleB = frame([
   '........................',
   '........................',
   '........gggggggg........',
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhtttttttthh......',
+  '......hhtttttttthh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
   '.........ssssss.........',
-  '......tttttttttttt......',
+  '.......tttttttttt.......',
   '.....tttttttttttttt.....',
   '.....tttttttttttttt.....',
   '.....tttttttttttttt.....',
   '.....tttttttttttttt.....',
-  '.....ssttttttttttss.....',
-  '.....ssttttttttttss.....',
-  '......tttttttttttt......',
-  '......pppppppppppp......',
-  '......pppppppppppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......pppp....pppp......',
-  '......bbbb....bbbb......',
+  '.....tsttttttttttst.....',
+  '....ttsttttttttttstt....',
+  '....tt.tttttttttt.tt....',
+  '.......pppppppppp.......',
+  '.......pppppppppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......ppp....ppp.......',
+  '.......bbb....bbb.......',
   '......bbbb....bbbb......',
   '.....bbbbb....bbbbb.....'
 ]);
 
-// Stride frame: arms counter-swing (right hand high, left hand low) and the
-// legs open from the hip, feet clearing the body box on both sides.
-const walkA = frame([
+const frankWalkA = frame([
   '........................',
   '........gggggggg........',
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhsssssssshh......',
+  '......hhsssssssshh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
@@ -105,12 +130,12 @@ const walkA = frame([
   '.........ssssss.........',
   '......tttttttttttt......',
   '.....tttttttttttttt.....',
-  '.....tttttttttttttt.....',
-  '.....tttttttttttttt.....',
-  '.....ttttttttttttss.....',
-  '.....ttttttttttttss.....',
-  '.....sstttttttttttt.....',
-  '......tttttttttttt......',
+  '.....fttttttttttttf.....',
+  '.....fttttttttttttf.....',
+  '.....ftttttttttttsf.....',
+  '.....ftttttttttttsf.....',
+  '....fsstttttttttttsf....',
+  '....ff.tttttttttt.ff....',
   '......pppppppppppp......',
   '......pppppppppppp......',
   '......pppp....pppp......',
@@ -123,18 +148,16 @@ const walkA = frame([
   '...bbbbb........bbbbb...'
 ]);
 
-// Passing frame: arms swap, legs close, and the trailing foot loses its flare
-// so one heel reads as lifted without the figure drifting off its hips.
-const walkB = frame([
+const frankWalkB = frame([
   '........................',
   '........gggggggg........',
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhtttttttthh......',
+  '......hhtttttttthh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
@@ -142,12 +165,12 @@ const walkB = frame([
   '.........ssssss.........',
   '......tttttttttttt......',
   '.....tttttttttttttt.....',
-  '.....tttttttttttttt.....',
-  '.....tttttttttttttt.....',
-  '.....sstttttttttttt.....',
-  '.....sstttttttttttt.....',
-  '.....ttttttttttttss.....',
-  '......tttttttttttt......',
+  '.....stttttttttttts.....',
+  '.....stttttttttttts.....',
+  '.....ssttttttttttts.....',
+  '.....ssttttttttttts.....',
+  '....sstttttttttttsss....',
+  '....ss.tttttttttt.ss....',
   '......pppppppppppp......',
   '......pppppppppppp......',
   '......pppp....pppp......',
@@ -160,18 +183,16 @@ const walkB = frame([
   '.....bbbbb....bbbb......'
 ]);
 
-// Both arms thrown overhead — the fists are 3 wide and 2 tall so they read as
-// hands, not nubs — with the whole body riding two rows higher than idle.
-const jump = frame([
+const frankJump = frame([
   '..sss..............sss..',
   '..sss...gggggggg...sss..',
   '..ttt..gggggggggg..ttt..',
   '..ttt.gggggggggggg.ttt..',
-  '..ttt.hhhhhhhhhhhh.ttt..',
-  '..ttt.hhhhhhhhhhhh.ttt..',
+  '..ttt.hhsssssssshh.ttt..',
+  '..ttt.hhsssssssshh.ttt..',
   '..ttt.fssssssssssf.ttt..',
   '..ttt.fssssssssssf.ttt..',
-  '..ttt.fsoossssoosf.ttt..',
+  '..ttt.fsnnssssnnsf.ttt..',
   '..ttt.fssssssssssf.ttt..',
   '..ttt..ssssssssss..ttt..',
   '..ttt...ssssssss...ttt..',
@@ -197,18 +218,16 @@ const jump = frame([
   '........................'
 ]);
 
-// Arms flung straight out at the shoulder line, two rows thick so the hands are
-// 2x2 blocks at the wrists rather than single stray pixels.
-const fall = frame([
+const frankFall = frame([
   '........................',
   '........gggggggg........',
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhsssssssshh......',
+  '......hhsssssssshh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
@@ -234,21 +253,7 @@ const fall = frame([
   '....bbbbb......bbbbb....'
 ]);
 
-// CRAWL_HEIGHT is 12 CSS px, which at scale 1.0 is exactly 12 sprite rows, so
-// every lit pixel below has to live in rows 20-31. Anything higher clips
-// through the gaps this animation exists to squeeze under.
-//
-// A bear crawl facing right: head raised at the front, back running flat to
-// the hips at the left, one knee tucked under the belly, and the near arm
-// dropping from under the shoulder to a hand planted on the floor. The extra
-// rows buy a real profile head — hair at the back, temple column, a two-pixel
-// eye — instead of the old six-pixel blob.
-//
-// The arm is a SLEEVE (`t`) down to a skin hand at the bottom. Drawn in skin it
-// ran straight into the face — same colour, no edge between them — and the head
-// read as a snout. Blue against the peach face is the separation; the `o` run
-// closing the jaw underside on row 26 is the other half of it.
-const crawlA = frame([
+const frankCrawlA = frame([
   '........................',
   '........................',
   '........................',
@@ -273,7 +278,7 @@ const crawlA = frame([
   '..............gggggggg..',
   '.............hhhhhhhhh..',
   '......ttttttthhfssssss..',
-  '....ttttttttthfssoosss..',
+  '....ttttttttthfssnnsss..',
   '..pppptttttttttsssssss..',
   '.pppppttttttttttttttt...',
   '.ppppp...ppppp.tttt.....',
@@ -283,7 +288,7 @@ const crawlA = frame([
   'bbbbb....bbbbb..ssssss..'
 ]);
 
-const crawlB = frame([
+const frankCrawlB = frame([
   '........................',
   '........................',
   '........................',
@@ -308,7 +313,7 @@ const crawlB = frame([
   '..............gggggggg..',
   '.............hhhhhhhhh..',
   '......ttttttthhfssssss..',
-  '....ttttttttthfssoosss..',
+  '....ttttttttthfssnnsss..',
   '...ppptttttttttsssssss..',
   '..ppppttttttttttttttt...',
   '..ppppp..ppppp..tttt....',
@@ -318,20 +323,17 @@ const crawlB = frame([
   '.bbbbb...bbbbb...ssssss.'
 ]);
 
-// Reach: one arm straight overhead onto the next hold, the head tucked a row
-// into the shoulders, the far leg swung out onto a rung and the near leg
-// hanging. climbB is the mirrored beat, so the cycle alternates sides.
-const climbA = frame([
+const frankClimbA = frame([
   '..................sss...',
   '..................sss...',
   '.......gggggggg...tttt..',
   '......gggggggggg..tttt..',
   '.....gggggggggggg.tttt..',
-  '.....hhhhhhhhhhhh.tttt..',
-  '.....hhhhhhhhhhhh.tttt..',
+  '.....hhsssssssshh.tttt..',
+  '.....hhsssssssshh.tttt..',
   '.....fssssssssssf.tttt..',
   '.....fssssssssssf.tttt..',
-  '.....fsoossssoosf.tttt..',
+  '.....fsnnssssnnsf.tttt..',
   '.....fssssssssssf.tttt..',
   '......ssssssssss..tttt..',
   '.......ssssssss...tttt..',
@@ -356,17 +358,17 @@ const climbA = frame([
   '...........bbbbbb.......'
 ]);
 
-const climbB = frame([
+const frankClimbB = frame([
   '...sss..................',
   '...sss..................',
   '..tttt...gggggggg.......',
   '..tttt..gggggggggg......',
   '..tttt.gggggggggggg.....',
-  '..tttt.hhhhhhhhhhhh.....',
-  '..tttt.hhhhhhhhhhhh.....',
+  '..tttt.hhsssssssshh.....',
+  '..tttt.hhsssssssshh.....',
   '..tttt.fssssssssssf.....',
   '..tttt.fssssssssssf.....',
-  '..tttt.fsoossssoosf.....',
+  '..tttt.fsnnssssnnsf.....',
   '..tttt.fssssssssssf.....',
   '..tttt..ssssssssss......',
   '..tttt...ssssssss.......',
@@ -391,19 +393,16 @@ const climbB = frame([
   '.......bbbbbb...........'
 ]);
 
-// Pulling up over a ledge: both arms locked out at the sides as struts whose
-// inner outline doubles as the torso outline, the body squeezed between them
-// and the feet two rows off the ground.
-const mantleA = frame([
+const frankMantleA = frame([
   '........................',
   '........gggggggg........',
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhsssssssshh......',
+  '......hhsssssssshh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
@@ -429,16 +428,14 @@ const mantleA = frame([
   '........................'
 ]);
 
-// Top of the pull-up: the figure stands tall a further row and the crown's
-// narrowest row is clipped by the sprite edge, which is what sells the rise.
-const mantleB = frame([
+const frankMantleB = frame([
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhsssssssshh......',
+  '......hhsssssssshh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
@@ -466,9 +463,7 @@ const mantleB = frame([
   '........................'
 ]);
 
-// Ducked out of sight: the head drops four rows and the legs fold to match, so
-// the silhouette shortens without the feet leaving the floor.
-const hideA = frame([
+const frankHideA = frame([
   '........................',
   '........................',
   '........................',
@@ -477,11 +472,11 @@ const hideA = frame([
   '........gggggggg........',
   '.......gggggggggg.......',
   '......gggggggggggg......',
-  '......hhhhhhhhhhhh......',
-  '......hhhhhhhhhhhh......',
+  '......hhsssssssshh......',
+  '......hhsssssssshh......',
   '......fssssssssssf......',
   '......fssssssssssf......',
-  '......fsoossssoosf......',
+  '......fsnnssssnnsf......',
   '......fssssssssssf......',
   '.......ssssssssss.......',
   '........ssssssss........',
@@ -503,24 +498,18 @@ const hideA = frame([
   '.....bbbbb....bbbbb.....'
 ]);
 
-// Hanging off a pointer. Asymmetry is the whole point: ONE arm goes up on the
-// left, the other hangs down the right side of the torso, and the hips and
-// legs drift right so the figure is askew rather than plumb. `dragGrip` sits
-// on the raised hand (2,1), which is the pixel render.ts pivots the pendulum
-// around — so the body swings off-axis from the fist instead of see-sawing
-// around its own centre line.
-const dangleA = frame([
+const frankDangleA = frame([
   '.sss....................',
   '.sss....................',
   '.ttt....................',
   '.ttt.....gggggggg.......',
   '.ttt....gggggggggg......',
   '.ttt...gggggggggggg.....',
-  '.ttt...hhhhhhhhhhhh.....',
-  '.ttt...hhhhhhhhhhhh.....',
+  '.ttt...hhsssssssshh.....',
+  '.ttt...hhsssssssshh.....',
   '.ttt...fssssssssssf.....',
   '..ttt..fssssssssssf.....',
-  '.ttt...fsoossssoosf.....',
+  '.ttt...fsnnssssnnsf.....',
   '..ttt..fssssssssssf.....',
   '...ttt..ssssssssss......',
   '...ttt...ssssssss.......',
@@ -544,20 +533,18 @@ const dangleA = frame([
   '.........bbbbb....bbbbb.'
 ]);
 
-// The swing back: same grip, same raised arm, but the legs pass through plumb
-// to the far side and the free arm lifts off the ribs.
-const dangleB = frame([
+const frankDangleB = frame([
   '.sss....................',
   '.sss....................',
   '.ttt....................',
   '.ttt.....gggggggg.......',
   '.ttt....gggggggggg......',
   '.ttt...gggggggggggg.....',
-  '.ttt...hhhhhhhhhhhh.....',
-  '.ttt...hhhhhhhhhhhh.....',
+  '.ttt...hhsssssssshh.....',
+  '.ttt...hhsssssssshh.....',
   '.ttt...fssssssssssf.....',
   '..ttt..fssssssssssf.....',
-  '.ttt...fsoossssoosf.....',
+  '.ttt...fsnnssssnnsf.....',
   '..ttt..fssssssssssf.....',
   '...ttt..ssssssssss......',
   '...ttt...ssssssss.......',
@@ -581,10 +568,7 @@ const dangleB = frame([
   '......bbbbb....bbbbb....'
 ]);
 
-// Seated with headphones on. The band arcs over the crown and the cups are a
-// three-pixel column at ear height — wide enough to read as an object rather
-// than a hairband. Nothing above row 6 so the pose reads as seated.
-const listenA = frame([
+const frankListenA = frame([
   '........................',
   '........................',
   '........................',
@@ -595,11 +579,11 @@ const listenA = frame([
   '.......nggggggggn.......',
   '......nggggggggggn......',
   '....nnggggggggggggnn....',
-  '...nnnhhhhhhhhhhhhnnn...',
-  '...nnnhhhhhhhhhhhhnnn...',
+  '...nnnhhsssssssshhnnn...',
+  '...nnnhhsssssssshhnnn...',
   '...nnnfssssssssssfnnn...',
   '...nnnfssssssssssfnnn...',
-  '...nnnfsoossssoosfnnn...',
+  '...nnnfsnnssssnnsfnnn...',
   '...nnnfssssssssssfnnn...',
   '....nn.ssssssssss.nn....',
   '........ssssssss........',
@@ -619,9 +603,7 @@ const listenA = frame([
   '........................'
 ]);
 
-// Nod: the head and its headphones sink two rows and both neck rows disappear
-// into the shoulders, which stay exactly where they were.
-const listenB = frame([
+const frankListenB = frame([
   '........................',
   '........................',
   '........................',
@@ -634,11 +616,11 @@ const listenB = frame([
   '.......nggggggggn.......',
   '......nggggggggggn......',
   '....nnggggggggggggnn....',
-  '...nnnhhhhhhhhhhhhnnn...',
-  '...nnnhhhhhhhhhhhhnnn...',
+  '...nnnhhsssssssshhnnn...',
+  '...nnnhhsssssssshhnnn...',
   '...nnnfssssssssssfnnn...',
   '...nnnfssssssssssfnnn...',
-  '...nnnfsoossssoosfnnn...',
+  '...nnnfsnnssssnnsfnnn...',
   '...nnnfssssssssssfnnn...',
   '....nn.ssssssssss.nn....',
   '........ssssssss........',
@@ -656,121 +638,111 @@ const listenB = frame([
   '........................'
 ]);
 
-export function animation(
-  frames: SpriteFrame[],
-  frameDurationMs: number,
-  loop = true
-): SpriteAnimation {
-  return { frames, frameDurationMs, loop };
-}
-
-const animations: CharacterDefinition['animations'] = {
-  idle: animation([idleA, idleB], 620),
-  walk: animation([walkA, walkB], 145),
-  jump: animation([jump], 250, false),
-  fall: animation([fall], 250, false),
-  crawl: animation([crawlA, crawlB], 220),
-  climb: animation([climbA, climbB], 190),
-  mantle: animation([mantleA, mantleB], 150, false),
-  hide: animation([hideA, idleB], 520),
-  dangle: animation([dangleA, dangleB], 240),
-  listen: animation([listenA, listenB], 480)
-};
-
-
-export const tinyPerson: CharacterDefinition = {
-  id: 'tiny-person',
-  pixelWidth: WIDTH,
-  pixelHeight: HEIGHT,
-  // 24x32 at 1.0 renders 24x32 CSS px — the same on-screen footprint the rig
-  // has always had, with 2.2x the pixel budget. One sprite pixel is one CSS
-  // pixel, so nothing depends on fractional-scale rasterization any more.
-  scale: 1.0,
-  // The raised fist in dangleA/dangleB. render.ts pivots the drag pendulum
-  // around this pixel, so putting it on the hand instead of dead centre is
-  // what makes the body hang off-axis and swing.
-  dragGrip: { x: 2, y: 1 },
+const frankOcean: CharacterDefinition = {
+  ...tinyPerson,
+  id: 'artist-frank-ocean',
+  artistKey: 'frank ocean',
   palette: {
-    o: '$outline',
-    // Two hair tones: `g` is the crown, `h` the mass below it. Frank's green
-    // fade rides on this, so it lives in the shared rig rather than in his
-    // own frames — every character gets a subtle highlight for free.
-    g: '#5a3a28',
-    h: '#744c34',
-    // The temple column flanking the face. Its own key so a close-cropped
-    // character can set it to skin: with hair here the head reads as a shell
-    // wrapping the face, which on a buzzcut looks like a helmet.
-    f: '#744c34',
-    s: '#efaa78',
-    t: '#4ba7c8',
-    p: '#625b9a',
-    // Boots are NOT '$outline'. Sharing the outline colour turned each foot
-    // into a solid three-pixel block of it — the chunkiest thing on the sprite.
-    b: '#3f3a4d',
-    // Headphones. Their own key, and deliberately not '$outline': the cups have
-    // to be big enough to read as an object, and at that size the theme's text
-    // colour made them a slab of stark white. A mid grey reads on both themes.
-    n: '#9aa0aa'
+    ...tinyPerson.palette,
+    // Bright at the crown fading darker at the hairline, the way the bleach
+    // sits on the album cover. The reverse read as a dark cap.
+    g: '#63b56e',
+    h: '#357a45',
+    // Temple is skin, not hair. This is what makes it a buzzcut: with hair in
+    // the temple column the green wrapped the whole head and read as a helmet.
+    f: '#6b4230',
+    s: '#6b4230',
+    t: '#6b4230', // bare torso, matching the skin
+    p: '#2b3a4a',
+    b: '#26313d'
   },
-  // Unchanged in CSS px: 14x31, the box every world-tuning constant and
-  // gap-fit rule is calibrated against. Only offsetY moves 2 -> 1 so that
-  // offsetY + height === 32 keeps the feet flush with the sprite's last row.
-  body: {
-    offsetX: 5,
-    offsetY: 1,
-    width: 14,
-    height: 31
+  animations: {
+    idle: animation([frankIdleA, frankIdleB], 620),
+    walk: animation([frankWalkA, frankWalkB], 145),
+    jump: animation([frankJump], 250, false),
+    fall: animation([frankFall], 250, false),
+    crawl: animation([frankCrawlA, frankCrawlB], 220),
+    climb: animation([frankClimbA, frankClimbB], 190),
+    mantle: animation([frankMantleA, frankMantleB], 150, false),
+    // hide reuses the idle B-frame, mirroring the shared rig.
+    hide: animation([frankHideA, frankIdleB], 520),
+    dangle: animation([frankDangleA, frankDangleB], 240),
+    listen: animation([frankListenA, frankListenB], 480)
   },
-  animations,
-  // The shared rig's literals. Cannot be derived by convention: `hide` reuses
-  // idleB as its second frame, so editing hide:1 edits idle too.
   frameSource: {
-    file: 'src/lib/pixel-person/characters.ts',
+    file: 'src/lib/pixel-person/artists.ts',
     names: {
-      'idle:0': 'idleA', 'idle:1': 'idleB',
-      'walk:0': 'walkA', 'walk:1': 'walkB',
-      'jump:0': 'jump', 'fall:0': 'fall',
-      'crawl:0': 'crawlA', 'crawl:1': 'crawlB',
-      'climb:0': 'climbA', 'climb:1': 'climbB',
-      'mantle:0': 'mantleA', 'mantle:1': 'mantleB',
-      'hide:0': 'hideA', 'hide:1': 'idleB',
-      'dangle:0': 'dangleA', 'dangle:1': 'dangleB',
-      'listen:0': 'listenA', 'listen:1': 'listenB'
+      'idle:0': 'frankIdleA', 'idle:1': 'frankIdleB',
+      'walk:0': 'frankWalkA', 'walk:1': 'frankWalkB',
+      'jump:0': 'frankJump', 'fall:0': 'frankFall',
+      'crawl:0': 'frankCrawlA', 'crawl:1': 'frankCrawlB',
+      'climb:0': 'frankClimbA', 'climb:1': 'frankClimbB',
+      'mantle:0': 'frankMantleA', 'mantle:1': 'frankMantleB',
+      'hide:0': 'frankHideA', 'hide:1': 'frankIdleB',
+      'dangle:0': 'frankDangleA', 'dangle:1': 'frankDangleB',
+      'listen:0': 'frankListenA', 'listen:1': 'frankListenB'
     }
   }
 };
 
-/**
- * Derives a new character from an existing one by recoloring — frames are
- * shared by reference (the sprite cache keys by character id, so variants
- * rasterize independently). The cheap way to grow the roster.
- */
-export function withPalette(
-  base: CharacterDefinition,
-  id: string,
-  paletteOverrides: CharacterDefinition['palette']
-): CharacterDefinition {
-  return { ...base, id, palette: { ...base.palette, ...paletteOverrides } };
+artistRegistry.push(artistEntry(['frank ocean'], frankOcean));
+
+export function artistCharacterFor(name: string): CharacterDefinition | null {
+  const key = normalizeArtistName(name);
+  if (!key) return null;
+  return artistRegistry.find((entry) => entry.match.includes(key))?.character ?? null;
 }
 
-// One generic alternate, not three. The dropped 'sunny' and 'plum' were hue
-// swaps of the same figure, so a population of four read as one person in four
-// shirts; moss earns its place by being the only one that moves skin tone too.
-const mossPerson = withPalette(tinyPerson, 'tiny-person-moss', {
-  f: '#2f2b26',
-  b: '#232a20',
-  g: '#1f1c19',
-  h: '#2f2b26',
-  s: '#c98d5e',
-  t: '#6a9a58',
-  p: '#5d5266'
-});
+/**
+ * True when any presence maps to a registered artist character. The world uses
+ * this to detect the moment the artist rail becomes meaningful, because the
+ * first geometry scan runs before async-loaded artist elements exist.
+ */
+export function hasMatchedArtist(presences: ArtistPresence[]): boolean {
+  return presences.some((presence) => artistCharacterFor(presence.name) !== null);
+}
 
-export const characterRegistry: Record<string, CharacterDefinition> = {
-  [tinyPerson.id]: tinyPerson,
-  [mossPerson.id]: mossPerson
-};
+/** Resolves any character id — artist or generic — for the spawn command path. */
+export function resolveCharacter(id?: string): CharacterDefinition {
+  if (!id) return getCharacter(id);
+  const artist = artistRegistry.find((entry) => entry.character.id === id);
+  return artist ? artist.character : getCharacter(id);
+}
 
-export function getCharacter(id = tinyPerson.id): CharacterDefinition {
-  return characterRegistry[id] ?? tinyPerson;
+/**
+ * Picks who spawns. Generic characters weight 1; each artist present on the
+ * page weights `8 / (rank + 1)`, so a #1 artist is likely and a #8 is a treat.
+ * With no matched artists this reduces to a uniform pick over the generics,
+ * which is the pre-existing behaviour.
+ */
+export function pickCharacter(
+  presences: ArtistPresence[] = [],
+  random: () => number = Math.random
+): CharacterDefinition {
+  const pool: { character: CharacterDefinition; weight: number }[] = Object.values(
+    characterRegistry
+  ).map((character) => ({ character, weight: 1 }));
+
+  // Best (lowest) rank wins, so an artist in both the cover wall and the list
+  // does not get counted twice. Keyed by the definition itself — they are
+  // singletons, so identity dedupes without a second lookup.
+  const bestRank = new Map<CharacterDefinition, number>();
+  for (const presence of presences) {
+    const character = artistCharacterFor(presence.name);
+    if (!character) continue;
+    const rank = presence.rank ?? UNRANKED_RANK;
+    const existing = bestRank.get(character);
+    if (existing === undefined || rank < existing) bestRank.set(character, rank);
+  }
+  for (const [character, rank] of bestRank) {
+    pool.push({ character, weight: RANK_WEIGHT / (rank + 1) });
+  }
+
+  const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = random() * total;
+  for (const entry of pool) {
+    roll -= entry.weight;
+    if (roll < 0) return entry.character;
+  }
+  return pool[pool.length - 1].character;
 }

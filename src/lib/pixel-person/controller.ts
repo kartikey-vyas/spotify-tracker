@@ -14,18 +14,6 @@ export class PixelPersonController {
     this.push({ type: 'spawn', position, characterId });
   }
 
-  moveTo(position: Point): void {
-    this.push({ type: 'move', position });
-  }
-
-  fleeFrom(position: Point): void {
-    this.push({ type: 'flee', position });
-  }
-
-  despawn(id: string): void {
-    this.push({ type: 'despawn', id });
-  }
-
   drain(): PixelPersonCommand[] {
     return this.commands.length === 0 ? NO_COMMANDS : this.commands.splice(0);
   }

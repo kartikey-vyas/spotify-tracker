@@ -20,7 +20,7 @@ function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
     x: 10,
     y: 0,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: false,
@@ -44,9 +44,14 @@ function collider(overrides: Partial<Collider> = {}): Collider {
 describe('pixel person character registry', () => {
   it('contains a complete, consistently-sized tiny person', () => {
     expect(characterRegistry[tinyPerson.id]).toBe(tinyPerson);
-    expect(tinyPerson.pixelWidth).toBe(12);
-    expect(tinyPerson.pixelHeight).toBe(16);
-    expect(tinyPerson.scale).toBe(2);
+    expect(tinyPerson.pixelWidth).toBe(24);
+    expect(tinyPerson.pixelHeight).toBe(32);
+    expect(tinyPerson.scale).toBe(1);
+    // Footprint is held at the pre-existing 24 CSS px wide so world tuning
+    // still applies; the body box below is unchanged at 14x31.
+    expect(tinyPerson.pixelWidth * tinyPerson.scale).toBe(24);
+    expect(tinyPerson.body.width).toBe(14);
+    expect(tinyPerson.body.height).toBe(31);
   });
 
   it('every registered character is complete and consistently sized', () => {
@@ -106,7 +111,8 @@ describe('pixel person physics', () => {
       1 / 20
     );
 
-    expect(result.body.y).toBe(30);
+    // Rests with its feet exactly on the platform top: 60 - body height 31.
+    expect(result.body.y).toBe(29);
     expect(result.body.vy).toBe(0);
     expect(result.body.grounded).toBe(true);
     expect(result.body.supportId).toBe(platform.id);
@@ -141,8 +147,9 @@ describe('pixel person physics', () => {
   });
 
   it('uses strict overlap so standing on a surface is not embedded in it', () => {
-    expect(intersects(body({ y: 30 }), collider())).toBe(false);
-    expect(intersects(body({ y: 31 }), collider())).toBe(true);
+    // y 29 puts the feet exactly on the collider top (height 31); y 30 embeds them.
+    expect(intersects(body({ y: 29 }), collider())).toBe(false);
+    expect(intersects(body({ y: 30 }), collider())).toBe(true);
   });
 
   it('deduplicates colliders spanning several spatial cells', () => {
@@ -154,7 +161,7 @@ describe('pixel person physics', () => {
   it('requires a full body-height of clearance above a support', () => {
     const support = collider({ id: 'support', y: 60 });
     const lowCeiling = collider({ id: 'ceiling', y: 40 });
-    const standingBody = body({ y: support.y - 30 });
+    const standingBody = body({ y: support.y - 31 });
 
     expect(hasBodyClearance(standingBody, [support], support.id)).toBe(true);
     expect(hasBodyClearance(standingBody, [support, lowCeiling], support.id)).toBe(false);
@@ -168,12 +175,13 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 4, y: 30, grounded: true, supportId: floor.id }),
+      body({ x: 4, y: 29, grounded: true, supportId: floor.id }),
       0
     );
     person.activity = 'wander';
@@ -181,7 +189,7 @@ describe('pixel person physics', () => {
     person.goalX = 100;
     const spatial = new SpatialHash(colliders);
 
-    stepPixelPerson(person, geometry, spatial, [], 0.05, 50);
+    stepPixelPerson(person, geometry, spatial, 0.05, 50);
 
     expect(person.crawling).toBe(true);
     expect(person.animation).toBe('crawl');
@@ -189,7 +197,7 @@ describe('pixel person physics', () => {
     expect(person.body.y + person.body.height).toBe(60);
 
     for (let step = 2; step <= 12; step += 1) {
-      stepPixelPerson(person, geometry, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, geometry, spatial, 0.05, step * 50);
     }
     expect(person.body.x).toBeGreaterThan(4);
     expect(person.body.vx).toBeLessThanOrEqual(24);
@@ -203,26 +211,27 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 4, y: 30, grounded: true, supportId: floor.id }),
+      body({ x: 4, y: 29, grounded: true, supportId: floor.id }),
       0
     );
     person.activity = 'wander';
     person.activityUntil = 10_000;
     person.goalX = 100;
     const spatial = new SpatialHash(colliders);
-    stepPixelPerson(person, geometry, spatial, [], 0.05, 50);
+    stepPixelPerson(person, geometry, spatial, 0.05, 50);
     person.body.x = 70;
 
-    stepPixelPerson(person, geometry, spatial, [], 0.05, 100);
+    stepPixelPerson(person, geometry, spatial, 0.05, 100);
 
     expect(person.crawling).toBe(false);
-    expect(person.body.height).toBe(30);
-    expect(person.body.y).toBe(30);
+    expect(person.body.height).toBe(31);
+    expect(person.body.y).toBe(29);
   });
 
   it('does not crawl into a gap shorter than the crawl body', () => {
@@ -233,22 +242,23 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 4, y: 30, grounded: true, supportId: floor.id }),
+      body({ x: 4, y: 29, grounded: true, supportId: floor.id }),
       0
     );
     person.activity = 'wander';
     person.activityUntil = 10_000;
     person.goalX = 100;
 
-    stepPixelPerson(person, geometry, new SpatialHash(colliders), [], 0.05, 50);
+    stepPixelPerson(person, geometry, new SpatialHash(colliders), 0.05, 50);
 
     expect(person.crawling).toBe(false);
-    expect(person.body.height).toBe(30);
+    expect(person.body.height).toBe(31);
   });
 
   it('paces long mantles instead of skating sideways across UI surfaces', () => {
@@ -257,6 +267,7 @@ describe('pixel person physics', () => {
       colliders: [],
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -268,9 +279,9 @@ describe('pixel person physics', () => {
       startedAt: 0
     };
 
-    stepPixelPerson(person, geometry, spatial, [], 0.1, 1400);
+    stepPixelPerson(person, geometry, spatial, 0.1, 1400);
     const previousX = person.body.x;
-    stepPixelPerson(person, geometry, spatial, [], 0.1, 1500);
+    stepPixelPerson(person, geometry, spatial, 0.1, 1500);
 
     expect((person.body.x - previousX) / 0.1).toBeLessThanOrEqual(52.1);
     expect(person.activity).toBe('mantle');
@@ -285,6 +296,7 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 500, height: 500 },
       viewportBounds: { x: 0, y: 0, width: 500, height: 500 }
     };
@@ -299,7 +311,7 @@ describe('pixel person physics', () => {
 
     const spatial = new SpatialHash(colliders);
     for (let step = 1; step <= 30; step += 1) {
-      stepPixelPerson(person, geometry, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, geometry, spatial, 0.05, step * 50);
     }
 
     expect(person.climb).toBeNull();
@@ -320,6 +332,7 @@ describe('pixel person physics', () => {
       colliders: [panel],
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 390, height: 844 },
       viewportBounds: { x: 0, y: 0, width: 390, height: 844 }
     };
@@ -338,7 +351,7 @@ describe('pixel person physics', () => {
       goalX: 362
     };
 
-    stepPixelPerson(person, geometry, new SpatialHash([panel]), [], 0.05, 100);
+    stepPixelPerson(person, geometry, new SpatialHash([panel]), 0.05, 100);
 
     expect(person.mantle).toBeNull();
     expect(person.activity).toBe('wander');
@@ -405,6 +418,7 @@ describe('pixel person physics', () => {
       colliders,
       occluders: [],
       itemSources: [],
+      artistPresences: [],
       scanBounds: { x: 0, y: 0, width: 200, height: 200 },
       viewportBounds: { x: 0, y: 0, width: 200, height: 200 }
     };
@@ -417,7 +431,7 @@ describe('pixel person physics', () => {
     person.activityUntil = 10_000;
     person.goalX = 86;
 
-    stepPixelPerson(person, geometry, new SpatialHash(colliders), [], 0.05, 100);
+    stepPixelPerson(person, geometry, new SpatialHash(colliders), 0.05, 100);
 
     expect(person.activity).toBe('climb');
     expect(person.climb).toMatchObject({ wall: right, top, side: 'left', direction: 'up' });
@@ -428,7 +442,7 @@ describe('pixel person physics', () => {
       step <= 70 && (person.activity as string) === 'climb';
       step += 1
     ) {
-      stepPixelPerson(person, geometry, new SpatialHash(colliders), [], 0.05, step * 50);
+      stepPixelPerson(person, geometry, new SpatialHash(colliders), 0.05, step * 50);
     }
 
     expect(person.activity).toBe('mantle');
@@ -448,16 +462,10 @@ describe('pixel person interaction seam', () => {
     const controller = new PixelPersonController();
     controller.summon();
     controller.spawnAt({ x: 20, y: 30 }, 'tiny-person');
-    controller.moveTo({ x: 100, y: 30 });
-    controller.fleeFrom({ x: 70, y: 30 });
-    controller.despawn('pixel-person-1');
 
-    expect(controller.drain().map((command) => command.type)).toEqual([
-      'summon',
-      'spawn',
-      'move',
-      'flee',
-      'despawn'
+    expect(controller.drain()).toEqual([
+      { type: 'summon' },
+      { type: 'spawn', position: { x: 20, y: 30 }, characterId: 'tiny-person' }
     ]);
     expect(controller.drain()).toEqual([]);
   });

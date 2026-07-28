@@ -12,9 +12,9 @@ import type {
 function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
   return {
     x: 10,
-    y: 30,
+    y: 29,
     width: 14,
-    height: 30,
+    height: 31,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -41,6 +41,7 @@ function geometry(overrides: Partial<WorldGeometry> = {}): WorldGeometry {
     colliders: [collider()],
     occluders: [],
     itemSources: [],
+    artistPresences: [],
     scanBounds: { x: 0, y: 0, width: 500, height: 500 },
     viewportBounds: { x: 0, y: 0, width: 500, height: 500 },
     ...overrides
@@ -62,10 +63,10 @@ describe('ladder climb-down rides', () => {
   it('rides a planned ladder down and dismounts onto the shelf below', () => {
     const world = geometry({ colliders: [upperShelf(), lowerShelf(), ladder()] });
     const spatial = new SpatialHash(world.colliders);
-    // Standing on the UPPER shelf, feet at y=60, at the ladder's goal x.
+    // Standing on the UPPER shelf, feet at y=60 (29 + body height 31), at the ladder's goal x.
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 30, supportId: 'upper-shelf' }),
+      body({ x: 143, y: 29, supportId: 'upper-shelf' }),
       0
     );
     person.activity = 'wander';
@@ -75,7 +76,7 @@ describe('ladder climb-down rides', () => {
     person.nextRecordAt = 999_000;
     person.nextHideAt = 999_000;
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
     expect(person.activity).toBe('climb');
     expect(person.climb?.wall.id).toBe('ladder-1');
     expect(person.climb?.direction).toBe('down');
@@ -84,7 +85,7 @@ describe('ladder climb-down rides', () => {
 
     let step = 2;
     while ((person.activity as string) === 'climb' && step < 200) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       step += 1;
     }
     expect(person.climb).toBeNull();
@@ -92,7 +93,7 @@ describe('ladder climb-down rides', () => {
     // Physics takes over from the dismount and settles them on the shelf.
     let landing = 0;
     while (!person.body.grounded && landing < 20) {
-      stepPixelPerson(person, world, spatial, [], 0.05, (step + landing) * 50);
+      stepPixelPerson(person, world, spatial, 0.05, (step + landing) * 50);
       landing += 1;
     }
 
@@ -108,13 +109,13 @@ describe('ladder climb-down rides', () => {
     for (let trial = 0; trial < 60; trial += 1) {
       const person = createPixelPerson(
         tinyPerson,
-        body({ x: 40, y: 30, supportId: 'upper-shelf' }),
+        body({ x: 40, y: 29, supportId: 'upper-shelf' }),
         0
       );
       person.activityUntil = 0;
       person.nextRecordAt = 999_000;
       person.nextHideAt = 999_000;
-      stepPixelPerson(person, world, spatial, [], 0.001, 50);
+      stepPixelPerson(person, world, spatial, 0.001, 50);
       expect(person.plannedLadder).toBeNull();
     }
   });
@@ -124,7 +125,7 @@ describe('ladder climb-down rides', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = createPixelPerson(
       tinyPerson,
-      body({ x: 143, y: 30, supportId: 'upper-shelf' }),
+      body({ x: 143, y: 29, supportId: 'upper-shelf' }),
       0
     );
     person.activity = 'wander';
@@ -132,7 +133,7 @@ describe('ladder climb-down rides', () => {
     person.goalX = 143;
     person.plannedLadder = { ladderId: 'ladder-1', goalX: 143, direction: 'down' };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).not.toBe('climb');
     expect(person.climb).toBeNull();
@@ -159,7 +160,7 @@ describe('ladder climb-down rides', () => {
     person.activity = 'climb';
     person.climb = { wall, top: wall, side: 'right', direction: 'down', returnY: 61 };
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.climb).not.toBeNull();
     expect(person.climb?.direction).toBe('up');
@@ -219,9 +220,9 @@ describe('errand-driven ladder routing', () => {
     });
     const spatial = new SpatialHash(world.colliders);
     // On the LOWER shelf, feet at y=160.
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).not.toBe('seek-record');
     expect(person.recordErrand).toBeNull();
@@ -237,9 +238,9 @@ describe('errand-driven ladder routing', () => {
     });
     const spatial = new SpatialHash(world.colliders);
     // On the UPPER shelf, feet at y=60.
-    const person = errandPerson({ x: 40, y: 30, supportId: 'upper-shelf' });
+    const person = errandPerson({ x: 40, y: 29, supportId: 'upper-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.plannedLadder?.ladderId).toBe('ladder-1');
     expect(person.plannedLadder?.direction).toBe('down');
@@ -252,9 +253,9 @@ describe('errand-driven ladder routing', () => {
       itemSources: [highSource()]
     });
     const spatial = new SpatialHash(world.colliders);
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.plannedLadder).toBeNull();
     expect(person.nextRecordAt - 50).toBe(6_000);
@@ -266,9 +267,9 @@ describe('errand-driven ladder routing', () => {
       itemSources: [highSource(), lowSource()]
     });
     const spatial = new SpatialHash(world.colliders);
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    stepPixelPerson(person, world, spatial, [], 0.05, 50);
+    stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('low-source');
@@ -281,13 +282,13 @@ describe('errand-driven ladder routing', () => {
       itemSources: [highSource()]
     });
     const spatial = new SpatialHash(world.colliders);
-    const person = errandPerson({ x: 40, y: 130, supportId: 'lower-shelf' });
+    const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
     // Route -> walk -> ride -> re-plan on the upper shelf -> seek -> stoop.
     const allowed = ['wander', 'idle', 'climb', 'mantle', 'seek-record', 'record-stoop'];
     let step = 1;
     while (!person.carrying && step <= 400) {
-      stepPixelPerson(person, world, spatial, [], 0.05, step * 50);
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(allowed).toContain(person.activity as string);
       step += 1;
     }

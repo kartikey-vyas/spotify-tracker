@@ -72,6 +72,8 @@
         <li
           data-pixel-collision="occluder"
           data-pixel-record={item.imageUrl && !failed[item.id] ? item.imageUrl : undefined}
+          data-pixel-artist={item.subtitle ?? undefined}
+          data-pixel-artist-rank={index + 1}
         >
           <svelte:element
             this={item.href ? 'a' : 'div'}

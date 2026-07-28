@@ -1,4 +1,5 @@
 import type { CharacterDefinition } from './types';
+import { normalizeArtistName } from './artist-name';
 import {
   createDangle,
   releaseDangle,
@@ -27,7 +28,6 @@ import type {
   Occluder,
   PhysicsBody,
   PhysicsConfig,
-  PixelPersonCommand,
   PixelWorldEvent,
   Point,
   Rect,
@@ -168,6 +168,12 @@ interface CarriedRecord {
 export interface PixelPersonRuntime {
   id: string;
   definition: CharacterDefinition;
+  /**
+   * True when this character was asked for by name rather than rolled. The
+   * world re-rolls and re-spawns its ambient population freely; someone who
+   * clicked an artist to summon that artist must not have them swapped out.
+   */
+  pinnedCharacter: boolean;
   body: PhysicsBody;
   facing: Facing;
   animation: AnimationName;
@@ -207,11 +213,13 @@ export function createPixelPerson(
   definition: CharacterDefinition,
   body: PhysicsBody,
   now: number,
-  id = 'pixel-person-1'
+  id = 'pixel-person-1',
+  pinnedCharacter = false
 ): PixelPersonRuntime {
   return {
     id,
     definition,
+    pinnedCharacter,
     body,
     facing: 1,
     animation: 'idle',
@@ -250,13 +258,10 @@ export function stepPixelPerson(
   person: PixelPersonRuntime,
   geometry: WorldGeometry,
   spatial: SpatialHash,
-  commands: PixelPersonCommand[],
   elapsedSeconds: number,
   now: number,
   events?: PixelWorldEvent[]
 ): PixelPersonRuntime | null {
-  if (applyCommands(person, commands, now) === null) return null;
-
   const dt = Math.max(0, Math.min(elapsedSeconds, 1 / 20));
   if (person.activity === 'drag' && person.drag) {
     const result = stepDangle(person.drag, person.body, dt);
@@ -719,30 +724,6 @@ function resizedBodyFromFeet(body: PhysicsBody, height: number): PhysicsBody {
   return resized;
 }
 
-function applyCommands(
-  person: PixelPersonRuntime,
-  commands: PixelPersonCommand[],
-  now: number
-): PixelPersonRuntime | null {
-  for (const command of commands) {
-    if (command.type === 'despawn' && command.id === person.id) return null;
-    if (command.type === 'move') {
-      cancelSpecialMovement(person);
-      person.goalX = command.position.x;
-      person.activity = 'wander';
-      person.activityUntil = now + 8_000;
-    }
-    if (command.type === 'flee') {
-      cancelSpecialMovement(person);
-      const direction = person.body.x + person.body.width / 2 < command.position.x ? -1 : 1;
-      person.goalX = person.body.x + direction * 240;
-      person.activity = 'wander';
-      person.activityUntil = now + 5_000;
-    }
-  }
-  return person;
-}
-
 function chooseNextActivity(
   person: PixelPersonRuntime,
   geometry: WorldGeometry,
@@ -951,6 +932,12 @@ function sourceReachableAtLevel(
   return source.y < feetY && source.y + source.height > feetY - bodyHeight;
 }
 
+/** True when the source is a cover by the artist identified by `ownKey`. */
+function isOwnArtistSource(ownKey: string, source: ItemSource): boolean {
+  if (!source.artistName) return false;
+  return normalizeArtistName(source.artistName) === ownKey;
+}
+
 function chooseRecordSource(
   person: PixelPersonRuntime,
   geometry: WorldGeometry
@@ -975,7 +962,14 @@ function chooseRecordSource(
   const fresh = candidates.filter(
     (source) => !person.recentRecordSourceIds.includes(source.id)
   );
-  const pool = (fresh.length > 0 ? fresh : candidates).slice(0, 4);
+  const eligible = fresh.length > 0 ? fresh : candidates;
+  // An artist character walks past other covers to reach their own. This must
+  // narrow the pool rather than just order it: the final pick is random, so
+  // sorting alone would still take someone else's record half the time.
+  const artistKey = person.definition.artistKey;
+  const ownKey = artistKey ? normalizeArtistName(artistKey) : null;
+  const own = ownKey ? eligible.filter((source) => isOwnArtistSource(ownKey, source)) : [];
+  const pool = (own.length > 0 ? own : eligible).slice(0, 4);
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -1155,6 +1149,24 @@ function dropPayload(person: PixelPersonRuntime): DroppedRecord {
       y: person.body.y + person.body.height
     }
   };
+}
+
+/**
+ * Swaps a live person's character without disturbing its motion — used when the
+ * artist rail populates after spawn and the character has to be re-picked.
+ *
+ * Owned here rather than by the caller so any invariant a swap comes to need
+ * lives with the runtime it protects.
+ *
+ * Callers must ensure both definitions share a body box; every character does
+ * today, so position and velocity carry over untouched.
+ */
+export function setPersonDefinition(
+  person: PixelPersonRuntime,
+  definition: CharacterDefinition
+): void {
+  if (person.definition.id === definition.id) return;
+  person.definition = definition;
 }
 
 /** Abandons a planned pickup, e.g. when its artwork failed to load. */
