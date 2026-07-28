@@ -44,10 +44,11 @@ function collider(overrides: Partial<Collider> = {}): Collider {
 describe('pixel person character registry', () => {
   it('contains a complete, consistently-sized tiny person', () => {
     expect(characterRegistry[tinyPerson.id]).toBe(tinyPerson);
-    expect(tinyPerson.pixelWidth).toBe(16);
-    expect(tinyPerson.pixelHeight).toBe(22);
-    expect(tinyPerson.scale).toBe(1.5);
-    // Footprint is held at the pre-existing 24x33 so world tuning still applies.
+    expect(tinyPerson.pixelWidth).toBe(24);
+    expect(tinyPerson.pixelHeight).toBe(32);
+    expect(tinyPerson.scale).toBe(1);
+    // Footprint is held at the pre-existing 24 CSS px wide so world tuning
+    // still applies; the body box below is unchanged at 14x31.
     expect(tinyPerson.pixelWidth * tinyPerson.scale).toBe(24);
     expect(tinyPerson.body.width).toBe(14);
     expect(tinyPerson.body.height).toBe(31);

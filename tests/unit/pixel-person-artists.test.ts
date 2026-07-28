@@ -152,9 +152,9 @@ describe('Frank Ocean', () => {
 
   it('keeps the base rig dimensions', () => {
     const frank = artistCharacterFor('Frank Ocean');
-    expect(frank?.pixelWidth).toBe(16);
-    expect(frank?.pixelHeight).toBe(22);
-    expect(frank?.scale).toBe(1.5);
+    expect(frank?.pixelWidth).toBe(24);
+    expect(frank?.pixelHeight).toBe(32);
+    expect(frank?.scale).toBe(1);
   });
 
   it('has every frame at the declared dimensions with a resolvable palette', () => {

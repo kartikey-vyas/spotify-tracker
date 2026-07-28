@@ -35,43 +35,60 @@ function artistEntry(match: string[], character: CharacterDefinition): ArtistCha
   return { match: match.map(normalizeArtistName), character };
 }
 
-// The blond pose: forearm rising on the left, hand over the ear and temple.
-// Head, face and legs match idleA so it reads as the same figure — only the
-// left arm and the left hip hand move.
+// The blond pose: forearm rising on the left to a hand cupped over the ear and
+// temple. Head, face and legs match idleA so it reads as the same figure —
+// only the left arm moves.
 //
-// Two things this frame learned the hard way, both invisible to the tests:
-//   - The hand stops at the head's `h` column instead of covering it. Hand and
-//     face are the same brown, so with the hair gone they merge into one wide
-//     face; the green column is what separates them. Toning the hand
-//     differently, or outlining it in `o`, both read worse — outlines here are
-//     bright, so an outlined hand becomes a post standing beside the figure.
-//   - The arm is built like the `jump` frame's: outline on the outer edge
-//     only, stepping in at row 8 to merge with the shoulder. That merge needs
-//     row 9 at jump's wider torso, not idleA's — against idleA's narrower row
-//     the diagonal lands on the torso outline and the arm reads detached.
+// The hard part is that Frank's palette collapses `s`, `f` and `t` onto one
+// brown, so hand, face, arm and torso are all the same colour — the silhouette
+// has to do the whole job. At 16x22 the hand was 2x2 and read as a blob. Here
+// it is a closed 4-wide, 6-tall mass, and four things separate it:
+//   - It is drawn in front of the head. The head is 12 wide from column 6; the
+//     hand covers columns 6-7 and overhangs left to column 3, so it breaks the
+//     head's own outline instead of sitting beside it.
+//   - Its whole contour is `o`, including the seam at column 8 where it crosses
+//     the face. Outlining the *arm* turns it into a post; outlining only the
+//     hand's contour reads as a hand's edge, the same trick the torso already
+//     uses for the idle hands.
+//   - A raised finger: rows 1-2 step in to 2 pixels above the 4-wide hand, and
+//     that notch against the green crown is the strongest single cue here.
+//   - The wrist steps 4 -> 3 -> 2 down rows 9-13, so the forearm is visibly
+//     thinner than the hand rather than one continuous bar.
+// The arm merges into the torso at row 14 by taking over the shoulder's own
+// outline column, which is what keeps it attached rather than adjacent.
 const frankSignature = frame([
-  '................',
-  '.....gggggg.....',
-  '....gggggggg....',
-  '.ossshhhhhhh....',
-  '.ossfssssssf....',
-  '.ossfsossosf....',
-  '.ossfssssssf....',
-  '.ossossssss.....',
-  '..ot..ssss......',
-  '...otttttttto...',
-  '...otttttttto...',
-  '...otttttttto...',
-  '...otttttttso...',
-  '....otttttto....',
-  '....oppppppo....',
-  '....opp..ppo....',
-  '....opp..ppo....',
-  '....opp..ppo....',
-  '....opp..ppo....',
-  '....ob....bo....',
-  '...obb....bbo...',
-  '................'
+  '........................',
+  '.....oo.gggggggg........',
+  '....ossoggggggggg.......',
+  '...ossssoggggggggg......',
+  '...ossssohhhhhhhhh......',
+  '..osssssohhhhhhhhh......',
+  '..osssssossssssssf......',
+  '...ossssossssssssf......',
+  '...ossssosssssoosf......',
+  '...osssosssssssssf......',
+  '...ossossssssssss.......',
+  '...osso.ssssssss........',
+  '...osso..ssssss.........',
+  '....oss..ssssss.........',
+  '....osstttttttttto......',
+  '.....otttttttttttto.....',
+  '.....otttttttttttto.....',
+  '.....otttttttttttto.....',
+  '.....otttttttttttto.....',
+  '.....osttttttttttso.....',
+  '.....osttttttttttso.....',
+  '......otttttttttto......',
+  '......oppppppppppo......',
+  '......oppppppppppo......',
+  '......oppp....pppo......',
+  '......oppp....pppo......',
+  '......oppp....pppo......',
+  '......oppp....pppo......',
+  '......oppp....pppo......',
+  '......obbb....bbbo......',
+  '......obbb....bbbo......',
+  '.....obbbb....bbbbo.....'
 ]);
 
 const frankOcean: CharacterDefinition = {
