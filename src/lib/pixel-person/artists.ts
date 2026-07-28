@@ -54,9 +54,9 @@ const frankSignature = frame([
   '.....gggggg.....',
   '....gggggggg....',
   '.ossshhhhhhh....',
-  '.osshssssssh....',
-  '.osshsossosh....',
-  '.osshssssssh....',
+  '.ossfssssssf....',
+  '.ossfsossosf....',
+  '.ossfssssssf....',
   '.ossossssss.....',
   '..ot..ssss......',
   '...otttttttto...',
@@ -80,11 +80,17 @@ const frankOcean: CharacterDefinition = {
   artistKey: 'frank ocean',
   palette: {
     ...tinyPerson.palette,
-    g: '#2f6b3c', // shaded crown of the buzzcut
-    h: '#4f9d5f', // blond green
+    // Bright at the crown fading darker at the hairline, the way the bleach
+    // sits on the album cover. The reverse read as a dark cap.
+    g: '#63b56e',
+    h: '#357a45',
+    // Temple is skin, not hair. This is what makes it a buzzcut: with hair in
+    // the temple column the green wrapped the whole head and read as a helmet.
+    f: '#6b4230',
     s: '#6b4230',
     t: '#6b4230', // bare torso, matching the skin
-    p: '#2b3a4a'
+    p: '#2b3a4a',
+    b: '#26313d'
   },
   animations: {
     ...tinyPerson.animations,

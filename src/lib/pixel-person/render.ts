@@ -497,12 +497,22 @@ function drawFrame(
   }
 }
 
+/**
+ * Silhouette colour for sprites. Reads `--muted` rather than `--text`: the
+ * outline runs the full height of every limb, and at full text contrast that
+ * traced the figure in stark white (dark themes) or black (light ones), which
+ * read as heavy banding rather than an edge. `--muted` still separates the
+ * sprite from `--bg` in every theme, at a weight that recedes.
+ */
 export function themeOutline(): string {
   const theme = document.documentElement.dataset.theme ?? 'light';
   if (theme !== cachedTheme) {
     cachedTheme = theme;
+    const styles = getComputedStyle(document.documentElement);
     cachedOutline =
-      getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#111';
+      styles.getPropertyValue('--muted').trim() ||
+      styles.getPropertyValue('--text').trim() ||
+      '#111';
   }
   return cachedOutline;
 }
