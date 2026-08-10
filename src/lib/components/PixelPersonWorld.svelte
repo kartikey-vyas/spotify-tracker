@@ -14,6 +14,7 @@
     shouldEnablePixelPerson
   } from '$lib/pixel-person/availability';
   import { pixelPersonController } from '$lib/pixel-person/controller';
+  import { doorwayOpacity, doorwayRect, isOverDoorway } from '$lib/pixel-person/doorway';
   import {
     hasFallenOutOfWorld,
     isWithinSimulatedWorld
@@ -34,6 +35,7 @@
     sizeCanvas
   } from '$lib/pixel-person/render';
   import {
+    beginDoorwayExit,
     beginPixelPersonDrag,
     cancelRecordErrand,
     createPixelPerson,
@@ -103,6 +105,10 @@
   let suppressedClick: { until: number; point: Point } | null = null;
   let placedRecords: PlacedRecord[] = [];
   let nextRecordEntityId = 1;
+  // The doorway is only offered while someone is actually being held, so it
+  // never becomes page furniture. `changedAt` drives its fade both ways.
+  let doorwayShown = false;
+  let doorwayChangedAt = 0;
   const simulationEvents: PixelWorldEvent[] = [];
 
   afterNavigate(() => {
@@ -263,6 +269,7 @@
 
     if (people.length > 0 && geometry.colliders.length > 0) {
       let survivors = 0;
+      let left = 0;
       const documentHeight = Math.max(
         document.documentElement.scrollHeight,
         document.body.scrollHeight
@@ -272,8 +279,11 @@
         // Frozen: outside the scanned window there are no colliders to stand
         // on, so stepping them would drop them through a floor that was never
         // scanned. They keep their spot on the page until the reader returns.
+        // Someone on their way out is never frozen: they would be stranded
+        // mid-fade and keep holding a slot in the population forever.
         if (
           person.activity !== 'drag' &&
+          person.activity !== 'exit' &&
           !isWithinSimulatedWorld(person.body, geometry.scanBounds)
         ) {
           people[survivors++] = person;
@@ -287,7 +297,11 @@
           now,
           simulationEvents
         );
-        if (!stepped) continue;
+        if (!stepped) {
+          // The only way a step returns nothing is a completed doorway exit.
+          if (person.activity === 'exit') left += 1;
+          continue;
+        }
         // A person flung below everything free-falls forever on a quiet page
         // (the recovery in scanGeometry only runs on rescans, which nothing
         // triggers) — catch the fall here every frame instead. Measured
@@ -303,11 +317,20 @@
         }
       }
       people.length = survivors;
+      if (left > 0) onPersonLeft(survivors);
     }
     if (activePointerId !== null && !findActivePerson()?.drag) finishPointerDrag(now, false);
 
     syncRecordState(now);
-    renderPixelWorld(canvas, people, geometry, now, debug, placedRecords);
+    renderPixelWorld(
+      canvas,
+      people,
+      geometry,
+      now,
+      debug,
+      placedRecords,
+      doorwayOpacity(doorwayShown, doorwayChangedAt, now)
+    );
     updateDebugAttributes(now);
     requestNextFrame();
   }
@@ -409,6 +432,24 @@
       }
     }
     forceRespawn = false;
+  }
+
+  function setDoorwayShown(shown: boolean, now: number): void {
+    if (doorwayShown === shown) return;
+    doorwayShown = shown;
+    doorwayChangedAt = now;
+  }
+
+  /**
+   * Someone walked out through the door. Lower the population to match, or a
+   * rescan refills it a moment later and the delete looks like it failed.
+   * `ambientSuppressed` is the existing switch for "no one, on purpose"; the
+   * summon button and a navigation both clear it, so they are recoverable.
+   */
+  function onPersonLeft(remaining: number): void {
+    manualPopulation = remaining;
+    if (remaining <= 0) ambientSuppressed = true;
+    refreshAvailability();
   }
 
   /** The character to rebuild a person as, or undefined to roll a fresh one. */
@@ -549,6 +590,7 @@
     lastPointerClient = clientPoint;
     placeRecord(dropCarriedRecord(target), now);
     beginPixelPersonDrag(target, event.pointerId, clientToDocument(clientPoint), now);
+    setDoorwayShown(true, now);
     setPointerCursor(false, true);
     try {
       canvas.setPointerCapture(event.pointerId);
@@ -687,13 +729,29 @@
     if (pointerId === null) return;
     const activePerson = findActivePerson();
     if (activePerson) {
+      // Dropped on the doorway: they walk in and fade rather than landing.
+      const droppedOn = {
+        x: activePerson.body.x + activePerson.body.width / 2,
+        y: activePerson.body.y + activePerson.body.height / 2
+      };
+      const overDoorway = isOverDoorway(droppedOn, geometry.viewportBounds);
       releasePixelPersonDrag(activePerson, pointerId, spatial, now, {
         x: window.scrollX + 2,
         y: window.scrollY + 2,
         width: Math.max(0, window.innerWidth - 4),
         height: Math.max(0, window.innerHeight - 4)
       });
+      if (overDoorway) {
+        placeRecord(dropCarriedRecord(activePerson), now);
+        const door = doorwayRect(geometry.viewportBounds);
+        beginDoorwayExit(
+          activePerson,
+          door.x + door.width / 2 - activePerson.body.width / 2,
+          now
+        );
+      }
     }
+    setDoorwayShown(false, now);
     try {
       if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
     } catch {

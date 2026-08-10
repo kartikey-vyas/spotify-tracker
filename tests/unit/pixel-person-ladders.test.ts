@@ -140,7 +140,11 @@ describe('ladder climb-down rides', () => {
     expect(person.plannedLadder).toBeNull();
   });
 
-  it('keeps the peek-down behavior: a climb with returnY flips back up instead of dismounting', () => {
+  // Replaces a test that pinned the old "peek over the edge" turnaround. That
+  // behaviour was the only thing an edge climb-down ever did, so every one of
+  // them read as the character changing its mind halfway. A descent now
+  // commits, and the rule worth pinning is that it never turns back up.
+  it('descends all the way instead of turning back partway', () => {
     const wall = collider({
       id: 'panel-wall',
       kind: 'border',
@@ -158,14 +162,24 @@ describe('ladder climb-down rides', () => {
       0
     );
     person.activity = 'climb';
-    person.climb = { wall, top: wall, side: 'right', direction: 'down', returnY: 61 };
+    person.climb = {
+      wall,
+      top: wall,
+      side: 'right',
+      direction: 'down',
+      dismountY: 160
+    };
 
-    stepPixelPerson(person, world, spatial, 0.05, 50);
+    let everTurnedBack = false;
+    for (let step = 1; step <= 200 && person.climb; step += 1) {
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
+      if (person.climb?.direction === 'up') everTurnedBack = true;
+    }
 
-    expect(person.climb).not.toBeNull();
-    expect(person.climb?.direction).toBe('up');
-    expect(person.climb?.returnY).toBeNull();
-    expect(person.activity).toBe('climb');
+    expect(everTurnedBack).toBe(false);
+    expect(person.climb).toBeNull();
+    // Arrived at the foot of the wall rather than back on top of it.
+    expect(person.body.y + person.body.height).toBeGreaterThanOrEqual(150);
   });
 });
 
@@ -302,5 +316,86 @@ describe('errand-driven ladder routing', () => {
     }
 
     expect(person.carrying?.sourceId).toBe('high-source');
+  });
+});
+
+describe('edge climb-downs commit or do not start', () => {
+  const panelTop = (): Collider => ({
+    id: 'panel-top',
+    kind: 'border',
+    groupId: 'panel',
+    edge: 'top',
+    x: 100,
+    y: 60,
+    width: 200,
+    height: 2
+  });
+  const panelRight = (): Collider => ({
+    id: 'panel-right',
+    kind: 'border',
+    groupId: 'panel',
+    edge: 'right',
+    x: 298,
+    y: 60,
+    width: 2,
+    height: 100
+  });
+  /** Sits exactly at the foot of the panel wall (y 60 + height 100). */
+  const groundBelow = (): Collider => ({
+    id: 'ground',
+    kind: 'border',
+    edge: 'top',
+    x: 0,
+    y: 160,
+    width: 500,
+    height: 2
+  });
+
+  function walkerOnPanel() {
+    const person = createPixelPerson(
+      tinyPerson,
+      body({ x: 280, y: 29, supportId: 'panel-top' }),
+      0
+    );
+    person.activity = 'wander';
+    person.activityUntil = 99_000;
+    person.goalX = 400;
+    person.facing = 1;
+    person.nextRecordAt = 999_000;
+    person.nextHideAt = 999_000;
+    // Old enough that the climb cooldown is not what blocks the descent.
+    person.lastClimbAt = -99_000;
+    return person;
+  }
+
+  it('climbs down to the surface at the foot of the wall', () => {
+    const world = geometry({ colliders: [panelTop(), panelRight(), groundBelow()] });
+    const spatial = new SpatialHash(world.colliders);
+    const person = walkerOnPanel();
+
+    let climbed = false;
+    for (let step = 1; step <= 400; step += 1) {
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
+      if (person.activity === 'climb') climbed = true;
+      if (climbed && person.body.grounded && person.body.supportId === 'ground') break;
+    }
+
+    expect(climbed).toBe(true);
+    expect(person.body.supportId).toBe('ground');
+  });
+
+  it('turns around rather than starting a descent into nothing', () => {
+    // Same panel, no surface at the foot of the wall.
+    const world = geometry({ colliders: [panelTop(), panelRight()] });
+    const spatial = new SpatialHash(world.colliders);
+    const person = walkerOnPanel();
+
+    for (let step = 1; step <= 120; step += 1) {
+      stepPixelPerson(person, world, spatial, 0.05, step * 50);
+      expect(person.activity).not.toBe('climb');
+    }
+
+    // Still up top, having turned back from the edge instead of going over it.
+    expect(person.body.y + person.body.height).toBeLessThanOrEqual(62);
   });
 });

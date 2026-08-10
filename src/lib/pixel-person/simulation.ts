@@ -40,6 +40,12 @@ const MIN_MANTLE_DURATION_MS = 340;
 const MAX_MANTLE_HORIZONTAL_SPEED = 52;
 const EASE_IN_OUT_MAX_SLOPE = 1.5;
 const CLIMB_VIEWPORT_MARGIN = 2;
+/**
+ * How far below a wall's foot a landing surface may sit and still count.
+ * Looser than the ladder equivalent: the floor under a card is whatever the
+ * page put there, not something authored to line up.
+ */
+const CLIMB_DOWN_LANDING_SLACK = 96;
 const CRAWL_HEIGHT = 12;
 /** Once stuckForMs reaches this, the world owner respawns the person. */
 export const STUCK_RECOVERY_MS = 1_400;
@@ -177,7 +183,8 @@ type Activity =
   | 'listen'
   | 'climb'
   | 'mantle'
-  | 'drag';
+  | 'drag'
+  | 'exit';
 
 /**
  * A single unit of intent. Routines are queues of these: the person commits to
@@ -199,8 +206,6 @@ interface ClimbMotion {
   top: Collider;
   side: 'left' | 'right';
   direction: 'up' | 'down';
-  /** Peek-down turnaround: descend to here, then flip back to 'up'. */
-  returnY: number | null;
   /** Ladder-ride dismount: descending feet reaching here ends the climb. */
   dismountY?: number | null;
 }
@@ -244,6 +249,13 @@ interface ListenSession {
 
 interface RecordBrowse {
   until: number;
+}
+
+/** Walking off through the doorway, and the fade that finishes the job. */
+interface DoorwayExit {
+  doorX: number;
+  startedAt: number;
+  fadeStartedAt: number | null;
 }
 
 interface CarriedRecord {
@@ -296,6 +308,8 @@ export interface PixelPersonRuntime {
   plannedLadder: { ladderId: string; goalX: number; direction?: 'up' | 'down' } | null;
   recordErrand: RecordErrand | null;
   recordBrowse: RecordBrowse | null;
+  /** Set once someone has been dropped on the doorway; ends in removal. */
+  exit: DoorwayExit | null;
   recordStoop: RecordStoop | null;
   listen: ListenSession | null;
   carrying: CarriedRecord | null;
@@ -344,6 +358,7 @@ export function createPixelPerson(
     plannedLadder: null,
     recordErrand: null,
     recordBrowse: null,
+    exit: null,
     recordStoop: null,
     listen: null,
     carrying: null,
@@ -372,6 +387,11 @@ export function stepPixelPerson(
     person.drag = result.state;
     person.body = result.body;
     return person;
+  }
+  // Leaving takes precedence over everything except an active drag: once the
+  // reader has sent someone off, nothing should pull them back into the world.
+  if (person.activity === 'exit') {
+    return updateDoorwayExit(person, geometry, spatial, dt, now);
   }
   if (person.activity === 'mantle') {
     updateMantle(person, geometry, now);
@@ -1319,6 +1339,90 @@ function nearestRecordSourceX(
   return best ? best.x + best.width / 2 : null;
 }
 
+export const DOORWAY_EXIT = {
+  /** Long enough to read as walking off, short enough not to feel stuck. */
+  walkTimeoutMs: 6_000,
+  arrivalSlackX: 6,
+  fadeMs: 520
+} as const;
+
+/**
+ * Sends someone off through the doorway: they walk to it and fade out on the
+ * threshold. Deliberate and reversible-looking rather than an instant delete —
+ * the reader asked for them to leave, not to be erased mid-stride.
+ */
+export function beginDoorwayExit(
+  person: PixelPersonRuntime,
+  doorX: number,
+  now: number
+): void {
+  cancelSpecialMovement(person);
+  person.crawling = false;
+  person.drag = null;
+  person.routine = null;
+  person.lookFlipAt = 0;
+  person.recordBrowse = null;
+  person.recordStoop = null;
+  person.listen = null;
+  person.recordErrand = null;
+  person.exit = { doorX, startedAt: now, fadeStartedAt: null };
+  person.activity = 'exit';
+  person.goalX = doorX;
+  person.facing = doorX >= person.body.x ? 1 : -1;
+  setLocomotionAnimation(person, now);
+}
+
+/** 0 while solid, 1 once fully faded; the world owner removes them at 1. */
+export function doorwayExitFade(person: PixelPersonRuntime, now: number): number {
+  const startedAt = person.exit?.fadeStartedAt;
+  if (startedAt === null || startedAt === undefined) return 0;
+  return Math.min(1, Math.max(0, (now - startedAt) / DOORWAY_EXIT.fadeMs));
+}
+
+/**
+ * Walks the last few steps to the door and fades. Returns null once the fade
+ * has finished, which is how the world owner learns to drop them.
+ */
+function updateDoorwayExit(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry,
+  spatial: SpatialHash,
+  dt: number,
+  now: number
+): PixelPersonRuntime | null {
+  const exit = person.exit;
+  if (!exit) {
+    person.activity = 'idle';
+    person.activityUntil = now;
+    return person;
+  }
+  if (exit.fadeStartedAt !== null) {
+    person.body.vx = 0;
+    return doorwayExitFade(person, now) >= 1 ? null : person;
+  }
+
+  person.goalX = exit.doorX;
+  const moveX = directionTowardGoal(person);
+  if (moveX !== 0) person.facing = moveX;
+  // Arrival, or a walk that never got there (blocked, stranded on a ledge) —
+  // either way they leave, because the reader already decided that.
+  if (
+    Math.abs(person.body.x - exit.doorX) <= DOORWAY_EXIT.arrivalSlackX ||
+    now - exit.startedAt >= DOORWAY_EXIT.walkTimeoutMs
+  ) {
+    exit.fadeStartedAt = now;
+    person.body.vx = 0;
+    setAnimation(person, 'idle', now);
+    return person;
+  }
+
+  const nearby = spatial.query(expandedRect(person.body, 28));
+  const result = stepPhysics(person.body, { moveX, jump: false }, nearby, dt, walkConfigFor(person));
+  person.body = result.body;
+  setLocomotionAnimation(person, now);
+  return person;
+}
+
 function beginListening(person: PixelPersonRuntime, now: number): void {
   person.listen = {
     startedAt: now,
@@ -1711,14 +1815,35 @@ function hasWalkableTopNear(geometry: WorldGeometry, ladder: Collider): boolean 
 
 /** A ladder is only worth riding down when something walkable awaits below. */
 function hasWalkableBottomNear(geometry: WorldGeometry, ladder: Collider): boolean {
-  const ladderBottom = ladder.y + ladder.height;
-  return geometry.colliders.some(
-    (collider) =>
-      (collider.edge === 'top' || collider.kind === 'solid') &&
-      Math.abs(collider.y - ladderBottom) <= LADDER_CLIMB.bottomSlack &&
-      collider.x < ladder.x + ladder.width + 30 &&
-      collider.x + collider.width > ladder.x - 30
-  );
+  return findFootLanding(geometry, ladder, LADDER_CLIMB.bottomSlack) !== null;
+}
+
+/**
+ * The surface a climber would step onto at the foot of `wall`, if any.
+ *
+ * `slack` is how far below the wall's bottom the surface may sit. Ladders want
+ * this tight — they are authored to line up. A panel edge wants it loose: the
+ * floor under a card is whatever the page happens to put there, and refusing
+ * to descend unless it lines up to the pixel means never descending at all.
+ */
+function findFootLanding(
+  geometry: WorldGeometry,
+  wall: Collider,
+  slack: number
+): Collider | null {
+  const foot = wall.y + wall.height;
+  let best: Collider | null = null;
+  for (const collider of geometry.colliders) {
+    if (collider.edge !== 'top' && collider.kind !== 'solid') continue;
+    // Strictly below the foot (or level with it), never above: a surface
+    // higher up is something the climber is already standing on top of.
+    const drop = collider.y - foot;
+    if (drop < -LADDER_CLIMB.bottomSlack || drop > slack) continue;
+    if (collider.x >= wall.x + wall.width + 30) continue;
+    if (collider.x + collider.width <= wall.x - 30) continue;
+    if (!best || collider.y < best.y) best = collider;
+  }
+  return best;
 }
 
 function beginLadderClimb(
@@ -1735,7 +1860,7 @@ function beginLadderClimb(
   if (!hasClearClimbPath(person.body, ladder, ladder, side, ladder.y - person.body.height, geometry, true)) {
     return false;
   }
-  person.climb = { wall: ladder, top: ladder, side, direction: 'up', returnY: null };
+  person.climb = { wall: ladder, top: ladder, side, direction: 'up' };
   person.activity = 'climb';
   person.body.vx = 0;
   person.body.vy = 0;
@@ -1776,7 +1901,6 @@ function beginLadderDescent(
     top: ladder,
     side,
     direction: 'down',
-    returnY: null,
     dismountY: ladderBottom
   };
   person.activity = 'climb';
@@ -1817,7 +1941,7 @@ function tryBeginClimbUp(
   ) {
     return false;
   }
-  person.climb = { wall, top, side, direction: 'up', returnY: null };
+  person.climb = { wall, top, side, direction: 'up' };
   person.activity = 'climb';
   person.body.vx = 0;
   person.body.vy = 0;
@@ -1920,6 +2044,15 @@ function tryBeginClimbDown(
   return true;
 }
 
+/**
+ * A climb down only starts when there is somewhere to arrive.
+ *
+ * This used to descend a little way and then turn straight back up — an
+ * authored "peek over the edge" that was the *only* thing an edge climb-down
+ * ever did, so every one of them read as the character changing its mind.
+ * Now the descent commits: reach the surface at the foot of the wall, or don't
+ * leave the edge in the first place and turn around instead.
+ */
 function handleClimbDownTransition(
   person: PixelPersonRuntime,
   support: Collider,
@@ -1928,13 +2061,14 @@ function handleClimbDownTransition(
   geometry: WorldGeometry,
   now: number
 ): void {
-  const returnY = climbDownReturnY(person.body, wall);
-  if (!hasClearClimbPath(person.body, wall, support, side, returnY, geometry)) {
+  const landing = findFootLanding(geometry, wall, CLIMB_DOWN_LANDING_SLACK);
+  const endY = landing ? landing.y - person.body.height : null;
+  if (endY === null || !hasClearClimbPath(person.body, wall, support, side, endY, geometry)) {
     person.lastClimbAt = now;
     reverse(person, geometry, now);
     return;
   }
-  beginClimbDownTransition(person, support, wall, side, now);
+  beginClimbDownTransition(person, support, wall, side, landing!.y, now);
 }
 
 function beginClimbDownTransition(
@@ -1942,6 +2076,7 @@ function beginClimbDownTransition(
   support: Collider,
   wall: Collider,
   side: 'left' | 'right',
+  dismountY: number,
   now: number
 ): void {
   const outsideX =
@@ -1951,7 +2086,7 @@ function beginClimbDownTransition(
     top: support,
     side,
     direction: 'down',
-    returnY: climbDownReturnY(person.body, wall)
+    dismountY
   };
   person.mantle = {
     start: { x: person.body.x, y: person.body.y },
@@ -1966,10 +2101,6 @@ function beginClimbDownTransition(
   person.body.grounded = false;
   person.body.supportId = null;
   setAnimation(person, 'mantle', now);
-}
-
-function climbDownReturnY(body: PhysicsBody, wall: Collider): number {
-  return Math.min(wall.y + wall.height - body.height * 0.7, body.y + 46);
 }
 
 function hasClearClimbPath(
@@ -2059,18 +2190,8 @@ function updateClimb(
 
   if (climb.direction === 'down') {
     person.body.y += CLIMB_SPEED * dt;
-    if (climb.returnY !== null && person.body.y >= climb.returnY) {
-      climb.direction = 'up';
-      climb.returnY = null;
-      person.animationStartedAt = now;
-      return;
-    }
     const dismountY = climb.dismountY ?? null;
-    if (
-      climb.returnY === null &&
-      dismountY !== null &&
-      person.body.y + person.body.height >= dismountY
-    ) {
+    if (dismountY !== null && person.body.y + person.body.height >= dismountY) {
       // Dismount at the ladder's bottom: physics lands the person on the
       // shelf strip that lives there.
       person.body.y = dismountY - person.body.height;

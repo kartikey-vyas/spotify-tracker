@@ -1,7 +1,8 @@
 import { clientToDocument } from './geometry';
 import { clamp, expandedRect } from './physics';
+import { DOORWAY, doorwayRect } from './doorway';
 import { getRecordArt, RECORD_PIXELS, RECORD_SCALE } from './record-art';
-import type { PixelPersonRuntime } from './simulation';
+import { doorwayExitFade, type PixelPersonRuntime } from './simulation';
 import {
   hitTestSpriteFrame,
   selectSpriteFrame,
@@ -178,17 +179,58 @@ function renderSignature(
   return signature;
 }
 
+/**
+ * A small door, drawn as flat rectangles rather than a sprite frame: it is
+ * axis-aligned pixel shapes either way, and this keeps it themed off the live
+ * CSS variables without a palette or a raster cache entry.
+ */
+function drawDoorway(
+  context: CanvasRenderingContext2D,
+  viewportBounds: Rect,
+  opacity: number
+): void {
+  if (opacity <= 0) return;
+  const rect = doorwayRect(viewportBounds);
+  const x = Math.round(rect.x - window.scrollX);
+  const y = Math.round(rect.y - window.scrollY);
+  const styles = getComputedStyle(document.documentElement);
+  const frame = styles.getPropertyValue('--muted').trim() || '#666';
+  const accent = styles.getPropertyValue('--accent').trim() || frame;
+
+  context.save();
+  const alpha = Math.min(1, Math.max(0, opacity));
+  context.globalAlpha = alpha;
+  context.fillStyle = frame;
+  context.fillRect(x, y, rect.width, rect.height);
+  // The opening is a translucent black rather than the page colour: filled
+  // with --bg it read as an empty frame, because it was page-coloured by
+  // definition. Darkening whatever is behind gives it depth in either theme.
+  context.globalAlpha = alpha * 0.55;
+  context.fillStyle = '#000';
+  context.fillRect(x + 3, y + 3, rect.width - 6, rect.height - 3);
+  // A lintel line and a knob, so it reads as a door rather than a slot.
+  context.globalAlpha = alpha;
+  context.fillStyle = frame;
+  context.fillRect(x + 3, y + 8, rect.width - 6, 1);
+  context.fillStyle = accent;
+  context.fillRect(x + rect.width - 8, y + Math.round(rect.height / 2), 2, 3);
+  context.restore();
+}
+
 export function renderPixelWorld(
   canvas: HTMLCanvasElement,
   people: readonly PixelPersonRuntime[],
   geometry: WorldGeometry,
   now: number,
   debug: boolean,
-  placedRecords: readonly PlacedRecord[] = []
+  placedRecords: readonly PlacedRecord[] = [],
+  doorwayOpacity = 0
 ): void {
   const context = sizeCanvas(canvas);
   if (!context) return;
-  const signature = renderSignature(canvas, people, geometry, now, debug, placedRecords);
+  const signature =
+    renderSignature(canvas, people, geometry, now, debug, placedRecords) +
+    `|door:${doorwayOpacity.toFixed(2)}`;
   if (signature === lastRenderSignature) return;
   lastRenderSignature = signature;
   // Clear in device space: CSS-space clearing under-covers the last device
@@ -202,6 +244,9 @@ export function renderPixelWorld(
     drawDebugGeometry(context, geometry.colliders, geometry.occluders, geometry.itemSources);
   }
   drawPlacedRecords(context, placedRecords, now);
+  // Behind the people, so someone standing on the threshold reads as being in
+  // the doorway rather than pasted over it.
+  drawDoorway(context, geometry.viewportBounds, doorwayOpacity);
   for (const person of people) {
     // While seated the record leans beside the listener, painted first so the
     // person always sits in front of it; in hand it paints over the sprite.
@@ -409,6 +454,9 @@ function drawPerson(
   );
 
   context.save();
+  // Leaving through the doorway: fade out on the threshold.
+  const leaving = doorwayExitFade(person, now);
+  if (leaving > 0) context.globalAlpha = 1 - leaving;
   // Entrance: clip to where they will end up and draw them offset below it, so
   // they rise into place instead of blinking into existence. Dragged people are
   // never mid-entrance, and the drag path draws around an anchor rather than
@@ -418,7 +466,8 @@ function drawPerson(
     context.beginPath();
     context.rect(spriteX - 1, spriteY, spriteWidth + 2, spriteHeight);
     context.clip();
-    context.globalAlpha = entrance;
+    // Multiplied, not assigned: an exit fade may already have set it.
+    context.globalAlpha *= entrance;
     context.translate(0, Math.round((1 - entrance) * spriteHeight));
   }
   if (person.drag) {
