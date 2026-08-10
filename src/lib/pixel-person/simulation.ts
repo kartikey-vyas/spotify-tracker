@@ -269,6 +269,8 @@ export interface PixelPersonRuntime {
   animationStartedAt: number;
   activity: Activity;
   activityUntil: number;
+  /** When this person appeared, for the entrance animation. */
+  spawnedAt: number;
   /**
    * The plan the next activity comes from. Null while an interrupt (errand,
    * climb, ladder, hide) owns the person; a fresh one is rolled when they run
@@ -324,6 +326,7 @@ export function createPixelPerson(
     animationStartedAt: now,
     activity: 'idle',
     activityUntil: now + 900,
+    spawnedAt: now,
     routine: null,
     lookFlipAt: 0,
     goalX: body.x,
