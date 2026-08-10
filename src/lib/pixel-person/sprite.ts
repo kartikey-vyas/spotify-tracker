@@ -5,15 +5,38 @@ export interface SelectedSpriteFrame {
   index: number;
 }
 
+/**
+ * The walk cadence baked into every character's `frameDurationMs` was tuned
+ * against this top speed. Walking slower than it without stretching the cycle
+ * reads as skating, so the scale below restores the relationship.
+ */
+export const REFERENCE_WALK_SPEED = 42;
+
+/**
+ * How much to stretch a frame's duration so the legs match the feet. Only the
+ * walk cycle is speed-coupled; everything else runs at its authored cadence.
+ *
+ * Takes plain values rather than a runtime so it stays unit-testable under the
+ * node-only vitest environment.
+ */
+export function spriteTimeScale(animationName: string, horizontalSpeed: number): number {
+  if (animationName !== 'walk') return 1;
+  // Below the floor the scale would explode as speed approaches zero; walking
+  // that slowly is a stop in progress, and the idle animation takes over.
+  const speed = Math.max(Math.abs(horizontalSpeed), 10);
+  return Math.min(REFERENCE_WALK_SPEED / speed, 2.4);
+}
+
 export function selectSpriteFrame(
   definition: CharacterDefinition,
   animationName: keyof CharacterDefinition['animations'],
   animationStartedAt: number,
-  now: number
+  now: number,
+  timeScale = 1
 ): SelectedSpriteFrame {
   const animation = definition.animations[animationName];
   const elapsed = Math.max(0, now - animationStartedAt);
-  const rawIndex = Math.floor(elapsed / animation.frameDurationMs);
+  const rawIndex = Math.floor(elapsed / (animation.frameDurationMs * timeScale));
   const index = animation.loop
     ? rawIndex % animation.frames.length
     : Math.min(rawIndex, animation.frames.length - 1);

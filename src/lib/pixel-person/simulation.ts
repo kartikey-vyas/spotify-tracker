@@ -76,25 +76,71 @@ const CRAWL_PHYSICS_CONFIG: PhysicsConfig = {
   jumpSpeed: 0
 };
 
-const RECORD_ERRAND = {
+/**
+ * Two walking gears. Aimless drifting ambles; an errand walks with intent, so
+ * a delivery reads differently from a stroll. The softened stroll acceleration
+ * matters as much as the lower top speed — snapping to full pace instantly is
+ * most of what made the old single gear look twitchy.
+ */
+export const STROLL_PHYSICS_CONFIG: PhysicsConfig = {
+  ...defaultPhysicsConfig,
+  walkSpeed: 26,
+  groundAcceleration: 140,
+  groundFriction: 200
+};
+export const PURPOSEFUL_PHYSICS_CONFIG: PhysicsConfig = {
+  ...defaultPhysicsConfig,
+  walkSpeed: 36
+};
+
+export const RECORD_ERRAND = {
   firstDelayMs: 12_000,
-  cooldownMs: 30_000,
-  cooldownJitterMs: 25_000,
+  cooldownMs: 14_000,
+  cooldownJitterMs: 14_000,
   retryMs: 6_000,
   maxTravelDistance: 420,
-  travelTimeoutMs: 12_000,
-  stoopMs: 550,
-  carryMinMs: 5_000,
-  carryJitterMs: 10_000,
-  deliverTimeoutMs: 20_000,
-  listenMinMs: 8_000,
-  listenJitterMs: 8_000,
-  returnDelayMs: 6_000,
+  travelTimeoutMs: 18_000,
+  /** Standing at the shelf looking at the record before stooping for it. */
+  browseMinMs: 1_200,
+  browseJitterMs: 1_400,
+  stoopMs: 800,
+  carryMinMs: 8_000,
+  carryJitterMs: 12_000,
+  deliverTimeoutMs: 26_000,
+  listenMinMs: 14_000,
+  listenJitterMs: 10_000,
+  returnDelayMs: 9_000,
   returnJitterMs: 8_000,
   wallExitMargin: 24,
   arrivalSlackX: 5,
   driftChance: 0.35,
   recentMemory: 6
+} as const;
+
+/**
+ * Routine pacing. Every duration that shapes how busy a person looks lives
+ * here and in RECORD_ERRAND, so retuning the feel is a no-logic change.
+ */
+const ROUTINE = {
+  // Pauses outlast legs on average, which is what makes the population read as
+  // settled rather than busy: at the stroll speed the mean leg is a little
+  // under six seconds against a mean pause a little over six.
+  restMinMs: 4_000,
+  restJitterMs: 4_000,
+  lookMinMs: 5_000,
+  lookJitterMs: 5_000,
+  travelMinDistance: 64,
+  travelJitterDistance: 176,
+  /** Slack on top of distance/speed before a travel beat is deemed hopeless. */
+  travelAllowanceMs: 2_600,
+  /** Chance a routine gets a second leg rather than ending after one. */
+  extraLegChance: 0.45,
+  /** Chance a second leg carries on the same way instead of doubling back. */
+  continueBias: 0.75,
+  /** Below this a leg is not worth walking; the beat is dropped. */
+  minTravelDistance: 8,
+  /** The beat of hesitation at a dead end, before turning around. */
+  reverseRestMs: 700
 } as const;
 
 type Activity =
@@ -103,11 +149,27 @@ type Activity =
   | 'seek-hide'
   | 'hiding'
   | 'seek-record'
+  | 'record-browse'
   | 'record-stoop'
   | 'listen'
   | 'climb'
   | 'mantle'
   | 'drag';
+
+/**
+ * A single unit of intent. Routines are queues of these: the person commits to
+ * the whole beat rather than re-deciding every few seconds, which is what stops
+ * the aimless back-and-forth.
+ */
+type Beat =
+  | { kind: 'travel'; goalX: number; budgetMs: number }
+  | { kind: 'rest'; durationMs: number }
+  | { kind: 'look'; durationMs: number };
+
+interface Routine {
+  beats: Beat[];
+  index: number;
+}
 
 interface ClimbMotion {
   wall: Collider;
@@ -157,6 +219,10 @@ interface ListenSession {
   until: number;
 }
 
+interface RecordBrowse {
+  until: number;
+}
+
 interface CarriedRecord {
   sourceId: string;
   imageUrl: string;
@@ -180,6 +246,14 @@ export interface PixelPersonRuntime {
   animationStartedAt: number;
   activity: Activity;
   activityUntil: number;
+  /**
+   * The plan the next activity comes from. Null while an interrupt (errand,
+   * climb, ladder, hide) owns the person; a fresh one is rolled when they run
+   * out of things to do.
+   */
+  routine: Routine | null;
+  /** When a 'look' beat glances the other way; 0 when not looking around. */
+  lookFlipAt: number;
   goalX: number;
   stuckForMs: number;
   previousX: number;
@@ -196,6 +270,7 @@ export interface PixelPersonRuntime {
   /** direction defaults to 'up' when omitted. */
   plannedLadder: { ladderId: string; goalX: number; direction?: 'up' | 'down' } | null;
   recordErrand: RecordErrand | null;
+  recordBrowse: RecordBrowse | null;
   recordStoop: RecordStoop | null;
   listen: ListenSession | null;
   carrying: CarriedRecord | null;
@@ -226,6 +301,8 @@ export function createPixelPerson(
     animationStartedAt: now,
     activity: 'idle',
     activityUntil: now + 900,
+    routine: null,
+    lookFlipAt: 0,
     goalX: body.x,
     stuckForMs: 0,
     previousX: body.x,
@@ -240,6 +317,7 @@ export function createPixelPerson(
     plannedClimb: null,
     plannedLadder: null,
     recordErrand: null,
+    recordBrowse: null,
     recordStoop: null,
     listen: null,
     carrying: null,
@@ -279,6 +357,10 @@ export function stepPixelPerson(
   }
   if (person.activity === 'hiding') {
     updateHiding(person, geometry, now);
+    return person;
+  }
+  if (person.activity === 'record-browse') {
+    updateRecordBrowse(person, geometry, now);
     return person;
   }
   if (person.activity === 'record-stoop') {
@@ -334,7 +416,7 @@ export function stepPixelPerson(
         Math.abs(person.body.x - person.goalX) <= RECORD_ERRAND.arrivalSlackX &&
         sourceReachableAtLevel(source, feetY, person.body.height);
       if (arrived) {
-        beginRecordStoop(person, 'pickup', now);
+        beginRecordBrowse(person, source, now);
         return person;
       }
     }
@@ -348,6 +430,13 @@ export function stepPixelPerson(
         : 0;
   const moveX: -1 | 0 | 1 = person.activity === 'idle' ? 0 : directionTowardGoal(person);
   if (moveX !== 0) person.facing = moveX;
+
+  // A 'look' beat glances the other way partway through, which reads as taking
+  // the room in without needing a sprite for it.
+  if (person.lookFlipAt > 0 && now >= person.lookFlipAt) {
+    person.lookFlipAt = 0;
+    if (person.activity === 'idle') person.facing = person.facing === 1 ? -1 : 1;
+  }
 
   if (
     person.body.grounded &&
@@ -428,7 +517,7 @@ export function stepPixelPerson(
   }
 
   const nearby = spatial.query(expandedRect(person.body, 28));
-  const result = stepPhysics(person.body, { moveX, jump }, nearby, dt);
+  const result = stepPhysics(person.body, { moveX, jump }, nearby, dt, walkConfigFor(person));
   person.body = result.body;
 
   const wall = moveX > 0 ? result.contacts.right : moveX < 0 ? result.contacts.left : null;
@@ -452,9 +541,13 @@ export function stepPixelPerson(
   if (moveX !== 0 && Math.abs(person.body.x - person.previousX) < 0.15) {
     person.stuckForMs += dt * 1000;
     if (person.stuckForMs > 720) reverse(person, geometry, now);
-  } else {
+  } else if (moveX !== 0) {
     person.stuckForMs = 0;
   }
+  // Standing still neither accumulates nor clears: reverse() now opens on a
+  // pause, and zeroing here would wipe the progress toward stuck recovery
+  // every single time someone turned around, so a wedged person would
+  // oscillate forever instead of being respawned.
   person.previousX = person.body.x;
   trackConfinement(person, now);
 
@@ -724,12 +817,148 @@ function resizedBodyFromFeet(body: PhysicsBody, height: number): PhysicsBody {
   return resized;
 }
 
+/**
+ * Which gear this person walks in. Errands read as purposeful; everything else
+ * ambles. `stepPhysics` already takes a config, so this is the whole mechanism.
+ */
+export function walkConfigFor(person: PixelPersonRuntime): PhysicsConfig {
+  // Airborne is always the committed gear. `walkSpeed` caps horizontal
+  // velocity in the air too, so ambling off a ledge at stroll pace shortens
+  // the jump arc enough to miss landings the cliff sense already cleared —
+  // a hop is a deliberate move and keeps its momentum.
+  if (!person.body.grounded) return PURPOSEFUL_PHYSICS_CONFIG;
+  return person.carrying || person.activity === 'seek-record'
+    ? PURPOSEFUL_PHYSICS_CONFIG
+    : STROLL_PHYSICS_CONFIG;
+}
+
+function restBeat(): Beat {
+  return { kind: 'rest', durationMs: ROUTINE.restMinMs + Math.random() * ROUTINE.restJitterMs };
+}
+
+function lookBeat(): Beat {
+  return { kind: 'look', durationMs: ROUTINE.lookMinMs + Math.random() * ROUTINE.lookJitterMs };
+}
+
+function pauseBeat(): Beat {
+  return Math.random() < 0.5 ? restBeat() : lookBeat();
+}
+
+/**
+ * A travel beat's budget is derived from how far it actually is at the amble
+ * speed, so slowing people down can never turn a legitimate walk into a
+ * timeout. It is a bail-out, not a scheduled re-decision.
+ */
+function travelBudgetMs(fromX: number, goalX: number): number {
+  const seconds = Math.abs(goalX - fromX) / STROLL_PHYSICS_CONFIG.walkSpeed;
+  return seconds * 1_000 + ROUTINE.travelAllowanceMs;
+}
+
+function travelBeat(fromX: number, goalX: number): Beat {
+  return { kind: 'travel', goalX, budgetMs: travelBudgetMs(fromX, goalX) };
+}
+
+function walkableRange(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry
+): { minX: number; maxX: number } {
+  const viewport = geometry.viewportBounds;
+  return {
+    minX: Math.max(geometry.scanBounds.x + 24, viewport.x + EDGE_COMFORT),
+    maxX: Math.min(
+      geometry.scanBounds.x + geometry.scanBounds.width - person.body.width - 24,
+      viewport.x + viewport.width - person.body.width - EDGE_COMFORT
+    )
+  };
+}
+
+/**
+ * Builds a short itinerary — walk somewhere, stop and take it in, sometimes
+ * carry on to a second spot. Planning the whole thing up front is the point:
+ * the person executes it beat by beat instead of rolling a fresh direction
+ * every few seconds, which is what used to produce the pacing.
+ */
+function planRoutine(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry,
+  biasX: number | null
+): Routine {
+  const { minX, maxX } = walkableRange(person, geometry);
+  const beats: Beat[] = [];
+  let cursorX = person.body.x;
+  let direction: Facing =
+    biasX !== null && Math.random() < RECORD_ERRAND.driftChance
+      ? biasX >= person.body.x
+        ? 1
+        : -1
+      : Math.random() < 0.5
+        ? -1
+        : 1;
+
+  const legs = Math.random() < ROUTINE.extraLegChance ? 2 : 1;
+  for (let leg = 0; leg < legs; leg += 1) {
+    if (leg > 0 && Math.random() >= ROUTINE.continueBias) {
+      direction = direction === 1 ? -1 : 1;
+    }
+    const distance = ROUTINE.travelMinDistance + Math.random() * ROUTINE.travelJitterDistance;
+    const goalX = clamp(cursorX + distance * direction, minX, maxX);
+    if (Math.abs(goalX - cursorX) >= ROUTINE.minTravelDistance) {
+      beats.push(travelBeat(cursorX, goalX));
+      cursorX = goalX;
+    } else {
+      // Pinned against an edge: turning around is the only way to travel, so
+      // the next leg gets the other direction rather than another dead leg.
+      direction = direction === 1 ? -1 : 1;
+    }
+    beats.push(pauseBeat());
+  }
+  return { beats, index: 0 };
+}
+
+/**
+ * Applies the routine's next beat. Returns false when it has run dry, which is
+ * the caller's signal to plan a new one.
+ */
+function advanceRoutine(person: PixelPersonRuntime, now: number): boolean {
+  const routine = person.routine;
+  if (!routine || routine.index >= routine.beats.length) {
+    person.routine = null;
+    return false;
+  }
+  const beat = routine.beats[routine.index];
+  routine.index += 1;
+  person.lookFlipAt = 0;
+  if (beat.kind === 'travel') {
+    person.goalX = beat.goalX;
+    person.facing = beat.goalX >= person.body.x ? 1 : -1;
+    person.activity = 'wander';
+    person.activityUntil = now + beat.budgetMs;
+    return true;
+  }
+  person.goalX = person.body.x;
+  person.activity = 'idle';
+  person.activityUntil = now + beat.durationMs;
+  if (beat.kind === 'look') person.lookFlipAt = now + beat.durationMs / 2;
+  setAnimation(person, 'idle', now);
+  return true;
+}
+
 function chooseNextActivity(
   person: PixelPersonRuntime,
   geometry: WorldGeometry,
   now: number
 ): void {
   cancelSpecialMovement(person);
+  // Every branch below this one takes the person over for something specific;
+  // only the fall-through keeps a routine running. Clearing it up front and
+  // restoring it at the tail means no interrupt can forget to drop the plan.
+  //
+  // This function only ever runs at a beat boundary (arrival, or the beat's
+  // budget expiring), which is what guarantees nothing redirects someone
+  // halfway through a walk.
+  const routine = person.routine;
+  person.routine = null;
+  person.lookFlipAt = 0;
 
   // While carrying inside the record wall, the goal is explicit: march toward
   // the delivery spot instead of dawdling among the shelves.
@@ -832,33 +1061,11 @@ function chooseNextActivity(
     person.nextHideAt = now + 4_000;
   }
 
-  if (Math.random() < 0.3) {
-    person.activity = 'idle';
-    person.activityUntil = now + 900 + Math.random() * 1_900;
-    person.goalX = person.body.x;
-    setAnimation(person, 'idle', now);
-    return;
-  }
-
-  const viewport = geometry.viewportBounds;
-  const minX = Math.max(geometry.scanBounds.x + 24, viewport.x + EDGE_COMFORT);
-  const maxX = Math.min(
-    geometry.scanBounds.x + geometry.scanBounds.width - person.body.width - 24,
-    viewport.x + viewport.width - person.body.width - EDGE_COMFORT
-  );
-  const distance = 90 + Math.random() * 210;
-  const drifting = wanderBiasX !== null && Math.random() < RECORD_ERRAND.driftChance;
-  const direction: Facing = drifting
-    ? (wanderBiasX as number) >= person.body.x
-      ? 1
-      : -1
-    : Math.random() < 0.5
-      ? -1
-      : 1;
-  person.goalX = clamp(person.body.x + distance * direction, minX, maxX);
-  person.facing = person.goalX >= person.body.x ? 1 : -1;
-  person.activity = 'wander';
-  person.activityUntil = now + 4_500 + Math.random() * 3_500;
+  // Nothing wanted them: carry on with the plan, or make a new one.
+  person.routine = routine;
+  if (advanceRoutine(person, now)) return;
+  person.routine = planRoutine(person, geometry, wanderBiasX);
+  advanceRoutine(person, now);
 }
 
 function chooseClimbPlan(
@@ -1060,6 +1267,10 @@ function beginListening(person: PixelPersonRuntime, now: number): void {
     until: now + RECORD_ERRAND.listenMinMs + Math.random() * RECORD_ERRAND.listenJitterMs
   };
   person.activity = 'listen';
+  // Whatever they were walking toward is long since irrelevant; a stale beat
+  // resuming after a 14-24s listen would send them somewhere arbitrary.
+  person.routine = null;
+  person.lookFlipAt = 0;
   person.body.vx = 0;
   person.body.vy = 0;
   setAnimation(person, 'listen', now);
@@ -1076,6 +1287,51 @@ function updateListening(person: PixelPersonRuntime, now: number): void {
   if (now < person.listen.until) return;
   person.listen = null;
   beginRecordStoop(person, 'place', now);
+}
+
+/**
+ * The beat before a pick-up: stand at the shelf facing the record and look at
+ * it. Errands are the most legible thing a person does, so they get room to
+ * breathe rather than snapping straight into the stoop.
+ */
+function beginRecordBrowse(
+  person: PixelPersonRuntime,
+  source: ItemSource,
+  now: number
+): void {
+  person.recordBrowse = {
+    until: now + RECORD_ERRAND.browseMinMs + Math.random() * RECORD_ERRAND.browseJitterMs
+  };
+  person.activity = 'record-browse';
+  person.routine = null;
+  person.lookFlipAt = 0;
+  person.facing =
+    source.x + source.width / 2 >= person.body.x + person.body.width / 2 ? 1 : -1;
+  person.body.vx = 0;
+  setAnimation(person, 'idle', now);
+}
+
+function updateRecordBrowse(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry,
+  now: number
+): void {
+  // The tile can vanish mid-browse on a rescan; drop the errand rather than
+  // stooping for something that is no longer there.
+  const source = geometry.itemSources.find(
+    (candidate) => candidate.id === person.recordErrand?.sourceId
+  );
+  if (!person.recordBrowse || !source) {
+    person.recordBrowse = null;
+    cancelRecordErrand(person, now);
+    person.activity = 'idle';
+    person.activityUntil = now;
+    setAnimation(person, 'idle', now);
+    return;
+  }
+  if (now < person.recordBrowse.until) return;
+  person.recordBrowse = null;
+  beginRecordStoop(person, 'pickup', now);
 }
 
 function beginRecordStoop(
@@ -1128,8 +1384,11 @@ function updateRecordStoop(
       viewport.x + viewport.width - person.body.width - EDGE_COMFORT
     );
     person.facing = person.goalX >= person.body.x ? 1 : -1;
+    // A one-beat routine so the stroll away gets a distance-derived budget and
+    // ends in a pause, like any other leg.
+    person.routine = { beats: [travelBeat(person.body.x, person.goalX), pauseBeat()], index: 1 };
     person.activity = 'wander';
-    person.activityUntil = now + 5_000;
+    person.activityUntil = now + travelBudgetMs(person.body.x, person.goalX);
     setAnimation(person, 'idle', now);
     return;
   }
@@ -1924,6 +2183,17 @@ function hasSupportAhead(
     });
 }
 
+/**
+ * Turns someone away from a dead end (wall, cliff, blocked movement).
+ *
+ * The pause matters: launching straight into a walk the other way is what made
+ * obstacles read as ping-pong. Walking up, hesitating, then leaving reads as
+ * noticing the wall.
+ *
+ * `goalX` and `facing` are still assigned immediately because `updateCrawl`
+ * calls this and drives itself from both directly — crawling ignores the
+ * routine, so only the standing path sees the rest beat.
+ */
 function reverse(person: PixelPersonRuntime, geometry: WorldGeometry, now: number): void {
   const viewport = geometry.viewportBounds;
   person.confinedReversals += 1;
@@ -1939,8 +2209,20 @@ function reverse(person: PixelPersonRuntime, geometry: WorldGeometry, now: numbe
     person.facing = person.body.x < viewport.x + viewport.width / 2 ? 1 : -1;
     person.goalX = clamp(person.body.x + person.facing * 120, minimumX, maximumX);
   }
-  person.activity = 'wander';
-  person.activityUntil = now + 3_000;
+  person.lookFlipAt = 0;
+  person.routine = { beats: [travelBeat(person.body.x, person.goalX)], index: 0 };
+
+  // Hesitate only on first contact. Someone already accruing stuck time has
+  // tried this and failed, and pausing again would stall the stuck counter
+  // (it only climbs while they are actively pushing), stretching recovery
+  // from a couple of seconds to twenty. Repeat failures turn immediately.
+  if (person.stuckForMs > 0) {
+    advanceRoutine(person, now);
+    return;
+  }
+  person.activity = 'idle';
+  person.activityUntil = now + ROUTINE.reverseRestMs;
+  setAnimation(person, 'idle', now);
 }
 
 function setLocomotionAnimation(person: PixelPersonRuntime, now: number): void {

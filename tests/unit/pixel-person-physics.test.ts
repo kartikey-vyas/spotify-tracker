@@ -310,12 +310,19 @@ describe('pixel person physics', () => {
     person.goalX = 100;
 
     const spatial = new SpatialHash(colliders);
-    for (let step = 1; step <= 30; step += 1) {
+    // The first reversal spends a pause beat, during which the stuck counter
+    // holds rather than climbing, so recovery lands a second or so later than
+    // it used to. Subsequent reversals turn immediately and accrue at the old
+    // rate — which is what keeps this from taking twenty seconds.
+    for (let step = 1; step <= 80; step += 1) {
       stepPixelPerson(person, geometry, spatial, 0.05, step * 50);
     }
 
     expect(person.climb).toBeNull();
-    expect(person.activity).toBe('wander');
+    // Ordinary ground locomotion, not a special move. Blocked movement turns
+    // them around via reverse(), which now opens on a pause beat ('idle')
+    // before the walk away ('wander') — either is a correct resting state here.
+    expect(['wander', 'idle']).toContain(person.activity as string);
     expect(person.stuckForMs).toBeGreaterThanOrEqual(1_400);
   });
 
@@ -354,7 +361,9 @@ describe('pixel person physics', () => {
     stepPixelPerson(person, geometry, new SpatialHash([panel]), 0.05, 100);
 
     expect(person.mantle).toBeNull();
-    expect(person.activity).toBe('wander');
+    // The rejected climb hands them to reverse(), which now pauses before
+    // walking off; the turn itself is what this pins.
+    expect(['wander', 'idle']).toContain(person.activity as string);
     expect(person.facing).toBe(-1);
     expect(person.lastClimbAt).toBe(100);
   });

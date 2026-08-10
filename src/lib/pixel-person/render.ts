@@ -2,7 +2,7 @@ import { clientToDocument } from './geometry';
 import { clamp, expandedRect } from './physics';
 import { getRecordArt, RECORD_PIXELS, RECORD_SCALE } from './record-art';
 import type { PixelPersonRuntime } from './simulation';
-import { hitTestSpriteFrame, selectSpriteFrame } from './sprite';
+import { hitTestSpriteFrame, selectSpriteFrame, spriteTimeScale } from './sprite';
 import type {
   Collider,
   ItemSource,
@@ -153,7 +153,8 @@ function renderSignature(
       person.definition,
       person.animation,
       person.animationStartedAt,
-      now
+      now,
+      spriteTimeScale(person.animation, person.body.vx)
     ).index;
     signature +=
       `|${person.id}:${person.definition.id}:${Math.round(person.body.x)}:${Math.round(person.body.y)}` +
@@ -361,7 +362,8 @@ export function isPointOnPixelPerson(
     definition,
     person.animation,
     person.animationStartedAt,
-    now
+    now,
+    spriteTimeScale(person.animation, person.body.vx)
   );
   return hitTestSpriteFrame(
     frame,
@@ -382,7 +384,8 @@ function drawPerson(
     definition,
     person.animation,
     person.animationStartedAt,
-    now
+    now,
+    spriteTimeScale(person.animation, person.body.vx)
   );
   const spriteX = Math.round(person.body.x - definition.body.offsetX - window.scrollX);
   const spriteY = Math.round(spriteDocumentY(person) - window.scrollY);

@@ -284,10 +284,18 @@ describe('errand-driven ladder routing', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    // Route -> walk -> ride -> re-plan on the upper shelf -> seek -> stoop.
-    const allowed = ['wander', 'idle', 'climb', 'mantle', 'seek-record', 'record-stoop'];
+    // Route -> walk -> ride -> re-plan on the upper shelf -> seek -> browse -> stoop.
+    const allowed = [
+      'wander',
+      'idle',
+      'climb',
+      'mantle',
+      'seek-record',
+      'record-browse',
+      'record-stoop'
+    ];
     let step = 1;
-    while (!person.carrying && step <= 400) {
+    while (!person.carrying && step <= 900) {
       stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(allowed).toContain(person.activity as string);
       step += 1;
