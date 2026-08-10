@@ -6,6 +6,7 @@ import {
   doorwayRect,
   isOverDoorway
 } from '../../src/lib/pixel-person/doorway';
+import { viewportFloorY } from '../../src/lib/pixel-person/geometry';
 import { SpatialHash } from '../../src/lib/pixel-person/physics';
 import {
   beginDoorwayExit,
@@ -318,5 +319,26 @@ describe('the door shutting behind them', () => {
     expect(partway).toBeGreaterThan(0);
     expect(partway).toBeLessThan(1);
     expect(doorwayShutProgress([person], now + DOORWAY_EXIT.fadeMs)).toBe(1);
+  });
+});
+
+describe('the door stands on the floor', () => {
+  it('puts its base exactly on the line people stand on', () => {
+    // The bug this pins: the door had a bottom margin of its own, so it
+    // hovered a few pixels above the viewport floor and anyone standing in it
+    // read as sunk below its bottom edge.
+    for (const viewport of [VIEWPORT, SCROLLED]) {
+      const rect = doorwayRect(viewport);
+      expect(rect.y + rect.height).toBe(viewportFloorY(viewport));
+    }
+  });
+
+  it('leaves someone standing on that floor level with its bottom edge', () => {
+    const bodyHeight = 31;
+    const rect = doorwayRect(VIEWPORT);
+    const feet = viewportFloorY(VIEWPORT);
+    expect(feet).toBe(rect.y + rect.height);
+    // And the frame is tall enough to contain them rather than crop them.
+    expect(rect.height).toBeGreaterThan(bodyHeight);
   });
 });
