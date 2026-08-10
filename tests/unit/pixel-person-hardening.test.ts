@@ -75,7 +75,7 @@ describe('stale collider hardening', () => {
     const worldAfter = geometry({ colliders: [floor, wallAfter] });
     const person = createPixelPerson(tinyPerson, body({ x: 15, y: 50 }), 0);
     person.activity = 'climb';
-    person.climb = { wall: wallBefore, top: wallBefore, side: 'left', direction: 'up', returnY: null };
+    person.climb = { wall: wallBefore, top: wallBefore, side: 'left', direction: 'up' };
 
     stepPixelPerson(person, worldAfter, new SpatialHash(worldAfter.colliders), 0.05, 50);
 
