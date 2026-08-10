@@ -27,6 +27,29 @@ export function spriteTimeScale(animationName: string, horizontalSpeed: number):
   return Math.min(REFERENCE_WALK_SPEED / speed, 2.4);
 }
 
+/** How long a person takes to rise into place after appearing. */
+export const SPAWN_REVEAL_MS = 420;
+
+/**
+ * How far through their entrance a person is, 0 to 1.
+ *
+ * People used to blink into existence, which was easy to miss and read as a
+ * glitch when it happened near the reader. The renderer clips to the sprite's
+ * final box and draws it offset downward by the remaining fraction, so they
+ * rise up into place out of whatever they are standing on.
+ *
+ * Eased out, so the motion decelerates into its resting position rather than
+ * stopping dead.
+ */
+export function spawnRevealProgress(spawnedAt: number, now: number): number {
+  if (!Number.isFinite(spawnedAt)) return 1;
+  const elapsed = now - spawnedAt;
+  if (elapsed >= SPAWN_REVEAL_MS) return 1;
+  if (elapsed <= 0) return 0;
+  const linear = elapsed / SPAWN_REVEAL_MS;
+  return 1 - (1 - linear) * (1 - linear);
+}
+
 export function selectSpriteFrame(
   definition: CharacterDefinition,
   animationName: keyof CharacterDefinition['animations'],

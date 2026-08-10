@@ -2,7 +2,12 @@ import { clientToDocument } from './geometry';
 import { clamp, expandedRect } from './physics';
 import { getRecordArt, RECORD_PIXELS, RECORD_SCALE } from './record-art';
 import type { PixelPersonRuntime } from './simulation';
-import { hitTestSpriteFrame, selectSpriteFrame, spriteTimeScale } from './sprite';
+import {
+  hitTestSpriteFrame,
+  selectSpriteFrame,
+  spawnRevealProgress,
+  spriteTimeScale
+} from './sprite';
 import type {
   Collider,
   ItemSource,
@@ -144,8 +149,13 @@ function renderSignature(
         : `:${record.id}:${getRecordArt(record.imageUrl)?.status ?? ''}`;
   }
   for (const person of people) {
-    // Dragging (pendulum) and listening (floating notes) animate continuously.
-    if (person.drag || person.activity === 'listen') {
+    // Dragging (pendulum), listening (floating notes) and the entrance reveal
+    // animate continuously, so they redraw every frame while they last.
+    if (
+      person.drag ||
+      person.activity === 'listen' ||
+      spawnRevealProgress(person.spawnedAt, now) < 1
+    ) {
       signature += `:${now}`;
       continue;
     }
@@ -399,6 +409,18 @@ function drawPerson(
   );
 
   context.save();
+  // Entrance: clip to where they will end up and draw them offset below it, so
+  // they rise into place instead of blinking into existence. Dragged people are
+  // never mid-entrance, and the drag path draws around an anchor rather than
+  // the sprite box, so it is left alone.
+  const entrance = person.drag ? 1 : spawnRevealProgress(person.spawnedAt, now);
+  if (entrance < 1) {
+    context.beginPath();
+    context.rect(spriteX - 1, spriteY, spriteWidth + 2, spriteHeight);
+    context.clip();
+    context.globalAlpha = entrance;
+    context.translate(0, Math.round((1 - entrance) * spriteHeight));
+  }
   if (person.drag) {
     const gripX = definition.dragGrip.x * definition.scale;
     const gripY = definition.dragGrip.y * definition.scale;

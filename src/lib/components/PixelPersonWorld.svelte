@@ -15,11 +15,15 @@
   } from '$lib/pixel-person/availability';
   import { pixelPersonController } from '$lib/pixel-person/controller';
   import {
+    hasFallenOutOfWorld,
+    isWithinSimulatedWorld
+  } from '$lib/pixel-person/lifecycle';
+  import {
     clientToDocument,
     collectWorldGeometry,
     findSafeSpawn
   } from '$lib/pixel-person/geometry';
-  import { expandedRect, intersects, SpatialHash } from '$lib/pixel-person/physics';
+  import { intersects, SpatialHash } from '$lib/pixel-person/physics';
   import { getRecordArt, requestRecordArt } from '$lib/pixel-person/record-art';
   import {
     fadeStartAt,
@@ -259,9 +263,24 @@
 
     if (people.length > 0 && geometry.colliders.length > 0) {
       let survivors = 0;
+      const documentHeight = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight
+      );
       for (let index = 0; index < people.length; index += 1) {
+        const person = people[index];
+        // Frozen: outside the scanned window there are no colliders to stand
+        // on, so stepping them would drop them through a floor that was never
+        // scanned. They keep their spot on the page until the reader returns.
+        if (
+          person.activity !== 'drag' &&
+          !isWithinSimulatedWorld(person.body, geometry.scanBounds)
+        ) {
+          people[survivors++] = person;
+          continue;
+        }
         const stepped = stepPixelPerson(
-          people[index],
+          person,
           geometry,
           spatial,
           elapsedSeconds,
@@ -270,19 +289,15 @@
         );
         if (!stepped) continue;
         // A person flung below everything free-falls forever on a quiet page
-        // (the outside-world respawn only runs on geometry rescans, which
-        // nothing triggers) — catch the fall here every frame instead.
-        const fellOutOfWorld =
-          stepped.body.y > geometry.scanBounds.y + geometry.scanBounds.height + 120;
+        // (the recovery in scanGeometry only runs on rescans, which nothing
+        // triggers) — catch the fall here every frame instead. Measured
+        // against the document, not the scanned window: the window follows the
+        // viewport, so a window-relative test calls anyone below the fold lost.
+        const fellOutOfWorld = hasFallenOutOfWorld(stepped.body, documentHeight);
         if (stepped.stuckForMs >= STUCK_RECOVERY_MS || fellOutOfWorld) {
           const dropped = dropCarriedRecord(stepped);
           if (!fellOutOfWorld) placeRecord(dropped, now);
-          people[survivors++] = createPersonAtSafeSpawn(
-            now,
-            index,
-            stepped.id,
-            pinnedDefinition(stepped)
-          );
+          people[survivors++] = recreatePerson(stepped, now, index);
         } else {
           people[survivors++] = stepped;
         }
@@ -350,7 +365,6 @@
     lastScanScrollX = window.scrollX;
     lastScanScrollY = window.scrollY;
 
-    const visibleWorld = expandedRect(geometry.viewportBounds, 60);
     const desiredPopulation = ambientSuppressed
       ? 0
       : Math.min(
@@ -359,21 +373,28 @@
         );
     people = people.slice(0, desiredPopulation).map((person, index) => {
       if (person.activity === 'drag') return person;
-      const outsideVisibleWorld = !intersects(person.body, visibleWorld);
+      // Scrolling away is not a reason to rebuild anyone. Someone outside the
+      // scanned window is frozen by the frame loop, keeps their spot on the
+      // page and their character, and carries on when the reader returns.
+      // Only being stuck inside geometry is still worth recovering from, and
+      // that can only be judged where colliders were actually scanned.
       const embeddedInGeometry =
         person.activity !== 'hiding' &&
+        isWithinSimulatedWorld(person.body, geometry.scanBounds) &&
         spatial
           .query(person.body)
           .some(
             (collider) => collider.kind !== 'ladder' && intersects(person.body, collider)
           );
-      // A pinned character was asked for by name, so a blanket reshuffle leaves
-      // them where they are. Genuine recovery (fallen out of the world, stuck
-      // inside geometry) still applies — it just brings the same person back.
-      if (person.pinnedCharacter && !outsideVisibleWorld && !embeddedInGeometry) return person;
-      if (forceRespawn || outsideVisibleWorld || embeddedInGeometry) {
+      if (forceRespawn) {
+        // A navigation replaced the page under them; a fresh roll is the point.
         placeRecord(dropCarriedRecord(person), now);
         return createPersonAtSafeSpawn(now, index, undefined, pinnedDefinition(person));
+      }
+      if (embeddedInGeometry) {
+        // Recovery should bring back the same person, not a different one.
+        placeRecord(dropCarriedRecord(person), now);
+        return recreatePerson(person, now, index);
       }
       return person;
     });
@@ -393,6 +414,26 @@
   /** The character to rebuild a person as, or undefined to roll a fresh one. */
   function pinnedDefinition(person: PixelPersonRuntime): CharacterDefinition | undefined {
     return person.pinnedCharacter ? person.definition : undefined;
+  }
+
+  /**
+   * Rebuilds someone after a genuine mishap — wedged inside geometry, fallen
+   * out of the document — as *themselves*: same id, same character, same
+   * pinned-ness. Only their position is rescued. Rolling a new character here
+   * is what made a recovery look like a different person showing up.
+   */
+  function recreatePerson(
+    person: PixelPersonRuntime,
+    now: number,
+    slot: number
+  ): PixelPersonRuntime {
+    return createPixelPerson(
+      person.definition,
+      findSafeSpawn(geometry, person.definition, slot),
+      now,
+      person.id,
+      person.pinnedCharacter
+    );
   }
 
   function createPersonAtSafeSpawn(
