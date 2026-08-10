@@ -8,15 +8,30 @@ import type { Point, Rect } from './types';
  */
 export const DOORWAY = {
   /** Sprite-pixel footprint, drawn at the character scale. */
-  width: 26,
-  height: 38,
+  // Wide and tall enough to contain a 24x32 sprite, so someone standing on
+  // the threshold is framed by the doorway rather than overhanging its posts.
+  width: 34,
+  height: 46,
   /** Inset from the viewport's right edge and its floor. */
   marginX: 28,
   marginBottom: 6,
   /** Generosity around the door when deciding whether a drop counts. */
   hitPadding: 22,
   /** Fade in when a drag starts, out when it ends. */
-  fadeMs: 180
+  fadeMs: 180,
+  /**
+   * Where someone dropped on the door is set down, measured left of the frame.
+   * They land here and walk in, rather than dissolving wherever the pointer
+   * happened to be — the little scene is the point, and a drop landing exactly
+   * on the threshold would leave nothing to watch.
+   */
+  approachDistance: 58,
+  /** How far above the ground they are set down, so the landing is visible. */
+  dropHeight: 26,
+  /** The door swinging shut behind them. */
+  shutMs: 380,
+  /** How long the shut door lingers before the whole thing fades away. */
+  holdAfterShutMs: 420
 } as const;
 
 /**
@@ -50,6 +65,36 @@ export function isOverDoorway(point: Point, viewportBounds: Rect): boolean {
     point.y >= rect.y - DOORWAY.hitPadding &&
     point.y <= rect.y + rect.height + DOORWAY.hitPadding
   );
+}
+
+/** Where someone set down at the door lands: on the ground, just outside it. */
+export function doorstepX(viewportBounds: Rect, bodyWidth: number): number {
+  const rect = doorwayRect(viewportBounds);
+  return Math.max(
+    viewportBounds.x + 4,
+    rect.x - DOORWAY.approachDistance - bodyWidth
+  );
+}
+
+/**
+ * The height they are set down from, so they drop a short way and land.
+ *
+ * Dropping them at the pointer's own height does not work: the door sits at
+ * the very bottom of the viewport, so a pointer near it leaves the body at or
+ * below the floor, where it never registers as grounded and the landing beat
+ * burns its whole timeout standing still. Starting just above the door's base
+ * guarantees a real, short fall onto the floor the door stands on.
+ */
+export function doorstepY(viewportBounds: Rect, bodyHeight: number): number {
+  const rect = doorwayRect(viewportBounds);
+  const groundY = rect.y + rect.height;
+  return groundY - bodyHeight - DOORWAY.dropHeight;
+}
+
+/** Where they walk to: standing centred in the opening. */
+export function doorwayEnterX(viewportBounds: Rect, bodyWidth: number): number {
+  const rect = doorwayRect(viewportBounds);
+  return rect.x + rect.width / 2 - bodyWidth / 2;
 }
 
 /**

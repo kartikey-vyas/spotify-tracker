@@ -211,28 +211,34 @@ describe('routine commitment', () => {
     // around — that they used to do it mid-stride, on the spot, over and over.
     // On open floor with nothing to bump into, a change of heading must always
     // come out of a pause beat, never out of a walk already in progress.
-    const world = geometry();
-    const drive = driver(wandererIn(world), world, new SpatialHash(world.colliders));
-    const person = drive.person;
-
-    let heading = 0;
-    let stillSinceLastMove = true;
     let flips = 0;
     let flipsFromAStandingStart = 0;
 
-    drive.run(6_000, () => {
-      if (person.activity === 'idle') stillSinceLastMove = true;
-      // Same threshold the walk animation uses, so deceleration drift around
-      // zero is not mistaken for a change of heart.
-      if (Math.abs(person.body.vx) <= 3) return;
-      const direction = person.body.vx > 0 ? 1 : -1;
-      if (heading !== 0 && direction !== heading) {
-        flips += 1;
-        if (stillSinceLastMove) flipsFromAStandingStart += 1;
-      }
-      heading = direction;
-      stillSinceLastMove = false;
-    });
+    // Pooled across fixed seeds. Unseeded, how many times a wanderer happens
+    // to turn around in one run varies enough that the "did we observe
+    // anything" guard below failed outright on some runs.
+    for (const seed of TRAJECTORY_SEEDS) {
+      vi.spyOn(Math, 'random').mockImplementation(seededRandom(seed));
+      const world = geometry();
+      const drive = driver(wandererIn(world), world, new SpatialHash(world.colliders));
+      const person = drive.person;
+      let heading = 0;
+      let stillSinceLastMove = true;
+
+      drive.run(3_000, () => {
+        if (person.activity === 'idle') stillSinceLastMove = true;
+        // Same threshold the walk animation uses, so deceleration drift around
+        // zero is not mistaken for a change of heart.
+        if (Math.abs(person.body.vx) <= 3) return;
+        const direction = person.body.vx > 0 ? 1 : -1;
+        if (heading !== 0 && direction !== heading) {
+          flips += 1;
+          if (stillSinceLastMove) flipsFromAStandingStart += 1;
+        }
+        heading = direction;
+        stillSinceLastMove = false;
+      });
+    }
 
     expect(flips).toBeGreaterThan(5);
     expect(flipsFromAStandingStart).toBe(flips);

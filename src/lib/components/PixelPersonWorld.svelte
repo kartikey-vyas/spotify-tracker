@@ -14,7 +14,14 @@
     shouldEnablePixelPerson
   } from '$lib/pixel-person/availability';
   import { pixelPersonController } from '$lib/pixel-person/controller';
-  import { doorwayOpacity, doorwayRect, isOverDoorway } from '$lib/pixel-person/doorway';
+  import {
+    DOORWAY,
+    doorstepX,
+    doorstepY,
+    doorwayEnterX,
+    doorwayOpacity,
+    isOverDoorway
+  } from '$lib/pixel-person/doorway';
   import {
     hasFallenOutOfWorld,
     isWithinSimulatedWorld
@@ -37,6 +44,8 @@
   import {
     beginDoorwayExit,
     beginPixelPersonDrag,
+    doorwayShutProgress,
+    hasDepartingPerson,
     cancelRecordErrand,
     createPixelPerson,
     dropCarriedRecord,
@@ -109,6 +118,10 @@
   // never becomes page furniture. `changedAt` drives its fade both ways.
   let doorwayShown = false;
   let doorwayChangedAt = 0;
+  /** Keeps the shut door visible for a beat after the last leaver is gone. */
+  let doorwayCloseHoldUntil = 0;
+  /** Held at 1 once they are through, so the door does not spring open again. */
+  let doorwayShut = 0;
   const simulationEvents: PixelWorldEvent[] = [];
 
   afterNavigate(() => {
@@ -317,7 +330,27 @@
         }
       }
       people.length = survivors;
-      if (left > 0) onPersonLeft(survivors);
+      if (left > 0) {
+        onPersonLeft(survivors);
+        // Hold the shut door on screen for a beat before it fades, so the
+        // close is something you see rather than something you infer.
+        doorwayCloseHoldUntil = now + DOORWAY.holdAfterShutMs;
+      }
+    }
+    // Ratchets up only: once the door has swung shut it must not spring open
+    // again in the frames between the leaver going and the door fading out.
+    doorwayShut = Math.max(
+      hasDepartingPerson(people) ? doorwayShutProgress(people, now) : doorwayShut,
+      now < doorwayCloseHoldUntil ? 1 : 0
+    );
+    if (
+      doorwayShown &&
+      activePointerId === null &&
+      !hasDepartingPerson(people) &&
+      now >= doorwayCloseHoldUntil
+    ) {
+      setDoorwayShown(false, now);
+      doorwayShut = 0;
     }
     if (activePointerId !== null && !findActivePerson()?.drag) finishPointerDrag(now, false);
 
@@ -329,7 +362,8 @@
       now,
       debug,
       placedRecords,
-      doorwayOpacity(doorwayShown, doorwayChangedAt, now)
+      doorwayOpacity(doorwayShown, doorwayChangedAt, now),
+      doorwayShut
     );
     updateDebugAttributes(now);
     requestNextFrame();
@@ -743,15 +777,40 @@
       });
       if (overDoorway) {
         placeRecord(dropCarriedRecord(activePerson), now);
-        const door = doorwayRect(geometry.viewportBounds);
+        // Set them down beside the door rather than on it, so there is a walk
+        // to watch. They are airborne at this point, so the shift reads as
+        // where they were dropped rather than as a jump.
+        // Placed via findSafeSpawn rather than by hand. A hand-picked spot is
+        // not necessarily standable: stepPhysics refuses a landing where the
+        // standing body would have no clearance, so someone set down beside
+        // the door fell straight through the viewport floor and burned the
+        // whole landing timeout on the way. This asks the world for a spot it
+        // will actually accept, then lifts them a little so they drop onto it.
+        const stepX = doorstepX(geometry.viewportBounds, activePerson.body.width);
+        const stepY = doorstepY(geometry.viewportBounds, activePerson.body.height);
+        const landing = findSafeSpawn(geometry, activePerson.definition, 0, {
+          x: stepX + activePerson.body.width / 2,
+          y: stepY + activePerson.body.height / 2
+        });
+        activePerson.body = {
+          ...activePerson.body,
+          x: landing.x,
+          y: landing.y - DOORWAY.dropHeight,
+          vx: 0,
+          vy: 0,
+          grounded: false,
+          supportId: null
+        };
         beginDoorwayExit(
           activePerson,
-          door.x + door.width / 2 - activePerson.body.width / 2,
+          doorwayEnterX(geometry.viewportBounds, activePerson.body.width),
           now
         );
       }
     }
-    setDoorwayShown(false, now);
+    // The door stays up for anyone still walking to it; the frame loop lowers
+    // it once they are through and it has had a moment shut.
+    if (!hasDepartingPerson(people)) setDoorwayShown(false, now);
     try {
       if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
     } catch {
@@ -818,7 +877,8 @@
         stuckForMs: Math.round(person.stuckForMs),
         climbWallId: person.climb?.wall.id ?? null,
         errand: person.recordErrand?.sourceId ?? null,
-        carrying: person.carrying?.sourceId ?? null
+        carrying: person.carrying?.sourceId ?? null,
+        exit: person.exit?.phase ?? null
       }))
     );
     canvas.dataset.pixelPersonState = debugPerson?.animation ?? 'absent';
