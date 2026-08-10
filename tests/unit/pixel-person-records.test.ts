@@ -8,7 +8,9 @@ import {
   cancelRecordErrand,
   createPixelPerson,
   dropCarriedRecord,
+  RECORD_ERRAND,
   stepPixelPerson,
+  STROLL_PHYSICS_CONFIG,
   STUCK_RECOVERY_MS
 } from '../../src/lib/pixel-person/simulation';
 import type {
@@ -127,7 +129,11 @@ describe('walkable top bridging', () => {
     person.activityUntil = 10_000;
     person.goalX = 260;
 
-    for (let step = 1; step <= 130; step += 1) {
+    // Long enough to amble the whole row at the stroll gear, plus slack for the
+    // acceleration ramp — derived so a future speed change doesn't break this.
+    const steps =
+      Math.ceil((260 - 4) / (STROLL_PHYSICS_CONFIG.walkSpeed * 0.05)) + 40;
+    for (let step = 1; step <= steps; step += 1) {
       stepPixelPerson(person, world, spatial, 0.05, step * 50);
       expect(person.body.grounded).toBe(true);
       expect(person.body.vy).toBe(0);
@@ -137,6 +143,27 @@ describe('walkable top bridging', () => {
     expect(person.stuckForMs).toBe(0);
   });
 });
+
+/**
+ * Drives a person standing at their target tile through browse -> stoop ->
+ * carrying, and returns the timestamp at which they are holding the record.
+ * Times come from RECORD_ERRAND so retuning the beats cannot silently strand
+ * these tests on stale constants.
+ */
+function completePickup(
+  person: ReturnType<typeof createPixelPerson>,
+  world: WorldGeometry,
+  spatial: SpatialHash,
+  arrivedAt: number
+): number {
+  stepPixelPerson(person, world, spatial, 0.05, arrivedAt);
+  const stoopAt =
+    arrivedAt + RECORD_ERRAND.browseMinMs + RECORD_ERRAND.browseJitterMs + 1;
+  stepPixelPerson(person, world, spatial, 0.05, stoopAt);
+  const carriedAt = stoopAt + RECORD_ERRAND.stoopMs + 1;
+  stepPixelPerson(person, world, spatial, 0.05, carriedAt);
+  return carriedAt;
+}
 
 describe('pixel person record errands', () => {
   it('plans an errand toward a reachable cover once the cooldown elapses', () => {
@@ -152,7 +179,7 @@ describe('pixel person record errands', () => {
     expect(person.activity).toBe('seek-record');
     expect(person.recordErrand?.sourceId).toBe('tile-1');
     expect(person.goalX).toBe(100 + 96 / 2 - 14 / 2);
-    expect(person.nextRecordAt).toBeGreaterThan(20_000);
+    expect(person.nextRecordAt).toBeGreaterThanOrEqual(50 + RECORD_ERRAND.cooldownMs);
   });
 
   it('never targets a record on the row below the walking level', () => {
@@ -207,7 +234,7 @@ describe('pixel person record errands', () => {
     expect(person.plannedClimb).toBeNull();
   });
 
-  it('arrives, stoops with the crouch animation, and starts carrying', () => {
+  it('arrives, browses, stoops with the crouch animation, and starts carrying', () => {
     const world = geometry({ colliders: [collider({ y: 130 })] });
     const person = createPixelPerson(tinyPerson, body({ x: 141, y: 99 }), 0);
     person.activity = 'seek-record';
@@ -215,15 +242,28 @@ describe('pixel person record errands', () => {
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
     const spatial = new SpatialHash(world.colliders);
 
+    // Arrival opens on a browse beat: stood at the shelf, still empty-handed.
     stepPixelPerson(person, world, spatial, 0.05, 100);
+    expect(person.activity).toBe('record-browse');
+    expect(person.animation).toBe('idle');
+    expect(person.body.vx).toBe(0);
+    expect(person.carrying).toBeNull();
+
+    const stoopAt = 100 + RECORD_ERRAND.browseMinMs + RECORD_ERRAND.browseJitterMs + 1;
+    stepPixelPerson(person, world, spatial, 0.05, stoopAt);
     expect(person.activity).toBe('record-stoop');
     expect(person.animation).toBe('hide');
     expect(person.carrying).toBeNull();
 
-    stepPixelPerson(person, world, spatial, 0.05, 700);
+    const carriedAt = stoopAt + RECORD_ERRAND.stoopMs + 1;
+    stepPixelPerson(person, world, spatial, 0.05, carriedAt);
     expect(person.carrying?.sourceId).toBe('tile-1');
-    expect(person.carrying!.putDownAt - 700).toBeGreaterThanOrEqual(5_000);
-    expect(person.carrying!.putDownAt - 700).toBeLessThanOrEqual(15_000);
+    expect(person.carrying!.putDownAt - carriedAt).toBeGreaterThanOrEqual(
+      RECORD_ERRAND.carryMinMs
+    );
+    expect(person.carrying!.putDownAt - carriedAt).toBeLessThanOrEqual(
+      RECORD_ERRAND.carryMinMs + RECORD_ERRAND.carryJitterMs
+    );
     expect(Number.isFinite(person.carrying!.deliverGoalX)).toBe(true);
     expect(person.recentRecordSourceIds).toContain('tile-1');
     expect(person.recordErrand).toBeNull();
@@ -261,8 +301,10 @@ describe('pixel person record errands', () => {
     expect(person.activity).toBe('listen');
     expect(person.animation).toBe('listen');
     expect(person.body.vx).toBe(0);
-    expect(person.listen!.until - 100).toBeGreaterThanOrEqual(8_000);
-    expect(person.listen!.until - 100).toBeLessThanOrEqual(16_000);
+    expect(person.listen!.until - 100).toBeGreaterThanOrEqual(RECORD_ERRAND.listenMinMs);
+    expect(person.listen!.until - 100).toBeLessThanOrEqual(
+      RECORD_ERRAND.listenMinMs + RECORD_ERRAND.listenJitterMs
+    );
     expect(person.carrying).not.toBeNull();
 
     // Still listening mid-session; nothing placed yet.
@@ -271,13 +313,17 @@ describe('pixel person record errands', () => {
     expect(events).toHaveLength(0);
 
     // Session over -> stoop -> place.
-    stepPixelPerson(person, world, spatial, 0.05, 20_000, events);
+    const stoopAt = 100 + RECORD_ERRAND.listenMinMs + RECORD_ERRAND.listenJitterMs + 1;
+    stepPixelPerson(person, world, spatial, 0.05, stoopAt, events);
     expect(person.activity).toBe('record-stoop');
 
-    stepPixelPerson(person, world, spatial, 0.05, 20_700, events);
+    const placedAt = stoopAt + RECORD_ERRAND.stoopMs + 1;
+    stepPixelPerson(person, world, spatial, 0.05, placedAt, events);
     expect(person.carrying).toBeNull();
-    expect(person.nextRecordAt - 20_700).toBeGreaterThanOrEqual(6_000);
-    expect(person.nextRecordAt - 20_700).toBeLessThanOrEqual(14_000);
+    expect(person.nextRecordAt - placedAt).toBeGreaterThanOrEqual(RECORD_ERRAND.returnDelayMs);
+    expect(person.nextRecordAt - placedAt).toBeLessThanOrEqual(
+      RECORD_ERRAND.returnDelayMs + RECORD_ERRAND.returnJitterMs
+    );
     // After placing he strolls back toward the middle instead of camping.
     expect(person.activity).toBe('wander');
     expect(person.goalX).toBeGreaterThanOrEqual(150);
@@ -305,9 +351,10 @@ describe('pixel person record errands', () => {
       deliverGoalX: 400
     };
 
+    const stoopAt = 100 + RECORD_ERRAND.listenMinMs + RECORD_ERRAND.listenJitterMs + 1;
     stepPixelPerson(person, world, spatial, 0.05, 100);
-    stepPixelPerson(person, world, spatial, 0.05, 20_000);
-    stepPixelPerson(person, world, spatial, 0.05, 20_700);
+    stepPixelPerson(person, world, spatial, 0.05, stoopAt);
+    stepPixelPerson(person, world, spatial, 0.05, stoopAt + RECORD_ERRAND.stoopMs + 1);
 
     expect(person.carrying).toBeNull();
   });
@@ -408,8 +455,7 @@ describe('pixel person record errands', () => {
     person.recordErrand = { sourceId: 'tile-1', imageUrl: recordSource().imageUrl };
     person.recentRecordSourceIds = ['a', 'b', 'c', 'd', 'e', 'f'];
 
-    stepPixelPerson(person, world, spatial, 0.05, 100);
-    stepPixelPerson(person, world, spatial, 0.05, 700);
+    completePickup(person, world, spatial, 100);
 
     expect(person.recentRecordSourceIds).toHaveLength(6);
     expect(person.recentRecordSourceIds[0]).toBe('b');
@@ -426,8 +472,7 @@ describe('pixel person record errands', () => {
       person.activityUntil = 99_000;
       person.recordErrand = { sourceId: 'wall', imageUrl: wide.imageUrl };
 
-      stepPixelPerson(person, world, spatial, 0.05, 100);
-      stepPixelPerson(person, world, spatial, 0.05, 700);
+      completePickup(person, world, spatial, 100);
 
       expect(person.carrying).not.toBeNull();
       expect(person.carrying!.deliverGoalX).toBeGreaterThanOrEqual(16);
