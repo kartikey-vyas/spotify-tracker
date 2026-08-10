@@ -251,11 +251,19 @@ interface RecordBrowse {
   until: number;
 }
 
-/** Walking off through the doorway, and the fade that finishes the job. */
-interface DoorwayExit {
+/**
+ * Leaving through the doorway, in three beats: land beside it, walk to it,
+ * step through while it shuts. Each beat has to finish before the next starts,
+ * or the whole thing collapses into a dissolve on the spot.
+ */
+type ExitPhase = 'landing' | 'walking' | 'entering';
+
+export interface DoorwayExit {
   doorX: number;
   startedAt: number;
-  fadeStartedAt: number | null;
+  phase: ExitPhase;
+  /** When they reached the threshold; drives the shut and the fade. */
+  enteredAt: number | null;
 }
 
 interface CarriedRecord {
@@ -1342,8 +1350,14 @@ function nearestRecordSourceX(
 export const DOORWAY_EXIT = {
   /** Long enough to read as walking off, short enough not to feel stuck. */
   walkTimeoutMs: 6_000,
-  arrivalSlackX: 6,
-  fadeMs: 520
+  /** A drop that never finds the floor still has to get on with it. */
+  landingTimeoutMs: 1_600,
+  arrivalSlackX: 7,
+  /**
+   * Matches the door's shut so the two read as one motion — they step in, the
+   * door swings across in front of them, and both finish together.
+   */
+  fadeMs: 380
 } as const;
 
 /**
@@ -1365,7 +1379,7 @@ export function beginDoorwayExit(
   person.recordStoop = null;
   person.listen = null;
   person.recordErrand = null;
-  person.exit = { doorX, startedAt: now, fadeStartedAt: null };
+  person.exit = { doorX, startedAt: now, phase: 'landing', enteredAt: null };
   person.activity = 'exit';
   person.goalX = doorX;
   person.facing = doorX >= person.body.x ? 1 : -1;
@@ -1374,9 +1388,30 @@ export function beginDoorwayExit(
 
 /** 0 while solid, 1 once fully faded; the world owner removes them at 1. */
 export function doorwayExitFade(person: PixelPersonRuntime, now: number): number {
-  const startedAt = person.exit?.fadeStartedAt;
-  if (startedAt === null || startedAt === undefined) return 0;
-  return Math.min(1, Math.max(0, (now - startedAt) / DOORWAY_EXIT.fadeMs));
+  const enteredAt = person.exit?.enteredAt;
+  if (enteredAt === null || enteredAt === undefined) return 0;
+  return Math.min(1, Math.max(0, (now - enteredAt) / DOORWAY_EXIT.fadeMs));
+}
+
+/**
+ * How far shut the door is, 0 to 1, given whoever is currently leaving.
+ * Nothing leaving means nothing shutting.
+ */
+export function doorwayShutProgress(
+  people: readonly PixelPersonRuntime[],
+  now: number
+): number {
+  let shut = 0;
+  for (const person of people) {
+    if (person.exit?.enteredAt == null) continue;
+    shut = Math.max(shut, doorwayExitFade(person, now));
+  }
+  return shut;
+}
+
+/** True while anyone is on their way out, so the door stays up for them. */
+export function hasDepartingPerson(people: readonly PixelPersonRuntime[]): boolean {
+  return people.some((person) => person.exit !== null);
 }
 
 /**
@@ -1396,9 +1431,31 @@ function updateDoorwayExit(
     person.activityUntil = now;
     return person;
   }
-  if (exit.fadeStartedAt !== null) {
+
+  // Stepping through: hold still on the threshold while the door swings shut
+  // across them. Removal happens when the fade completes.
+  if (exit.phase === 'entering') {
     person.body.vx = 0;
     return doorwayExitFade(person, now) >= 1 ? null : person;
+  }
+
+  const nearby = spatial.query(expandedRect(person.body, 28));
+
+  // Set down: let them fall and settle before they walk anywhere. Without this
+  // they set off mid-air from wherever the pointer let go, which reads as
+  // gliding rather than being put down beside a door.
+  if (exit.phase === 'landing') {
+    const result = stepPhysics(person.body, { moveX: 0, jump: false }, nearby, dt);
+    person.body = result.body;
+    const settled =
+      person.body.grounded || now - exit.startedAt >= DOORWAY_EXIT.landingTimeoutMs;
+    if (settled) {
+      exit.phase = 'walking';
+      exit.startedAt = now;
+      person.facing = exit.doorX >= person.body.x ? 1 : -1;
+    }
+    setLocomotionAnimation(person, now);
+    return person;
   }
 
   person.goalX = exit.doorX;
@@ -1410,13 +1467,13 @@ function updateDoorwayExit(
     Math.abs(person.body.x - exit.doorX) <= DOORWAY_EXIT.arrivalSlackX ||
     now - exit.startedAt >= DOORWAY_EXIT.walkTimeoutMs
   ) {
-    exit.fadeStartedAt = now;
+    exit.phase = 'entering';
+    exit.enteredAt = now;
     person.body.vx = 0;
     setAnimation(person, 'idle', now);
     return person;
   }
 
-  const nearby = spatial.query(expandedRect(person.body, 28));
   const result = stepPhysics(person.body, { moveX, jump: false }, nearby, dt, walkConfigFor(person));
   person.body = result.body;
   setLocomotionAnimation(person, now);

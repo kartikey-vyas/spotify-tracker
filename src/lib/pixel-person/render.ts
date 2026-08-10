@@ -184,36 +184,103 @@ function renderSignature(
  * axis-aligned pixel shapes either way, and this keeps it themed off the live
  * CSS variables without a palette or a raster cache entry.
  */
-function drawDoorway(
+function doorwayScreenRect(viewportBounds: Rect): Rect {
+  const rect = doorwayRect(viewportBounds);
+  return {
+    x: Math.round(rect.x - window.scrollX),
+    y: Math.round(rect.y - window.scrollY),
+    width: rect.width,
+    height: rect.height
+  };
+}
+
+function doorwayColours(): { frame: string; accent: string } {
+  const styles = getComputedStyle(document.documentElement);
+  const frame = styles.getPropertyValue('--muted').trim() || '#666';
+  return { frame, accent: styles.getPropertyValue('--accent').trim() || frame };
+}
+
+/**
+ * The frame and the opening, painted *behind* the people so someone standing
+ * on the threshold is in the doorway rather than in front of it.
+ *
+ * The opening is a translucent black rather than the page colour: filled with
+ * --bg it read as an empty frame, being page-coloured by definition.
+ */
+function drawDoorwayFrame(
   context: CanvasRenderingContext2D,
   viewportBounds: Rect,
   opacity: number
 ): void {
   if (opacity <= 0) return;
-  const rect = doorwayRect(viewportBounds);
-  const x = Math.round(rect.x - window.scrollX);
-  const y = Math.round(rect.y - window.scrollY);
-  const styles = getComputedStyle(document.documentElement);
-  const frame = styles.getPropertyValue('--muted').trim() || '#666';
-  const accent = styles.getPropertyValue('--accent').trim() || frame;
+  const rect = doorwayScreenRect(viewportBounds);
+  const { frame } = doorwayColours();
+  const alpha = Math.min(1, Math.max(0, opacity));
 
   context.save();
-  const alpha = Math.min(1, Math.max(0, opacity));
   context.globalAlpha = alpha;
   context.fillStyle = frame;
-  context.fillRect(x, y, rect.width, rect.height);
-  // The opening is a translucent black rather than the page colour: filled
-  // with --bg it read as an empty frame, because it was page-coloured by
-  // definition. Darkening whatever is behind gives it depth in either theme.
+  context.fillRect(rect.x, rect.y, rect.width, rect.height);
+  context.globalAlpha = alpha * 0.62;
+  context.fillStyle = '#000';
+  context.fillRect(rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 3);
+  context.globalAlpha = alpha;
+  context.fillStyle = frame;
+  context.fillRect(rect.x + 3, rect.y + 8, rect.width - 6, 1);
+  context.restore();
+}
+
+/**
+ * The door itself, swinging across the opening — painted *in front* of the
+ * people, because that is what closing a door on someone looks like. It is
+ * what hides them, and the fade underneath is only there so a partly-drawn
+ * slab never leaves a sliver of someone behind.
+ */
+function drawDoorwayDoor(
+  context: CanvasRenderingContext2D,
+  viewportBounds: Rect,
+  opacity: number,
+  shut: number
+): void {
+  if (opacity <= 0 || shut <= 0) return;
+  const rect = doorwayScreenRect(viewportBounds);
+  const { frame, accent } = doorwayColours();
+  const alpha = Math.min(1, Math.max(0, opacity));
+  const closed = Math.min(1, Math.max(0, shut));
+
+  const openingX = rect.x + 3;
+  const openingY = rect.y + 3;
+  const openingWidth = rect.width - 6;
+  const openingHeight = rect.height - 3;
+  // Hinged on the left, so it sweeps toward the viewport edge.
+  const leafWidth = Math.max(1, Math.round(openingWidth * closed));
+
+  context.save();
+  // Two passes rather than one translucent one. The leaf has to be opaque —
+  // it is what hides the person stepping through, and a see-through door shows
+  // them standing inside it. But a solid --muted slab is much the brightest
+  // thing on screen, so it goes over an opaque dark base to knock it back.
+  context.globalAlpha = alpha;
+  context.fillStyle = '#000';
+  context.fillRect(openingX, openingY, leafWidth, openingHeight);
+  context.globalAlpha = alpha * 0.72;
+  context.fillStyle = frame;
+  context.fillRect(openingX, openingY, leafWidth, openingHeight);
+  // The leading edge reads as the door's thickness catching the light.
   context.globalAlpha = alpha * 0.55;
   context.fillStyle = '#000';
-  context.fillRect(x + 3, y + 3, rect.width - 6, rect.height - 3);
-  // A lintel line and a knob, so it reads as a door rather than a slot.
-  context.globalAlpha = alpha;
-  context.fillStyle = frame;
-  context.fillRect(x + 3, y + 8, rect.width - 6, 1);
-  context.fillStyle = accent;
-  context.fillRect(x + rect.width - 8, y + Math.round(rect.height / 2), 2, 3);
+  context.fillRect(openingX + leafWidth - 1, openingY, 1, openingHeight);
+  // The knob only makes sense once there is enough leaf to hang it on.
+  if (closed > 0.65) {
+    context.globalAlpha = alpha;
+    context.fillStyle = accent;
+    context.fillRect(
+      openingX + leafWidth - 5,
+      openingY + Math.round(openingHeight / 2),
+      2,
+      3
+    );
+  }
   context.restore();
 }
 
@@ -224,13 +291,14 @@ export function renderPixelWorld(
   now: number,
   debug: boolean,
   placedRecords: readonly PlacedRecord[] = [],
-  doorwayOpacity = 0
+  doorwayOpacity = 0,
+  doorwayShut = 0
 ): void {
   const context = sizeCanvas(canvas);
   if (!context) return;
   const signature =
     renderSignature(canvas, people, geometry, now, debug, placedRecords) +
-    `|door:${doorwayOpacity.toFixed(2)}`;
+    `|door:${doorwayOpacity.toFixed(2)}:${doorwayShut.toFixed(2)}`;
   if (signature === lastRenderSignature) return;
   lastRenderSignature = signature;
   // Clear in device space: CSS-space clearing under-covers the last device
@@ -244,9 +312,7 @@ export function renderPixelWorld(
     drawDebugGeometry(context, geometry.colliders, geometry.occluders, geometry.itemSources);
   }
   drawPlacedRecords(context, placedRecords, now);
-  // Behind the people, so someone standing on the threshold reads as being in
-  // the doorway rather than pasted over it.
-  drawDoorway(context, geometry.viewportBounds, doorwayOpacity);
+  drawDoorwayFrame(context, geometry.viewportBounds, doorwayOpacity);
   for (const person of people) {
     // While seated the record leans beside the listener, painted first so the
     // person always sits in front of it; in hand it paints over the sprite.
@@ -259,6 +325,8 @@ export function renderPixelWorld(
     if (occluder) clearOccludedPixels(context, person, occluder);
     if (debug && person.drag) drawDangleDebug(context, person);
   }
+  // Last, so the closing door passes in front of whoever stepped through it.
+  drawDoorwayDoor(context, geometry.viewportBounds, doorwayOpacity, doorwayShut);
 }
 
 // A tiny eighth note, drawn at the sprite scale (each cell is 2x2 px).

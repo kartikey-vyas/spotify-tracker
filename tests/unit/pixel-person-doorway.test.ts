@@ -12,6 +12,8 @@ import {
   createPixelPerson,
   DOORWAY_EXIT,
   doorwayExitFade,
+  doorwayShutProgress,
+  hasDepartingPerson,
   stepPixelPerson
 } from '../../src/lib/pixel-person/simulation';
 import type {
@@ -219,5 +221,102 @@ describe('walking out through the door', () => {
     expect(person.listen).toBeNull();
     expect(person.recordErrand).toBeNull();
     expect(person.routine).toBeNull();
+  });
+});
+
+describe('the landing beat', () => {
+  const doorX = 700;
+
+  it('falls and settles before walking anywhere', () => {
+    // Dropped in mid-air above the floor. Without a landing beat they set off
+    // horizontally from wherever the pointer let go, which reads as gliding
+    // rather than being put down beside a door.
+    const world = geometry();
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(
+      tinyPerson,
+      body({ x: 100, y: -120, grounded: false, supportId: null }),
+      0
+    );
+    beginDoorwayExit(person, doorX, 0);
+    const startX = person.body.x;
+
+    // Early on they are still coming down, not heading for the door.
+    let now = 0;
+    for (let step = 1; step <= 3; step += 1) {
+      now = step * 50;
+      stepPixelPerson(person, world, spatial, 0.05, now);
+    }
+    expect(person.body.grounded).toBe(false);
+    expect(person.body.x).toBe(startX);
+
+    // Once they are down they get on with it.
+    for (let step = 4; step <= 80; step += 1) {
+      now = step * 50;
+      stepPixelPerson(person, world, spatial, 0.05, now);
+      if (person.body.grounded && person.body.x > startX) break;
+    }
+    expect(person.body.grounded).toBe(true);
+    expect(person.body.x).toBeGreaterThan(startX);
+  });
+
+  it('gives up waiting to land rather than hanging forever', () => {
+    // No floor at all: nothing to settle onto.
+    const world = geometry({ colliders: [] });
+    const spatial = new SpatialHash([]);
+    const person = createPixelPerson(
+      tinyPerson,
+      body({ x: 100, grounded: false, supportId: null }),
+      0
+    );
+    beginDoorwayExit(person, doorX, 0);
+
+    let alive: unknown = person;
+    const budget =
+      DOORWAY_EXIT.landingTimeoutMs + DOORWAY_EXIT.walkTimeoutMs + DOORWAY_EXIT.fadeMs + 2_000;
+    for (let now = 50; now <= budget && alive; now += 50) {
+      alive = stepPixelPerson(person, world, spatial, 0.05, now);
+    }
+    expect(alive).toBeNull();
+  });
+});
+
+describe('the door shutting behind them', () => {
+  const doorX = 200;
+
+  it('is not shutting while nobody is leaving', () => {
+    const person = createPixelPerson(tinyPerson, body(), 0);
+    expect(hasDepartingPerson([person])).toBe(false);
+    expect(doorwayShutProgress([person], 1_000)).toBe(0);
+  });
+
+  it('stays open while they are still walking to it', () => {
+    const world = geometry();
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(tinyPerson, body({ x: 20 }), 0);
+    beginDoorwayExit(person, doorX, 0);
+
+    stepPixelPerson(person, world, spatial, 0.05, 50);
+
+    expect(hasDepartingPerson([person])).toBe(true);
+    // Walking, not yet through — the door has no business closing yet.
+    expect(doorwayShutProgress([person], 50)).toBe(0);
+  });
+
+  it('swings shut as they step through, finishing with them', () => {
+    const world = geometry();
+    const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(tinyPerson, body({ x: doorX }), 0);
+    beginDoorwayExit(person, doorX, 0);
+
+    // First step lands and arrives, so the entrance begins.
+    let now = 50;
+    stepPixelPerson(person, world, spatial, 0.05, now);
+    stepPixelPerson(person, world, spatial, 0.05, (now += 50));
+
+    const partway = doorwayShutProgress([person], now + DOORWAY_EXIT.fadeMs / 2);
+    expect(partway).toBeGreaterThan(0);
+    expect(partway).toBeLessThan(1);
+    expect(doorwayShutProgress([person], now + DOORWAY_EXIT.fadeMs)).toBe(1);
   });
 });
