@@ -121,7 +121,7 @@ export const RECORD_ERRAND = {
  * Routine pacing. Every duration that shapes how busy a person looks lives
  * here and in RECORD_ERRAND, so retuning the feel is a no-logic change.
  */
-const ROUTINE = {
+export const ROUTINE = {
   // Pauses outlast legs on average, which is what makes the population read as
   // settled rather than busy: at the stroll speed the mean leg is a little
   // under six seconds against a mean pause a little over six.
@@ -140,7 +140,30 @@ const ROUTINE = {
   /** Below this a leg is not worth walking; the beat is dropped. */
   minTravelDistance: 8,
   /** The beat of hesitation at a dead end, before turning around. */
-  reverseRestMs: 700
+  reverseRestMs: 700,
+  /**
+   * Chance a routine ignores the platform it is standing on and plans across
+   * the whole viewport. Without it people would never wander off an edge, and
+   * the cliff hop and climb-down would stop happening at all.
+   */
+  leavePlatformChance: 0.2
+} as const;
+
+/**
+ * Hiding behind panels. Kept apart from ROUTINE because it is an interrupt
+ * rather than a beat, but tuned by the same principle: it competes with record
+ * errands for screen time, and errands are what the wall is for.
+ */
+export const HIDE = {
+  cooldownMs: 45_000,
+  cooldownJitterMs: 30_000,
+  /** Re-check after failing to find anywhere worth hiding behind. */
+  retryMs: 12_000,
+  seekTimeoutMs: 6_000,
+  /** Slide-in, then the hold out of sight, then slide back out. */
+  enterMs: 360,
+  holdUntilMs: 4_000,
+  exitUntilMs: 4_450
 } as const;
 
 type Activity =
@@ -873,6 +896,38 @@ function walkableRange(
 }
 
 /**
+ * The span a routine may plan legs within.
+ *
+ * Legs used to be planned in pure x-space, blind to what was underfoot, so a
+ * walk could be aimed straight through a wall or off a ledge and `reverse()`
+ * would clean up on impact. That is what made half the remaining direction
+ * changes happen mid-stride rather than out of a pause. Staying on the thing
+ * you are standing on turns leaving it into a deliberate act — a climb, a
+ * ladder ride, a hop — instead of a collision.
+ *
+ * `viewport-floor` spans the whole scan width, so open ground is unaffected;
+ * this only bites on panels and bridged cover-wall rows.
+ */
+export function legRange(
+  person: PixelPersonRuntime,
+  geometry: WorldGeometry
+): { minX: number; maxX: number } {
+  const bounds = walkableRange(person, geometry);
+  if (Math.random() < ROUTINE.leavePlatformChance) return bounds;
+  const support = geometry.colliders.find(
+    (candidate) => candidate.id === person.body.supportId
+  );
+  if (!support) return bounds;
+  const minX = Math.max(bounds.minX, support.x);
+  const maxX = Math.min(bounds.maxX, support.x + support.width - person.body.width);
+  // Too cramped to plan a real leg on — a narrow tile, or a platform mostly
+  // outside the comfortable viewport range. Pacing a span that small is the
+  // behaviour this whole change exists to remove, so fall back instead.
+  if (maxX - minX < ROUTINE.travelMinDistance) return bounds;
+  return { minX, maxX };
+}
+
+/**
  * Builds a short itinerary — walk somewhere, stop and take it in, sometimes
  * carry on to a second spot. Planning the whole thing up front is the point:
  * the person executes it beat by beat instead of rolling a fresh direction
@@ -883,7 +938,7 @@ function planRoutine(
   geometry: WorldGeometry,
   biasX: number | null
 ): Routine {
-  const { minX, maxX } = walkableRange(person, geometry);
+  const { minX, maxX } = legRange(person, geometry);
   const beats: Beat[] = [];
   let cursorX = person.body.x;
   let direction: Facing =
@@ -1054,11 +1109,11 @@ function chooseNextActivity(
       };
       person.goalX = outsideX;
       person.activity = 'seek-hide';
-      person.activityUntil = now + 6_000;
-      person.nextHideAt = now + 15_000 + Math.random() * 6_000;
+      person.activityUntil = now + HIDE.seekTimeoutMs;
+      person.nextHideAt = now + HIDE.cooldownMs + Math.random() * HIDE.cooldownJitterMs;
       return;
     }
-    person.nextHideAt = now + 4_000;
+    person.nextHideAt = now + HIDE.retryMs;
   }
 
   // Nothing wanted them: carry on with the plan, or make a new one.
@@ -1503,9 +1558,9 @@ function updateHiding(
     return;
   }
   const elapsed = now - person.hide.startedAt;
-  const enterDuration = 360;
-  const holdUntil = 2_650;
-  const exitUntil = 3_100;
+  const enterDuration = HIDE.enterMs;
+  const holdUntil = HIDE.holdUntilMs;
+  const exitUntil = HIDE.exitUntilMs;
   let progress: number;
 
   if (elapsed <= enterDuration) {

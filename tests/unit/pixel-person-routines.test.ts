@@ -1,17 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { SpatialHash } from '../../src/lib/pixel-person/physics';
 import { spriteTimeScale, REFERENCE_WALK_SPEED } from '../../src/lib/pixel-person/sprite';
 import {
   createPixelPerson,
+  HIDE,
+  legRange,
   PURPOSEFUL_PHYSICS_CONFIG,
   RECORD_ERRAND,
+  ROUTINE,
   stepPixelPerson,
   STROLL_PHYSICS_CONFIG,
   walkConfigFor
 } from '../../src/lib/pixel-person/simulation';
 import type {
   Collider,
+  Occluder,
   PhysicsBody,
   WorldGeometry
 } from '../../src/lib/pixel-person/types';
@@ -77,6 +81,26 @@ function wandererIn(world: WorldGeometry) {
   person.body.x = world.scanBounds.x + world.scanBounds.width / 2;
   return person;
 }
+
+/**
+ * Whether a person leaves a ledge in any one run is a chain of coin flips, so
+ * a single unseeded trajectory makes for a flaky test. Trajectory assertions
+ * below pin Math.random to this generator and pool several fixed seeds: still
+ * many different paths, but the same ones every run.
+ */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
+    return state / 4_294_967_296;
+  };
+}
+
+const TRAJECTORY_SEEDS = [1, 7, 13, 29, 43, 61, 89, 101];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const STEP_MS = 50;
 const STEP_SECONDS = STEP_MS / 1000;
@@ -304,5 +328,172 @@ describe('walk cadence', () => {
     expect(spriteTimeScale('walk', -STROLL_PHYSICS_CONFIG.walkSpeed)).toBe(
       spriteTimeScale('walk', STROLL_PHYSICS_CONFIG.walkSpeed)
     );
+  });
+});
+
+describe('legs stay on the platform underfoot', () => {
+  // A raised ledge in a wide world. `kind: 'border'` with no groupId keeps
+  // chooseClimbPlan out of it, so the planner is what is under test rather
+  // than the climb branch.
+  //
+  // The width is chosen deliberately: wide enough that legRange will clamp to
+  // it (its usable span beats ROUTINE.travelMinDistance), but narrower than
+  // twice the shortest leg, so an *unclamped* goal essentially always lands
+  // off the ledge. A wider ledge lets unclamped legs land on it by luck, and
+  // the test stops being able to tell the two apart — which it did at 400.
+  const LEDGE = { x: 1_000, y: 60, width: 150 };
+
+  // The ground sits a hoppable distance below: deeper than the cliff sense's
+  // landing window and nobody could ever step off, which would make the
+  // escape-hatch test vacuous rather than passing.
+  function ledgeWorld(): WorldGeometry {
+    return geometry({
+      colliders: [
+        collider({ id: 'ledge', x: LEDGE.x, y: LEDGE.y, width: LEDGE.width, height: 2 }),
+        collider({ id: 'ground', x: 0, y: 190, width: 2_400, height: 2 })
+      ]
+    });
+  }
+
+  function onLedge(goalX: number, bodyWidth: number): boolean {
+    return goalX >= LEDGE.x - 1 && goalX <= LEDGE.x + LEDGE.width - bodyWidth + 1;
+  }
+
+  function personOnLedge() {
+    const person = wanderer();
+    person.body.x = LEDGE.x + LEDGE.width / 2;
+    person.body.y = LEDGE.y - person.body.height;
+    person.body.supportId = 'ledge';
+    return person;
+  }
+
+  it('plans most legs within the span it is standing on', () => {
+    let planned = 0;
+    let withinLedge = 0;
+
+    for (const seed of TRAJECTORY_SEEDS) {
+      vi.spyOn(Math, 'random').mockImplementation(seededRandom(seed));
+      const world = ledgeWorld();
+      const person = personOnLedge();
+      const drive = driver(person, world, new SpatialHash(world.colliders));
+      let lastGoal = person.goalX;
+
+      drive.run(2_000, () => {
+        // Someone who wandered off stops producing ledge goals, so put them
+        // back and let them plan again — the measurement is "goals chosen
+        // while standing on the ledge", not "how long they stayed".
+        if (person.body.supportId !== 'ledge') {
+          person.body.x = LEDGE.x + LEDGE.width / 2;
+          person.body.y = LEDGE.y - person.body.height;
+          person.body.vx = 0;
+          person.body.vy = 0;
+          person.body.grounded = true;
+          person.body.supportId = 'ledge';
+          person.routine = null;
+          person.activityUntil = 0;
+          return;
+        }
+        if (person.activity !== 'wander' || person.goalX === lastGoal) return;
+        lastGoal = person.goalX;
+        planned += 1;
+        if (onLedge(person.goalX, person.body.width)) withinLedge += 1;
+      });
+    }
+
+    expect(planned).toBeGreaterThan(20);
+    // The planner deliberately wanders off sometimes, so this is a majority
+    // rule rather than an absolute one — derived from that escape hatch so
+    // retuning it cannot silently invalidate the test.
+    const floor = 1 - ROUTINE.leavePlatformChance * 2;
+    expect(withinLedge / planned).toBeGreaterThan(floor);
+  });
+
+  it('still leaves the platform sometimes, so ledges are not cages', () => {
+    let seedsThatLeft = 0;
+
+    for (const seed of TRAJECTORY_SEEDS) {
+      vi.spyOn(Math, 'random').mockImplementation(seededRandom(seed));
+      const world = ledgeWorld();
+      const person = personOnLedge();
+      const drive = driver(person, world, new SpatialHash(world.colliders));
+      let left = false;
+      drive.run(4_000, () => {
+        if (person.body.supportId === 'ground') left = true;
+      });
+      if (left) seedsThatLeft += 1;
+    }
+
+    expect(seedsThatLeft).toBeGreaterThan(0);
+  });
+
+  it('falls back to the open range when the support is too small to walk', () => {
+    // A perch narrower than the shortest leg. Clamping to it would leave the
+    // person shuffling on the spot, which is the behaviour being removed, so
+    // the range is asserted directly rather than through a step — on a perch
+    // this size the cliff sense would take over before a goal was revealing.
+    const world = geometry({
+      colliders: [
+        collider({ id: 'perch', x: 1_200, y: 60, width: 20, height: 2 }),
+        collider({ id: 'ground', x: 0, y: 190, width: 2_400, height: 2 })
+      ]
+    });
+    const person = wanderer();
+    person.body.x = 1_202;
+    person.body.y = 60 - person.body.height;
+    person.body.supportId = 'perch';
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const range = legRange(person, world);
+      expect(range.maxX - range.minX).toBeGreaterThan(ROUTINE.travelMinDistance);
+    }
+  });
+
+  it('clamps to a support wide enough to be worth walking', () => {
+    const world = ledgeWorld();
+    const person = wanderer();
+    person.body.x = LEDGE.x + LEDGE.width / 2;
+    person.body.y = LEDGE.y - person.body.height;
+    person.body.supportId = 'ledge';
+
+    let clamped = 0;
+    const attempts = 200;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const range = legRange(person, world);
+      if (range.minX >= LEDGE.x && range.maxX <= LEDGE.x + LEDGE.width) clamped += 1;
+    }
+
+    // Clamped except when the escape hatch fires, so the observed share should
+    // sit near its complement rather than at either extreme.
+    expect(clamped / attempts).toBeGreaterThan(1 - ROUTINE.leavePlatformChance * 2);
+    expect(clamped / attempts).toBeLessThan(1);
+  });
+});
+
+describe('hiding is occasional', () => {
+  it('spends far longer between hides than in one', () => {
+    // The duty cycle is the rule: a hide plus the walk to it must be a small
+    // slice of the gap before the next one, or hiding competes with record
+    // errands for screen time.
+    const perHide = HIDE.exitUntilMs + HIDE.seekTimeoutMs;
+    expect(perHide * 4).toBeLessThan(HIDE.cooldownMs);
+  });
+
+  it('leaves the wall alone for most of a long run', () => {
+    const occluder: Occluder = { id: 'panel', x: 900, y: 20, width: 200, height: 60 };
+    const world = geometry({ occluders: [occluder] });
+    const person = wanderer();
+    person.nextHideAt = 0;
+    const drive = driver(person, world, new SpatialHash(world.colliders));
+
+    let hiding = 0;
+    const steps = 12_000;
+    drive.run(steps, () => {
+      if (person.activity === 'seek-hide' || person.activity === 'hiding') hiding += 1;
+    });
+
+    // Derived from the cadence rather than pinned to a measurement: at most
+    // one hide per cooldown window, each costing the seek plus the hide.
+    const worstCaseShare = (HIDE.exitUntilMs + HIDE.seekTimeoutMs) / HIDE.cooldownMs;
+    expect(hiding / steps).toBeLessThan(worstCaseShare);
   });
 });
