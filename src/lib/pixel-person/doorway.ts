@@ -1,3 +1,4 @@
+import { viewportFloorY } from './geometry';
 import type { Point, Rect } from './types';
 
 /**
@@ -12,9 +13,8 @@ export const DOORWAY = {
   // the threshold is framed by the doorway rather than overhanging its posts.
   width: 34,
   height: 46,
-  /** Inset from the viewport's right edge and its floor. */
+  /** Inset from the viewport's right edge. */
   marginX: 28,
-  marginBottom: 6,
   /** Generosity around the door when deciding whether a drop counts. */
   hitPadding: 22,
   /** Fade in when a drag starts, out when it ends. */
@@ -47,9 +47,12 @@ export const DOORWAY = {
  * the screen — a fixed spot is learnable in a way a moving one is not.
  */
 export function doorwayRect(viewportBounds: Rect): Rect {
+  // The base sits exactly on the floor people stand on, not at some inset of
+  // its own: with a separate margin the door hovered a few pixels above the
+  // ground, and anyone standing in it read as sunk below its bottom edge.
   return {
     x: viewportBounds.x + viewportBounds.width - DOORWAY.marginX - DOORWAY.width,
-    y: viewportBounds.y + viewportBounds.height - DOORWAY.marginBottom - DOORWAY.height,
+    y: viewportFloorY(viewportBounds) - DOORWAY.height,
     width: DOORWAY.width,
     height: DOORWAY.height
   };

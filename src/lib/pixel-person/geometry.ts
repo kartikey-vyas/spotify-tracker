@@ -12,6 +12,17 @@ import type {
 const SCAN_PADDING_X = 360;
 const SCAN_PADDING_Y = 280;
 const MIN_BORDER_THICKNESS = 2;
+
+/**
+ * The top of the ground people stand on at the bottom of the viewport.
+ *
+ * Exported because anything drawn as standing on that ground (the doorway)
+ * has to agree with it to the pixel; deriving it separately leaves furniture
+ * hovering just above the floor its occupants walk on.
+ */
+export function viewportFloorY(viewportBounds: Rect): number {
+  return viewportBounds.y + viewportBounds.height - MIN_BORDER_THICKNESS;
+}
 // Walkable-top bridging: adjacent surfaces whose tops align within the
 // tolerance and sit closer than a body width apart get one continuous strip,
 // so grids of tiles (e.g. the album cover wall) read as walkable floor
@@ -149,12 +160,12 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
   addTextColliders(root, scanBounds, colliders);
   colliders.push(...bridgeWalkableTops(colliders));
 
-  const viewportFloorY = viewportBounds.y + viewportBounds.height - MIN_BORDER_THICKNESS;
+  const floorY = viewportFloorY(viewportBounds);
   colliders.push({
     x: scanBounds.x,
-    y: viewportFloorY,
+    y: floorY,
     width: scanBounds.width,
-    height: Math.max(40, scanBounds.y + scanBounds.height - viewportFloorY + 40),
+    height: Math.max(40, scanBounds.y + scanBounds.height - floorY + 40),
     id: 'viewport-floor',
     kind: 'floor',
     edge: 'top'
@@ -166,7 +177,7 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
     viewportBounds.y + viewportBounds.height
   );
   if (
-    Math.abs(documentFloorY - viewportFloorY) > 4 &&
+    Math.abs(documentFloorY - floorY) > 4 &&
     documentFloorY < scanBounds.y + scanBounds.height
   ) {
     colliders.push({
