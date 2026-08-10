@@ -31,7 +31,7 @@
     collectWorldGeometry,
     findSafeSpawn
   } from '$lib/pixel-person/geometry';
-  import { intersects, SpatialHash } from '$lib/pixel-person/physics';
+  import { hasBodyClearance, intersects, SpatialHash } from '$lib/pixel-person/physics';
   import { getRecordArt, requestRecordArt } from '$lib/pixel-person/record-art';
   import {
     fadeStartAt,
@@ -468,6 +468,30 @@
     forceRespawn = false;
   }
 
+  /**
+   * Where someone dropped on the doorway is set down: standing on the floor
+   * the door stands on, just outside it. Falls back to an ordinary safe spawn
+   * when that spot is not standable, so a crowded corner cannot strand them.
+   */
+  function doorstepLanding(person: PixelPersonRuntime): PhysicsBody {
+    const { width, height } = person.body;
+    const stepX = doorstepX(geometry.viewportBounds, width);
+    const floor = geometry.colliders.find(
+      (collider) => collider.id === 'viewport-floor'
+    );
+    if (floor) {
+      const standing = { x: stepX, y: floor.y - height, width, height };
+      if (hasBodyClearance(standing, geometry.colliders, floor.id)) {
+        return { ...standing, vx: 0, vy: 0, grounded: true, supportId: floor.id };
+      }
+    }
+    const stepY = doorstepY(geometry.viewportBounds, height);
+    return findSafeSpawn(geometry, person.definition, 0, {
+      x: stepX + width / 2,
+      y: stepY + height / 2
+    });
+  }
+
   function setDoorwayShown(shown: boolean, now: number): void {
     if (doorwayShown === shown) return;
     doorwayShown = shown;
@@ -780,18 +804,17 @@
         // Set them down beside the door rather than on it, so there is a walk
         // to watch. They are airborne at this point, so the shift reads as
         // where they were dropped rather than as a jump.
-        // Placed via findSafeSpawn rather than by hand. A hand-picked spot is
-        // not necessarily standable: stepPhysics refuses a landing where the
-        // standing body would have no clearance, so someone set down beside
-        // the door fell straight through the viewport floor and burned the
-        // whole landing timeout on the way. This asks the world for a spot it
-        // will actually accept, then lifts them a little so they drop onto it.
-        const stepX = doorstepX(geometry.viewportBounds, activePerson.body.width);
-        const stepY = doorstepY(geometry.viewportBounds, activePerson.body.height);
-        const landing = findSafeSpawn(geometry, activePerson.definition, 0, {
-          x: stepX + activePerson.body.width / 2,
-          y: stepY + activePerson.body.height / 2
-        });
+        // Set down on the same floor the door stands on, beside it.
+        //
+        // Not findSafeSpawn: that only considers three positions per collider
+        // and skips floors entirely, so it put them on whatever ledge happened
+        // to be nearby — above and to the left of the door, turning a short
+        // walk into a three-second hike. And not a bare hand-placement either,
+        // because stepPhysics refuses a landing where the standing body would
+        // have no clearance, and someone dropped on a spot like that falls
+        // through the world. So: pick the spot, check it the same way physics
+        // will, and only fall back when it genuinely is not standable.
+        const landing = doorstepLanding(activePerson);
         activePerson.body = {
           ...activePerson.body,
           x: landing.x,
