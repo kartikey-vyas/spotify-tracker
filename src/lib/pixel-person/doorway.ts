@@ -24,8 +24,13 @@ export const DOORWAY = {
    * They land here and walk in, rather than dissolving wherever the pointer
    * happened to be — the little scene is the point, and a drop landing exactly
    * on the threshold would leave nothing to watch.
+   *
+   * Kept short on purpose. At 58 the walk was 82px, which is over three
+   * seconds at the amble speed: long enough that the reader is waiting for it
+   * rather than watching it. Just far enough to see them arrive is the point,
+   * not a journey.
    */
-  approachDistance: 58,
+  approachDistance: 16,
   /** How far above the ground they are set down, so the landing is visible. */
   dropHeight: 26,
   /** The door swinging shut behind them. */
