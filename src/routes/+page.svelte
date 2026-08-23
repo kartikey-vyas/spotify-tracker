@@ -317,9 +317,11 @@
   {:else}
     <div class="profile-picker">
       <span class="profile-label">profile</span>
-      <details bind:this={profileMenu} class="profile-menu">
-        <summary>{selectedProfile ? profileOptionLabel(selectedProfile) : 'Choose profile'}</summary>
-        <div class="profile-options" role="radiogroup" aria-label="Profile">
+      <details bind:this={profileMenu} class="menu">
+        <summary class="menu-trigger"
+          >{selectedProfile ? profileOptionLabel(selectedProfile) : 'Choose profile'}</summary
+        >
+        <div class="menu-options is-profile" role="radiogroup" aria-label="Profile">
           {#each profiles as profile}
             <button
               class:active={profile.slug === selectedSlug}
@@ -533,85 +535,6 @@
     font-size: var(--text-sm);
   }
 
-  .profile-menu {
-    position: relative;
-  }
-
-  .profile-menu summary {
-    padding: 0 var(--space-4) 0 0;
-    color: var(--text);
-    font-size: var(--text-sm);
-    cursor: pointer;
-    list-style: none;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-    text-underline-offset: 3px;
-  }
-
-  .profile-menu summary::after {
-    position: absolute;
-    top: 7px;
-    right: 0;
-    width: 0;
-    height: 0;
-    border-top: 5px solid var(--muted);
-    border-right: 4px solid transparent;
-    border-left: 4px solid transparent;
-    content: "";
-  }
-
-  .profile-menu[open] summary::after {
-    transform: rotate(180deg);
-  }
-
-  .profile-menu summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .profile-menu summary:hover {
-    color: var(--muted);
-  }
-
-  /* Same quiet register as the trigger: a floating fragment of the page (bg
-     background, one hairline edge), options as link-like text. Active echoes
-     the summary's dotted underline. */
-  .profile-options {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 10;
-    display: grid;
-    min-width: 220px;
-    padding: var(--space-1) 0;
-    border: 1px solid var(--line);
-    background: var(--bg);
-  }
-
-  .profile-options button {
-    display: block;
-    width: 100%;
-    min-height: 0;
-    padding: var(--space-1) var(--space-3);
-    border: 0;
-    background: transparent;
-    color: var(--muted);
-    font-size: var(--text-sm);
-    text-align: left;
-  }
-
-  .profile-options button:hover {
-    background: transparent;
-    color: var(--text);
-  }
-
-  .profile-options button.active {
-    background: transparent;
-    color: var(--accent);
-    font-weight: 700;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-    text-underline-offset: 3px;
-  }
 
   /* Un-boxed sections need whitespace to hold the page together: major
      sections sit ~36px apart instead of the old 16px. */

@@ -332,54 +332,116 @@ input[type='checkbox'] {
   color: var(--text);
 }
 
-.site-nav a,
-.theme-menu summary {
+.site-nav a {
   min-height: 0;
   padding: 0;
   color: var(--text);
   font-size: var(--text-sm);
 }
 
-.site-nav a:hover,
-.theme-menu summary:hover {
+.site-nav a:hover {
   background: transparent;
   color: var(--accent);
 }
 
-.theme-menu {
+/* ── Menu ───────────────────────────────────────────────────────────────────
+   One dropdown for the whole app. There used to be three near-identical ones —
+   theme, profile picker, explorer picker — differing mostly by accident: solid
+   vs dotted underline, a 6px vs 8px panel offset, muted vs full-strength option
+   text, a filled accent row in one and accent text in the others.
+
+   The panel is now the same everywhere. Only the trigger varies, and only
+   because an inline trigger and a form control are genuinely different jobs.
+   Per the menu rule, an open panel is a floating fragment of the page: same
+   ground, one hairline, no elevation, no row separators. */
+.menu {
   position: relative;
 }
 
-.theme-menu summary {
+/* Inline trigger — sits in running text (the nav, a caption line). Dotted
+   underline, not solid: solid underline in this app means "this navigates",
+   so a menu that borrows it reads as a link that will take you somewhere. */
+.menu-trigger {
+  --menu-caret-top: 7px;
+  min-height: 0;
+  padding: 0 var(--space-4) 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-sm);
   cursor: pointer;
   list-style: none;
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
 }
 
-.theme-menu summary::-webkit-details-marker {
+/* Field trigger — a toolbar control, so it is styled as exactly what it is: an
+   input. Same 32px target, border, and surface as input/select above. */
+.menu-trigger.is-field {
+  --menu-caret-top: 13px;
+  min-height: 32px;
+  padding: var(--space-1) var(--space-8) var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--text-base);
+  text-decoration: none;
+}
+
+.menu-trigger:hover {
+  color: var(--accent);
+}
+
+.menu-trigger.is-field:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.menu-trigger::-webkit-details-marker {
   display: none;
 }
 
-/* The open menu keeps the trigger's quiet register: a floating fragment of the
-   page (bg background, one hairline edge) listing link-like options — no row
-   separators, no filled chips. Active echoes the summary's solid underline. */
-.theme-options {
+/* One caret, positioned off the trigger's own height. */
+.menu-trigger::after {
+  position: absolute;
+  top: var(--menu-caret-top);
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 5px solid var(--muted);
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  content: "";
+}
+
+.menu-trigger.is-field::after {
+  right: var(--space-2);
+}
+
+[open] > .menu-trigger::after {
+  transform: rotate(180deg);
+}
+
+.menu-options {
   position: absolute;
   top: calc(100% + var(--space-2));
-  right: 0;
-  /* set on open when a right-aligned menu would poke past the viewport's left
-     edge (narrow screens where the nav wraps and "theme" sits far left) */
-  transform: translateX(var(--theme-menu-shift, 0px));
+  left: 0;
   z-index: 10;
   display: grid;
-  min-width: 112px;
   padding: var(--space-1) 0;
   border: 1px solid var(--line);
   background: var(--bg);
 }
 
-.theme-options button {
+/* Right-aligned variant, for a trigger near the right edge of the viewport.
+   --menu-shift is set on open when the panel would otherwise poke off-screen. */
+.menu-options.is-right {
+  left: auto;
+  right: 0;
+  transform: translateX(var(--menu-shift, 0px));
+}
+
+.menu-options button {
   display: block;
   width: 100%;
   min-height: 0;
@@ -389,19 +451,38 @@ input[type='checkbox'] {
   color: var(--muted);
   font-size: var(--text-sm);
   text-align: left;
+  white-space: nowrap;
 }
 
-.theme-options button:hover {
-  background: transparent;
+.menu-options button:hover:not(:disabled) {
+  background: var(--surface-2);
   color: var(--text);
 }
 
-.theme-options button.active {
-  background: transparent;
+/* Accent text carries the selection. Deliberately not a filled accent row —
+   that is the window toggle's vocabulary, and a solid block of accent inside a
+   floating panel is louder than one amber moment per view allows. */
+.menu-options button.active {
   color: var(--accent);
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+}
+
+.menu-options button:disabled {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* Per-instance widths. Everything else about these menus is shared. */
+.menu-options.is-theme {
+  min-width: 112px;
+}
+
+.menu-options.is-profile {
+  min-width: 220px;
+}
+
+.menu-options.is-field {
+  min-width: 100%;
 }
 
 main {

@@ -107,12 +107,12 @@
 
   function positionThemeMenu(): void {
     if (!themeMenu?.open) return;
-    const options = themeMenu.querySelector<HTMLElement>('.theme-options');
+    const options = themeMenu.querySelector<HTMLElement>('.menu-options');
     if (!options) return;
-    options.style.setProperty('--theme-menu-shift', '0px');
+    options.style.setProperty('--menu-shift', '0px');
     const margin = 8;
     const overflow = margin - options.getBoundingClientRect().left;
-    if (overflow > 0) options.style.setProperty('--theme-menu-shift', `${overflow}px`);
+    if (overflow > 0) options.style.setProperty('--menu-shift', `${overflow}px`);
   }
 
   function selectTheme(nextTheme: Theme): void {
@@ -161,9 +161,9 @@
         {/if}
 
         <span class="nav-separator">/</span>
-        <details bind:this={themeMenu} class="theme-menu" on:toggle={positionThemeMenu}>
-          <summary>theme</summary>
-          <div class="theme-options" role="radiogroup" aria-label="Color theme">
+        <details bind:this={themeMenu} class="menu" on:toggle={positionThemeMenu}>
+          <summary class="menu-trigger">theme</summary>
+          <div class="menu-options is-right is-theme" role="radiogroup" aria-label="Color theme">
             {#each themes as option}
               <button
                 class:active={theme === option.value}

@@ -327,9 +327,9 @@
   <div class="toolbar">
     <div class="picker-field">
       <span class="picker-label">Profile</span>
-      <details bind:this={profileMenu} class="picker-menu">
-        <summary>{selectedProfile?.display_name ?? 'Choose profile'}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Profile">
+      <details bind:this={profileMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{selectedProfile?.display_name ?? 'Choose profile'}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Profile">
           {#each profiles as profile}
             <button
               class:active={profile.slug === selectedSlug}
@@ -349,9 +349,9 @@
 
     <div class="picker-field">
       <span class="picker-label">Date range</span>
-      <details bind:this={rangeMenu} class="picker-menu">
-        <summary>{rangeLabel(preset)}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Date range">
+      <details bind:this={rangeMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{rangeLabel(preset)}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Date range">
           {#each exploreDateRangeOptions as option}
             <button
               class:active={option.value === preset}
@@ -369,9 +369,9 @@
 
     <div class="picker-field">
       <span class="picker-label">Entity</span>
-      <details bind:this={entityMenu} class="picker-menu">
-        <summary>{entityLabel(entityType)}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Entity">
+      <details bind:this={entityMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{entityLabel(entityType)}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Entity">
           {#each entityOptions as option}
             <button
               class:active={option.value === entityType}
@@ -389,9 +389,9 @@
 
     <div class="picker-field">
       <span class="picker-label">Metric</span>
-      <details bind:this={metricMenu} class="picker-menu">
-        <summary>{metricLabel(metric)}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Metric">
+      <details bind:this={metricMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{metricLabel(metric)}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Metric">
           {#each metricOptions as option}
             {@const disabled = !isMetricAvailable(rankings, option.value)}
             <button
@@ -541,81 +541,11 @@
     color: var(--muted);
   }
 
+  /* Only the width is local; the menu itself is the shared component. */
   .picker-menu {
-    position: relative;
     min-width: 160px;
   }
 
-  .picker-menu summary {
-    min-height: 32px;
-    padding: var(--space-1) var(--space-8) var(--space-1) var(--space-2);
-    border: 1px solid var(--line);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .picker-menu summary::after {
-    position: absolute;
-    top: 13px;
-    right: 9px;
-    width: 0;
-    height: 0;
-    border-top: 5px solid var(--muted);
-    border-right: 4px solid transparent;
-    border-left: 4px solid transparent;
-    content: "";
-  }
-
-  .picker-menu[open] summary::after {
-    transform: rotate(180deg);
-  }
-
-  .picker-menu summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .picker-menu summary:hover {
-    background: var(--surface-2);
-  }
-
-  .picker-options {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 10;
-    display: grid;
-    min-width: 100%;
-    border: 1px solid var(--line);
-    background: var(--surface);
-  }
-
-  .picker-options button {
-    display: block;
-    width: 100%;
-    min-height: 32px;
-    padding: var(--space-2);
-    border: 0;
-    border-bottom: 1px solid var(--line);
-    background: transparent;
-    color: var(--text);
-    text-align: left;
-    white-space: nowrap;
-  }
-
-  .picker-options button:last-child {
-    border-bottom: 0;
-  }
-
-  .picker-options button:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-
-  .picker-options button.active {
-    background: var(--accent);
-    color: var(--accent-ink);
-  }
 
   /* Heading + one hairline rule; content sits on the page background. */
   .section-heading {
