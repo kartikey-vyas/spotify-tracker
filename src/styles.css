@@ -1,3 +1,9 @@
+/* Self-hosted so every platform renders the same face. The variable file covers
+   100–800, which is why the stack below can ask for a 500 the old system-mono
+   stack could not supply. Braille (the SpotifyLoader disc) is not in the font's
+   subsets, so the system fallbacks below still matter. */
+@import '@fontsource-variable/jetbrains-mono';
+
 :root {
   color-scheme: light;
   --bg: #eee4d3;
@@ -16,7 +22,8 @@
   --red: #9a1d12;
   --shadow: none;
   font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace;
+    "JetBrains Mono Variable", "SFMono-Regular", Consolas, "Liberation Mono",
+    Menlo, ui-monospace, monospace;
   font-size: 15px;
   background: var(--bg);
   color: var(--text);
