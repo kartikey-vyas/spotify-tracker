@@ -162,4 +162,5 @@ pnpm db:size      # check database size
 - [docs/architecture.md](docs/architecture.md) — data model, access rules, sync internals, security model
 - [docs/local-development.md](docs/local-development.md) — full local Supabase stack, auth testing, Mailpit
 - [docs/extended-history-backfill-plan.md](docs/extended-history-backfill-plan.md) — extended history import walkthrough
+- [docs/pixel-people.md](docs/pixel-people.md) — the ambient pixel characters: how they move, and what breaks them
 - [AGENTS.md](AGENTS.md) — instructions for coding agents working in this repo

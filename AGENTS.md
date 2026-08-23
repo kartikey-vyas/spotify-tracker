@@ -16,10 +16,15 @@ pnpm build        # static build into build/ (adapter-static)
 pnpm check        # svelte-kit sync + svelte-check (app type checking)
 pnpm typecheck    # tsc on scripts/ via tsconfig.scripts.json
 pnpm test         # vitest run (tests/unit/*.test.ts)
+pnpm verify       # all four of the above, fastest first — the pre-commit gate
 uv run pytest     # Python tests for the backfill package
 ```
 
 Run a single test: `pnpm vitest run tests/unit/dates.test.ts` (or `pnpm vitest -t "<name>"`).
+
+`check` and `typecheck` cover **different** tsconfigs: `check` is the app (`src/`) and excludes `scripts/`, `typecheck` is only `scripts/`. A broken import in `scripts/` passes `check` and fails `typecheck`, so run both — that is what `pnpm verify` is for. `build` is in the gate too, because it runs the dev-route stripping step that `check` knows nothing about.
+
+Beware piping a gate into `head`/`tail`: the pipeline's exit status is the last command's, so a failing run reads as success. Redirect to a file and check `$?` instead.
 
 Operational CLIs (require `.env.local` with `SUPABASE_URL` + `SUPABASE_SECRET_KEY`):
 
@@ -46,6 +51,28 @@ There is intentional duplication of helpers (dates, hashing, Spotify dimensions,
 
 Edge functions bundle `_shared/` at deploy time, so **editing a `_shared/` file changes nothing in production until every function importing it is redeployed**. `grep -l '_shared/<file>' supabase/functions/*/index.ts` finds them; `_shared/spotify.ts` currently backs `enrich-backfill`, `spotify-callback`, `spotify-connect` and `sync-due-users`.
 
+## Pixel people and sprites
+
+An ambient pixel character walks the dashboard chrome, driven off the rendered DOM. It lives in `src/lib/pixel-person/`; the traps are in [docs/pixel-people.md](docs/pixel-people.md), which is worth reading before touching it.
+
+Worth knowing from outside the subsystem: **components opt in by tagging elements** (`data-pixel-collision`, `data-pixel-record`, `data-pixel-artist`), never by importing the pixel world. Adding a behaviour to a list means tagging it, not wiring it.
+
+## Svelte 5 in legacy mode — two traps
+
+The app compiles Svelte 5 but the components use Svelte 4 syntax (`$:`, `export let`). Two behaviours cost real debugging time:
+
+1. **A `$:` statement that assigns state other `$:` statements read has no ordering guarantee.** The compiler sorts reactive statements by the variables they reference, and cannot see through a function call. Loading data into a variable from inside a reactive statement crashed a component because a later `$:` had not run yet. Prefer an explicit call from the event handler, passing what it needs as arguments.
+2. **A derived `$:` value is stale inside the handler that triggered it.** Assigning `characterId` and then reading a `$: frames = ...` in the same tick gets the *previous* value. Pass the newly selected thing explicitly rather than re-reading the derived value.
+
+Also: `safe_not_equal` treats an unchanged primitive as clean, so `x = x` does not invalidate. Snapping a `<select>` back after a cancelled confirm has to touch the DOM element.
+
+## Testing conventions
+
+- **Do not hardcode collection sizes in assertions.** Tests that pinned "4 generic characters at weight 1.0 each" and asserted literal roll boundaries broke the moment the registry changed. Derive the boundary from the registry so the test pins the rule, not a snapshot of today's data.
+- **Mutation-test a new test before trusting it.** Break the implementation deliberately and confirm the test fails. Several turned out to pass under a broken implementation — including one whose fixture was too forgiving to tell the two versions apart.
+- **Seed anything that simulates a trajectory.** `Math.random` drives the pixel world, so a test that walks someone around for a few minutes and asserts on what happened is a die roll — one failed more often than it passed. Pin `Math.random` to a seeded generator and pool a fixed set of seeds (`TRAJECTORY_SEEDS` in `pixel-person-routines.test.ts`).
+- Vitest runs in the **node** environment with no jsdom, so anything under test must be free of DOM types. That is why `artist-presence.ts` and `sprite-source.ts` take plain values rather than elements.
+
 ## Data architecture
 
 - **Per-user rows** are keyed by `user_id`: `profiles`, `spotify_connections`, `listening_events`, `rollup_daily_entity_stats`, `sync_state`, `overview_cache`, `public_activity_recent`.
@@ -53,7 +80,7 @@ Edge functions bundle `_shared/` at deploy time, so **editing a `_shared/` file 
 - Event uniqueness is `(user_id, source_event_key)` so two users can play the same track at the same instant without colliding.
 - Legacy single-user data lives as `user_id = null` rows, now **archived** (`archived_at` set) and hidden from the public read path — recoverable, not deleted.
 
-The browser's read surface is restricted to safe views/tables: `public_profile_overview`, `overview_cache`, `rollup_daily_entity_stats`, the metadata tables, and `public_activity_recent`. It never gets direct access to `listening_events` or `sync_state`. A profile only appears publicly when `profiles.is_public = true` and a user-scoped overview cache exists. The public homepage default slug is `defaultSlug` in `src/routes/+page.svelte`.
+The browser's read surface is restricted to safe views/tables: `public_profile_overview`, `overview_cache`, `rollup_daily_entity_stats`, the metadata tables, and `public_activity_recent`. It never gets direct access to `listening_events` or `sync_state`. A profile only appears publicly when `profiles.is_public = true` and a user-scoped overview cache exists. The public homepage default slug is `defaultProfileSlug` in `src/lib/profileDefaults.ts`.
 
 ### Data quality / metrics semantics
 
@@ -62,6 +89,27 @@ The browser's read surface is restricted to safe views/tables: `public_profile_o
 - `source/data_quality = 3` (`inferred`): reserved.
 - **Minute totals** count exact + inferred durations only; **play totals** include API-only plays. See `src/lib/metrics.ts`.
 - Dates bucket in `Australia/Melbourne`, weeks start Monday (`src/lib/dateRanges.ts`, `scripts/lib/dates.ts`).
+
+## Auth & sync flow (invite-only)
+
+1. Owner runs `pnpm invite <email>`; the script admin-invites the user and stamps `app_metadata.invited = true` on the account, and Supabase (custom SMTP via Resend on `krtky.dev`) emails an invite link. Accounts are only ever created server-side, so hosted signups stay disabled — invite-only holds.
+2. Invitee clicks the link, lands signed-in at `/app/` with no profile yet, and sets a password + display name/slug/visibility. The client calls `auth.updateUser({ password })` then the `complete-onboarding` Edge Function (authenticated; the session is the gate — no invite code). As defense-in-depth, `complete-onboarding` also requires `app_metadata.invited` before creating a new profile, so invite-only is enforced in code and not only by the disabled-signups dashboard toggle. An account without the marker (e.g. invited via the Supabase dashboard button instead of `pnpm invite`) gets a 403 — resolve by re-inviting via `pnpm invite`. (Existing users who already have a profile are unaffected: they short-circuit as `alreadyOnboarded` before the check.)
+3. Returning users sign in with email + password. "Forgot password?" uses `resetPasswordForEmail`; a `PASSWORD_RECOVERY` session shows the set-new-password form. Logged-in users can change their password in-app.
+4. After sign-in at `/app/`, the user connects Spotify. `spotify-connect` (requires logged-in user) returns an auth URL; `spotify-callback` (public — Spotify redirects to it) exchanges the code, encrypts the refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, stores it in `spotify_connections`.
+5. **`sync-due-users`** (public at JWT layer but gates itself via `assertServiceRequest` checking the `apikey` header) finds stale enabled users, decrypts each token, fetches recently played, inserts `listening_events`, and refreshes that user's rollups + overview cache.
+
+### What drives the sync cron
+
+Sync scheduling has **moved from GitHub Actions into the database** (pg_cron + pg_net) because scheduled Actions were unreliable. See `supabase/migrations/20260619142000_schedule_sync_due_users_cron.sql`: `trigger_sync_due_users()` reads `project_url` and `sync_secret_key` from Supabase **Vault** and POSTs to `sync-due-users` every 15 minutes. The two Vault secrets must be created once per project (see the migration header) and are never committed. The old `.github/workflows/sync-recently-played.yml` has been deleted.
+
+**Metadata enrichment now runs the same way**, for the same reason: its scheduled Action fired barely two thirds of the times it was asked to, drifting by hours. `20260727130000_schedule_enrich_backfill_cron.sql` adds two jobs reusing the same Vault secrets:
+
+- `enrich-backfill` every 15 min POSTs the `enrich-backfill` edge function (default 30 tracks).
+- `drain-rollup-refresh-queue` every 15 min (offset by 5) calls `drain_rollup_refresh_queue(50)` directly — no HTTP hop, the work is in-database.
+
+The split exists because rollup refresh is far more expensive than enrichment: one batch's affected dates blew the statement timeout, failing the job *after* the tracks were enriched. The edge function now only queues dates into `rollup_refresh_queue`; the drain job works through them 50 at a time.
+
+Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. `/admin` renders progress plus the last 50 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
 
 ## Extended history backfill
 
@@ -75,27 +123,6 @@ The committed workflow is documented in `docs/extended-history-backfill-plan.md`
 
 The TypeScript importer requires `--user-id`; do not add back the null-user path. The cleaner emits JSON arrays, excludes PII columns, drops rows without `spotify_track_uri`, and preserves the source-event hash fields verbatim.
 
-## Auth & sync flow (invite-only)
-
-1. Owner runs `pnpm invite <email>`; the script admin-invites the user and stamps `app_metadata.invited = true` on the account, and Supabase (custom SMTP via Resend on `krtky.dev`) emails an invite link. Accounts are only ever created server-side, so hosted signups stay disabled — invite-only holds.
-2. Invitee clicks the link, lands signed-in at `/app/` with no profile yet, and sets a password + display name/slug/visibility. The client calls `auth.updateUser({ password })` then the `complete-onboarding` Edge Function (authenticated; the session is the gate — no invite code). As defense-in-depth, `complete-onboarding` also requires `app_metadata.invited` before creating a new profile, so invite-only is enforced in code and not only by the disabled-signups dashboard toggle. An account without the marker (e.g. invited via the Supabase dashboard button instead of `pnpm invite`) gets a 403 — resolve by re-inviting via `pnpm invite`. (Existing users who already have a profile are unaffected: they short-circuit as `alreadyOnboarded` before the check.)
-3. Returning users sign in with email + password. "Forgot password?" uses `resetPasswordForEmail`; a `PASSWORD_RECOVERY` session shows the set-new-password form. Logged-in users can change their password in-app.
-4. After sign-in at `/app/`, the user connects Spotify. `spotify-connect` (requires logged-in user) returns an auth URL; `spotify-callback` (public — Spotify redirects to it) exchanges the code, encrypts the refresh token with `SPOTIFY_TOKEN_ENCRYPTION_KEY`, stores it in `spotify_connections`.
-5. **`sync-due-users`** (public at JWT layer but gates itself via `assertServiceRequest` checking the `apikey` header) finds stale enabled users, decrypts each token, fetches recently played, inserts `listening_events`, and refreshes that user's rollups + overview cache.
-
-### What drives the sync cron
-
-Sync scheduling has **moved from GitHub Actions into the database** (pg_cron + pg_net) because scheduled Actions were unreliable. See `supabase/migrations/20260619142000_schedule_sync_due_users_cron.sql`: `trigger_sync_due_users()` reads `project_url` and `sync_secret_key` from Supabase **Vault** and POSTs to `sync-due-users` every 15 minutes. The two Vault secrets must be created once per project (see the migration header) and are never committed. The old `.github/workflows/sync-recently-played.yml` has been deleted; README references to it are stale.
-
-**Metadata enrichment now runs the same way**, for the same reason — its GitHub Actions workflow fired 11 times against 14 requested over 43 hours, drifting up to 2h31m. `20260727130000_schedule_enrich_backfill_cron.sql` adds two jobs reusing the same Vault secrets:
-
-- `enrich-backfill` every 15 min POSTs the `enrich-backfill` edge function (default 30 tracks).
-- `drain-rollup-refresh-queue` every 15 min (offset by 5) calls `drain_rollup_refresh_queue(50)` directly — no HTTP hop, the work is in-database.
-
-The split exists because rollup refresh is far more expensive than enrichment: a 40-track batch produced 367 affected dates, and refreshing them in one 300-date call exceeded the statement timeout, failing the job *after* the tracks were enriched. The edge function now only queues dates into `rollup_refresh_queue`; the drain job refreshes them 50 at a time (~11s).
-
-Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. `/admin` renders progress plus the last 50 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
-
 ## Edge Functions deploy
 
 ```bash
@@ -105,7 +132,6 @@ supabase functions deploy sync-due-users --no-verify-jwt
 supabase functions deploy enrich-backfill --no-verify-jwt
 supabase functions deploy spotify-connect          # requires JWT
 supabase functions deploy complete-onboarding
-supabase functions delete accept-invite
 ```
 
 The `--no-verify-jwt` functions enforce their own credential checks (Spotify redirect / service `apikey`).
