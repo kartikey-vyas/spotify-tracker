@@ -337,7 +337,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: var(--space-3);
   }
 
   .health-strip {
@@ -355,7 +355,7 @@
     display: block;
     margin-top: 2px;
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
 
@@ -378,12 +378,12 @@
   .catalog-panel {
     display: grid;
     align-content: start;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   .enrichment {
     display: grid;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .enrichment-head {
@@ -396,7 +396,7 @@
 
   .enrichment-title {
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
   }
 
   .meter {
@@ -413,20 +413,20 @@
   }
 
   .enrichment-note {
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
     margin: 0;
   }
 
   dl {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 12px;
+    gap: var(--space-2) var(--space-3);
     margin: 0;
   }
 
   dt {
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
   }
 
   dd {

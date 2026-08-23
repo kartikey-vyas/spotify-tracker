@@ -505,7 +505,7 @@
   form,
   .actions {
     display: grid;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   label {

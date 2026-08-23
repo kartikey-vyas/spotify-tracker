@@ -21,6 +21,28 @@
   --amber: #76500b;
   --red: #9a1d12;
   --shadow: none;
+
+  /* Type scale — five steps, theme-invariant, so the theme blocks below never
+     touch them. Replaces ten near-identical rem sizes, six of which sat within
+     two pixels of each other and read as noise rather than hierarchy. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 22px;
+
+  /* Spacing — a 4px grid. --space-0-5 is the one sub-grid step, for detail that
+     sits against a hairline. Data geometry (calendar cells, chart bars) and the
+     pixel-person collision rects are NOT spacing and are not on this scale. */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
   font-family:
     "JetBrains Mono Variable", "SFMono-Regular", Consolas, "Liberation Mono",
     Menlo, ui-monospace, monospace;
@@ -205,7 +227,7 @@ select {
 
 button {
   cursor: pointer;
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
 }
 
 button:hover,
@@ -246,8 +268,8 @@ input[type='checkbox'] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px clamp(12px, 3vw, 32px);
+  gap: var(--space-4);
+  padding: var(--space-3) clamp(var(--space-4), 3vw, var(--space-8));
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
@@ -275,7 +297,7 @@ input[type='checkbox'] {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .header-controls {
@@ -284,7 +306,7 @@ input[type='checkbox'] {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -297,9 +319,9 @@ input[type='checkbox'] {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   line-height: 1;
-  padding: 2px 0;
+  padding: var(--space-0-5) 0;
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 2px;
@@ -315,7 +337,7 @@ input[type='checkbox'] {
   min-height: 0;
   padding: 0;
   color: var(--text);
-  font-size: 0.94rem;
+  font-size: var(--text-sm);
 }
 
 .site-nav a:hover,
@@ -344,7 +366,7 @@ input[type='checkbox'] {
    separators, no filled chips. Active echoes the summary's solid underline. */
 .theme-options {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + var(--space-2));
   right: 0;
   /* set on open when a right-aligned menu would poke past the viewport's left
      edge (narrow screens where the nav wraps and "theme" sits far left) */
@@ -352,7 +374,7 @@ input[type='checkbox'] {
   z-index: 10;
   display: grid;
   min-width: 112px;
-  padding: 5px 0;
+  padding: var(--space-1) 0;
   border: 1px solid var(--line);
   background: var(--bg);
 }
@@ -361,11 +383,11 @@ input[type='checkbox'] {
   display: block;
   width: 100%;
   min-height: 0;
-  padding: 4px 12px;
+  padding: var(--space-1) var(--space-3);
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   text-align: left;
 }
 
@@ -383,24 +405,24 @@ input[type='checkbox'] {
 }
 
 main {
-  padding: 0 clamp(12px, 3vw, 32px) 40px;
+  padding: 0 clamp(var(--space-4), 3vw, var(--space-8)) var(--space-8);
 }
 
 .page {
   width: min(1180px, 100%);
   margin: 0 auto;
-  padding-top: 24px;
+  padding-top: var(--space-6);
 }
 
 .page-header {
   display: grid;
-  gap: 4px;
-  margin-bottom: 24px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-6);
 }
 
 .eyebrow {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   font-weight: 400;
   text-transform: none;
 }
@@ -414,32 +436,32 @@ p {
 
 h1 {
   max-width: 900px;
-  font-size: 1.35rem;
+  font-size: var(--text-lg);
   line-height: 1.25;
   font-weight: 700;
 }
 
 h2 {
-  font-size: 1rem;
+  font-size: var(--text-base);
   line-height: 1.3;
   font-weight: 700;
 }
 
 h3 {
-  font-size: 1rem;
+  font-size: var(--text-base);
   line-height: 1.25;
 }
 
 .lede {
   max-width: 760px;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: var(--text-base);
   line-height: 1.45;
 }
 
 .grid {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .grid.cols-2 {
@@ -463,13 +485,13 @@ h3 {
 }
 
 .panel {
-  padding: 12px;
+  padding: var(--space-3);
 }
 
 .panel-loading {
   display: grid;
   place-items: center;
-  padding: 32px 12px;
+  padding: var(--space-8) var(--space-3);
 }
 
 .muted {
@@ -478,11 +500,11 @@ h3 {
 
 .metric {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .metric strong {
-  font-size: 1rem;
+  font-size: var(--text-base);
   line-height: 1.25;
   font-weight: 700;
 }
@@ -491,8 +513,8 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px;
-  padding: 10px;
+  gap: var(--space-3);
+  padding: var(--space-3);
   border: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
@@ -500,12 +522,12 @@ h3 {
 
 .field {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .field label {
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 400;
 }
 
@@ -513,7 +535,7 @@ h3 {
 .field input {
   min-height: 32px;
   min-width: 150px;
-  padding: 5px 7px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
   border-radius: 0;
   background: var(--surface);
@@ -537,7 +559,7 @@ table {
 
 th,
 td {
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
@@ -545,7 +567,7 @@ td {
 
 th {
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 400;
   text-transform: none;
 }
@@ -559,7 +581,7 @@ th {
   border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 400;
 }
 
@@ -576,11 +598,11 @@ th {
   left: 0;
   z-index: 50;
   max-width: 280px;
-  padding: 4px 7px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   line-height: 1.3;
   pointer-events: none;
 }
@@ -612,7 +634,7 @@ th {
   .site-header {
     align-items: flex-start;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .header-controls {
@@ -630,7 +652,4 @@ th {
     grid-template-columns: 1fr;
   }
 
-  h1 {
-    font-size: 1.25rem;
-  }
 }

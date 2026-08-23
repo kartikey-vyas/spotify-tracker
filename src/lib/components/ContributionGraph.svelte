@@ -130,7 +130,7 @@
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto;
-    gap: 6px 8px;
+    gap: var(--space-2);
     width: max-content;
   }
 
@@ -139,7 +139,7 @@
     display: grid;
     grid-template-columns: repeat(var(--columns), var(--cell));
     gap: var(--gap);
-    font-size: 0.72rem;
+    font-size: var(--text-2xs);
     color: var(--muted);
   }
 
@@ -154,7 +154,7 @@
     display: grid;
     grid-template-rows: repeat(7, var(--cell));
     gap: var(--gap);
-    font-size: 0.68rem;
+    font-size: var(--text-2xs);
     color: var(--muted);
   }
 
@@ -200,9 +200,9 @@
   .legend {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-top: 10px;
-    font-size: 0.72rem;
+    gap: var(--space-1);
+    margin-top: var(--space-3);
+    font-size: var(--text-2xs);
   }
 
   .legend .cell {
@@ -254,11 +254,11 @@
     min-height: 0;
     /* Keep full height inside the capped, scrollable column (don't flex-shrink). */
     flex: 0 0 auto;
-    padding: 3px 4px;
+    padding: var(--space-1);
     border: 0;
     background: transparent;
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     text-align: right;
   }

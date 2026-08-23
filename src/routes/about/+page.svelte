@@ -43,6 +43,6 @@
 <style>
   .footnote {
     margin-top: 1.5rem;
-    font-size: 0.9em;
+    font-size: var(--text-sm);
   }
 </style>

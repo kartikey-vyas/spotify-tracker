@@ -440,8 +440,8 @@
      header. Two identical copies scroll by -50% for a seamless wrap. */
   .groove {
     overflow: hidden;
-    margin-bottom: 16px;
-    padding: 3px 0;
+    margin-bottom: var(--space-4);
+    padding: var(--space-1) 0;
     border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
   }
@@ -453,7 +453,7 @@
 
   .groove-copy {
     color: var(--muted);
-    font-size: 0.78rem;
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     white-space: nowrap;
@@ -498,14 +498,14 @@
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: 10px;
-    padding-bottom: 7px;
+    gap: var(--space-3);
+    padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--line);
-    margin-bottom: 14px;
+    margin-bottom: var(--space-4);
   }
 
   .section-heading .muted {
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
   }
 
   /* The cover wall keeps its original bordered shelf; its heading stays the
@@ -515,7 +515,7 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   /* Quiet inline profile picker: a dotted-underline name instead of a bordered
@@ -524,13 +524,13 @@
     display: inline-flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 8px;
-    margin-bottom: 36px;
+    gap: var(--space-2);
+    margin-bottom: var(--space-12);
   }
 
   .profile-label {
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
   }
 
   .profile-menu {
@@ -538,9 +538,9 @@
   }
 
   .profile-menu summary {
-    padding: 0 14px 0 0;
+    padding: 0 var(--space-4) 0 0;
     color: var(--text);
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
     cursor: pointer;
     list-style: none;
     text-decoration: underline;
@@ -582,7 +582,7 @@
     z-index: 10;
     display: grid;
     min-width: 220px;
-    padding: 5px 0;
+    padding: var(--space-1) 0;
     border: 1px solid var(--line);
     background: var(--bg);
   }
@@ -591,11 +591,11 @@
     display: block;
     width: 100%;
     min-height: 0;
-    padding: 5px 12px;
+    padding: var(--space-1) var(--space-3);
     border: 0;
     background: transparent;
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
     text-align: left;
   }
 
@@ -616,7 +616,7 @@
   /* Un-boxed sections need whitespace to hold the page together: major
      sections sit ~36px apart instead of the old 16px. */
   .section-gap {
-    margin-top: 36px;
+    margin-top: var(--space-12);
   }
 
   /* Wider gutter between the two un-boxed ranking columns. */
@@ -638,12 +638,12 @@
 
   .window-toggle button {
     min-height: 0;
-    padding: 5px 14px;
+    padding: var(--space-1) var(--space-4);
     border: 0;
     border-left: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
   }
 
@@ -666,7 +666,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    gap: 36px;
+    gap: var(--space-12);
   }
 
   .time-row .calendar-panel {
@@ -705,8 +705,8 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 10px 16px;
-    padding-top: 10px;
+    gap: var(--space-3) var(--space-4);
+    padding-top: var(--space-3);
     border-top: 1px solid var(--line);
   }
 
@@ -716,7 +716,7 @@
     gap: 4px 8px;
     margin: 0;
     color: var(--muted);
-    font-size: 0.72rem;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }

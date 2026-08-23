@@ -548,7 +548,7 @@
 
   .picker-menu summary {
     min-height: 32px;
-    padding: 5px 28px 5px 9px;
+    padding: var(--space-1) var(--space-8) var(--space-1) var(--space-2);
     border: 1px solid var(--line);
     background: var(--surface);
     color: var(--text);
@@ -595,7 +595,7 @@
     display: block;
     width: 100%;
     min-height: 32px;
-    padding: 7px 9px;
+    padding: var(--space-2);
     border: 0;
     border-bottom: 1px solid var(--line);
     background: transparent;
@@ -623,13 +623,13 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    padding-bottom: 7px;
+    padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--line);
-    margin-bottom: 14px;
+    margin-bottom: var(--space-4);
   }
 
   .section-heading .muted {
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
   }
 
   .section-heading h2,
@@ -647,7 +647,7 @@
 
   .detail-panel {
     display: grid;
-    gap: 20px;
+    gap: var(--space-6);
   }
 
   .empty-detail {
@@ -668,13 +668,13 @@
   }
 
   .compact .muted {
-    font-size: 0.78rem;
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
   .compact strong {
-    font-size: 1.5rem;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -0.02em;
     line-height: 1.15;
@@ -683,7 +683,7 @@
 
   .detail-section {
     display: grid;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   .ranking-scroll.is-artist-ranking {
@@ -755,7 +755,7 @@
     top: calc(100% + 6px);
     left: 0;
     color: var(--muted);
-    font-size: 0.74rem;
+    font-size: var(--text-2xs);
     line-height: 1;
     white-space: nowrap;
   }

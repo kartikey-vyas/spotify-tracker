@@ -97,8 +97,8 @@
   .axis {
     display: flex;
     gap: 2px;
-    margin-top: 6px;
-    font-size: 0.66rem;
+    margin-top: var(--space-2);
+    font-size: var(--text-2xs);
     color: var(--muted);
   }
 

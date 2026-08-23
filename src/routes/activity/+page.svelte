@@ -94,7 +94,7 @@
   /* Ledger treatment: the table sits directly on the page background — the
      header row's hairline and the row separators are the only chrome. */
   .activity-table {
-    margin-top: 28px;
+    margin-top: var(--space-8);
   }
 
   .art-col {
@@ -115,7 +115,7 @@
 
   .placeholder {
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: var(--text-sm);
   }
 
   .sr-only {
