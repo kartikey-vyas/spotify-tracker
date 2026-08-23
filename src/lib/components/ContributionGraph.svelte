@@ -108,8 +108,11 @@
   }
 
   .calendar-main {
-    /* Take the leftover width and allow shrinking so the grid scrolls in place. */
-    flex: 1 1 0;
+    /* Size to the grid and allow shrinking so it scrolls in place. Deliberately
+       does not grow: the grid is a fixed 12px per week, so a growing column just
+       strands the year picker against the far edge — worst in January, when only
+       a few weeks are drawn. */
+    flex: 0 1 auto;
     min-width: 0;
   }
 
