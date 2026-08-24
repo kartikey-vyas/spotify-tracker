@@ -306,6 +306,14 @@
       {/if}
     </section>
 
+    <section class="panel section-gap">
+      <h2>Tools</h2>
+      <p class="muted">Admin-only. Ships to production but is gated behind this check.</p>
+      <ul class="dev-links">
+        <li><a href="{base}/admin/mark/">Mark playground</a></li>
+      </ul>
+    </section>
+
     {#if dev}
       <section class="panel section-gap">
         <h2>Dev tools</h2>
@@ -313,7 +321,6 @@
         <ul class="dev-links">
           <li><a href="{base}/sprites/">Sprite explorer</a></li>
           <li><a href="{base}/sprites/edit/">Sprite editor</a></li>
-          <li><a href="{base}/loader/">SpotifyLoader preview</a></li>
         </ul>
       </section>
     {/if}

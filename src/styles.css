@@ -1,7 +1,8 @@
 /* Self-hosted so every platform renders the same face. The variable file covers
    100–800, which is why the stack below can ask for a 500 the old system-mono
-   stack could not supply. Braille (the SpotifyLoader disc) is not in the font's
-   subsets, so the system fallbacks below still matter. */
+   stack could not supply. Its subsets are latin/greek/cyrillic/vietnamese only,
+   so the system fallbacks below still carry the odd symbol the UI uses — ♪ for
+   missing album art, ◦ in the ticker. */
 @import '@fontsource-variable/jetbrains-mono';
 
 :root {
@@ -252,6 +253,16 @@ a:focus-visible {
 }
 
 input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+/* Ranges opt out of the bordered-input treatment above — a slider is a track,
+   not a field — and take the theme accent rather than the browser's blue. */
+input[type='range'] {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   accent-color: var(--accent);
 }
 

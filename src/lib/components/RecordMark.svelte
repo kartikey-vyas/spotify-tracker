@@ -7,10 +7,20 @@
     ShaderMount,
     ditheringFragmentShader
   } from '@paper-design/shaders';
-  import SpotifyLoader from './SpotifyLoader.svelte';
 
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let label = '';
+
+  /* Visual knobs. The defaults are the mark; they are props only so /admin/mark
+     can tune them against the real component instead of a second copy of it. */
+  export let shape: keyof typeof DitheringShapes = 'simplex';
+  export let dither: keyof typeof DitheringTypes = '8x8';
+  export let scale = 0.3;
+  export let pxSize = 1.5;
+  export let speed = 2.5;
+  export let labelPct = 34;
+  export let holePct = 5;
+  export let diameter: number | null = null;
 
   const DIAMETER = { sm: 72, md: 120, lg: 190 } as const;
 
@@ -20,24 +30,15 @@
      to a fraction of a single blob and read as a fan, not a disc. */
   const WORLD = 190;
 
-  const SHAPE = 'simplex';
-  const DITHER = '8x8';
-  const SCALE = 0.3;
-  const PX_SIZE = 1.5;
-  const SPEED = 2.5;
-
-  /* Label and spindle as a share of the diameter. */
-  const LABEL_PCT = 34;
-  const HOLE_PCT = 5;
-
   let host: HTMLDivElement | undefined;
   let mount: ShaderMount | null = null;
   let themeWatcher: MutationObserver | null = null;
   let motionQuery: MediaQueryList | null = null;
-  /* Assume WebGL2 until proven otherwise; the braille disc stands in if not. */
+  /* Assume WebGL2 until proven otherwise; a plain CSS record stands in if not. */
   let canRender = true;
 
-  $: diameter = DIAMETER[size];
+  $: px = diameter ?? DIAMETER[size];
+  $: holeOfLabel = Math.round((holePct / labelPct) * 100);
 
   function readVar(name: string): [number, number, number, number] {
     const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -71,8 +72,21 @@
 
   function applyMotionPreference(): void {
     /* speed 0 runs no rAF loop at all, so reduced motion costs nothing. */
-    mount?.setSpeed(motionQuery?.matches ? 0 : SPEED);
+    mount?.setSpeed(motionQuery?.matches ? 0 : speed);
   }
+
+  /* Re-push the tunables whenever a prop changes. Reads props and calls a
+     method rather than assigning state another statement reads, so it is not
+     exposed to the reactive-ordering trap. */
+  $: if (mount) {
+    mount.setUniforms({
+      u_scale: scale,
+      u_pxSize: pxSize,
+      u_shape: DitheringShapes[shape],
+      u_type: DitheringTypes[dither]
+    });
+  }
+  $: if (mount && speed !== undefined) applyMotionPreference();
 
   onMount(() => {
     if (!host) return;
@@ -87,7 +101,7 @@
       ditheringFragmentShader,
       {
         u_fit: ShaderFitOptions.contain,
-        u_scale: SCALE,
+        u_scale: scale,
         u_rotation: 0,
         u_offsetX: 0,
         u_offsetY: 0,
@@ -95,13 +109,13 @@
         u_originY: 0.5,
         u_worldWidth: WORLD,
         u_worldHeight: WORLD,
-        u_pxSize: PX_SIZE,
-        u_shape: DitheringShapes[SHAPE],
-        u_type: DitheringTypes[DITHER],
+        u_pxSize: pxSize,
+        u_shape: DitheringShapes[shape],
+        u_type: DitheringTypes[dither],
         ...colors()
       },
       undefined,
-      SPEED,
+      speed,
       0
     );
 
@@ -126,20 +140,22 @@
   });
 </script>
 
-{#if canRender}
-  <div class="record" role="status" style="--diameter: {diameter}px">
+<div class="record" role="status" style="--diameter: {px}px">
+  {#if canRender}
     <div class="disc">
       <div class="shader" bind:this={host}></div>
-      <span
-        class="label"
-        style="--label: {LABEL_PCT}%; --hole: {Math.round((HOLE_PCT / LABEL_PCT) * 100)}%"
-      ></span>
+      <span class="label" style="--label: {labelPct}%; --hole: {holeOfLabel}%"></span>
     </div>
-    {#if label}<span class="caption">{label}</span>{/if}
-  </div>
-{:else}
-  <SpotifyLoader {size} {label} />
-{/if}
+  {:else}
+    <!-- No WebGL2: the same mark without the dither, and one accent groove
+         sweeping so it still reads as spinning rather than parked. -->
+    <div class="disc plain">
+      <span class="groove"></span>
+      <span class="label" style="--label: {labelPct}%; --hole: {holeOfLabel}%"></span>
+    </div>
+  {/if}
+  {#if label}<span class="caption">{label}</span>{/if}
+</div>
 
 <style>
   .record {
@@ -163,7 +179,32 @@
     height: 100%;
   }
 
-  /* Label and spindle hole, stacked over the canvas. A mask would only punch a
+  .plain {
+    background: var(--surface-2);
+  }
+
+  .groove {
+    position: absolute;
+    inset: 12%;
+    border: 2px solid transparent;
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: record-spin 1.4s linear infinite;
+  }
+
+  @keyframes record-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .groove {
+      animation: none;
+    }
+  }
+
+  /* Label and spindle hole, stacked over the disc. A mask would only punch a
      hole, and a hole disappears into the disc it is punched out of. */
   .label {
     position: absolute;
