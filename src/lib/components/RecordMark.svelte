@@ -140,25 +140,34 @@
   });
 </script>
 
-<div class="record" role="status" style="--diameter: {px}px">
+<!-- Every class here is prefixed `mark-`, which is not this codebase's habit and
+     is deliberate. The obvious names for a record — disc, groove, label — are
+     also the obvious names for things that have nothing to do with a record, and
+     two of them were already taken elsewhere: `.groove` is the homepage's ticker
+     and `.label` is the listening clock's hour text. Svelte's scoping normally
+     keeps them apart, but it is the ONLY thing keeping them apart, and when a
+     dev server served this component's CSS unscoped the ticker inherited this
+     mark's `border-radius: 50%` and its spin, and orbited the page. The prefix
+     makes that failure impossible rather than unlikely. -->
+<div class="mark" role="status" style="--diameter: {px}px">
   {#if canRender}
-    <div class="disc">
-      <div class="shader" bind:this={host}></div>
-      <span class="label" style="--label: {labelPct}%; --hole: {holeOfLabel}%"></span>
+    <div class="mark-disc">
+      <div class="mark-shader" bind:this={host}></div>
+      <span class="mark-label" style="--label: {labelPct}%; --hole: {holeOfLabel}%"></span>
     </div>
   {:else}
     <!-- No WebGL2: the same mark without the dither, and one accent groove
          sweeping so it still reads as spinning rather than parked. -->
-    <div class="disc plain">
-      <span class="groove"></span>
-      <span class="label" style="--label: {labelPct}%; --hole: {holeOfLabel}%"></span>
+    <div class="mark-disc is-plain">
+      <span class="mark-groove"></span>
+      <span class="mark-label" style="--label: {labelPct}%; --hole: {holeOfLabel}%"></span>
     </div>
   {/if}
-  {#if label}<span class="caption">{label}</span>{/if}
+  {#if label}<span class="mark-caption">{label}</span>{/if}
 </div>
 
 <style>
-  .record {
+  .mark {
     display: inline-flex;
     flex-direction: column;
     align-items: center;
@@ -166,7 +175,7 @@
   }
 
   /* The canvas is square; the circle is this clip. */
-  .disc {
+  .mark-disc {
     position: relative;
     width: var(--diameter);
     height: var(--diameter);
@@ -174,39 +183,44 @@
     border-radius: 50%;
   }
 
-  .shader {
+  .mark-shader {
     width: 100%;
     height: 100%;
   }
 
-  .plain {
+  /* Modifier, so it needs no prefix of its own — it only ever qualifies a
+     .mark-disc, and the compound selector is what scopes it. */
+  .mark-disc.is-plain {
     background: var(--surface-2);
   }
 
-  .groove {
+  .mark-groove {
     position: absolute;
     inset: 12%;
     border: 2px solid transparent;
     border-top-color: var(--accent);
     border-radius: 50%;
-    animation: record-spin 1.4s linear infinite;
+    animation: mark-spin 1.4s linear infinite;
   }
 
-  @keyframes record-spin {
+  /* Prefixed for the same reason the classes are: Svelte scopes keyframe names
+     too, so this is the only thing standing between one component's spin and
+     another's if that scoping ever fails. */
+  @keyframes mark-spin {
     to {
       transform: rotate(360deg);
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .groove {
+    .mark-groove {
       animation: none;
     }
   }
 
   /* Label and spindle hole, stacked over the disc. A mask would only punch a
      hole, and a hole disappears into the disc it is punched out of. */
-  .label {
+  .mark-label {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -217,7 +231,7 @@
     background: var(--accent);
   }
 
-  .label::after {
+  .mark-label::after {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -229,7 +243,7 @@
     content: '';
   }
 
-  .caption {
+  .mark-caption {
     color: var(--muted);
     font-size: var(--text-sm);
     letter-spacing: 0.02em;

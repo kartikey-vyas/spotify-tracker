@@ -4,8 +4,8 @@
   import { formatPlays } from '$lib/metrics';
   import { tooltip as tipAction } from '$lib/actions/tooltip';
   import {
-    availableYears,
     buildYearGrid,
+    yearTotals,
     WEEKDAY_LABELS,
     type CalendarMetric,
     type ContributionCell
@@ -17,7 +17,18 @@
   let selectedYear: number | null = null;
   let yearButtons: Record<number, HTMLButtonElement | null> = {};
 
-  $: years = availableYears(days);
+  $: totals = yearTotals(days, metric);
+  $: years = totals.map((total) => total.year);
+  // How many years stack in one rail column before the next one starts. Seven is
+  // what fits beside the clock at desktop widths without the rail becoming the
+  // thing that sets the row's height.
+  const RAIL_MAX_ROWS = 7;
+  // Balanced rather than filled: 8 years read better as 4 + 4 than as 7 + 1, and
+  // both are one column short of the cap either way.
+  $: railRows =
+    totals.length === 0
+      ? 1
+      : Math.ceil(totals.length / Math.ceil(totals.length / RAIL_MAX_ROWS));
   // Default to the newest year, and re-snap if the data set changes under us.
   $: if (years.length > 0 && (selectedYear === null || !years.includes(selectedYear))) {
     selectedYear = years[0];
@@ -88,21 +99,30 @@
       </div>
     </div>
 
-    {#if years.length > 1}
-      <div class="years" role="radiogroup" aria-label="Year">
-        {#each years as year (year)}
+    {#if totals.length > 1}
+      <div class="years" role="radiogroup" aria-label="Year" style="--rail-rows: {railRows}">
+        {#each totals as total (total.year)}
           <button
-            bind:this={yearButtons[year]}
-            class:active={year === selectedYear}
+            bind:this={yearButtons[total.year]}
+            class:active={total.year === selectedYear}
             type="button"
             role="radio"
-            aria-checked={year === selectedYear}
-            on:click={() => (selectedYear = year)}
+            aria-checked={total.year === selectedYear}
+            style="--share: {total.share.toFixed(3)}"
+            use:tipAction={`${amount(total.value)} · ${total.year}`}
+            on:click={() => (selectedYear = total.year)}
           >
-            {year}
+            {total.year}
           </button>
         {/each}
       </div>
+    {:else if totals.length === 1}
+      <!-- A single year is not a choice, so it is a caption rather than a picker.
+           It is still worth drawing: without it nothing on the panel says which
+           year the squares belong to, which is exactly the account where that is
+           least obvious. No bar — a lone year is always 100% of itself, so the
+           bar would carry no information. -->
+      <p class="years"><span class="only-year">{totals[0].year}</span></p>
     {/if}
   </div>
 {/if}
@@ -110,8 +130,10 @@
 <style>
   .calendar {
     display: flex;
-    align-items: flex-start;
-    gap: 16px;
+    /* The rail is the taller of the two once it wraps into columns, so centring
+       hangs the grid against the middle of it. */
+    align-items: center;
+    gap: var(--space-4);
   }
 
   .calendar-main {
@@ -235,57 +257,97 @@
     height: 11px;
   }
 
+  /* An index rail rather than a scrolling list. It used to be one capped column
+     with `overflow-y: auto`, which meant a permanent scrollbar and a year clipped
+     through the middle of its digits for anyone with more than five years of
+     history — while the panel beside it had ~100px of unused height, because the
+     row is as tall as the clock and the grid cannot grow into it.
+
+     Columns spend both: the rail takes the height the clock already gives the
+     row, and years past the seventh start a second column in the space the panel
+     already had to the right of the grid. Nothing scrolls, nothing is clipped.
+
+     A GRID rather than `flex-flow: column wrap`, which was the first attempt and
+     is broken in Safari: WebKit sizes a wrapping column-flex container to ONE
+     column, so the rest overflow its box — between 820px and 1180px wide they
+     land on top of the listening clock. Chromium sizes it to all the columns and
+     shows nothing wrong, so this only appears if you check WebKit. Grid has no
+     such disagreement, and it needs no definite height to flow against, which
+     also retires the magic max-height the flex version needed. */
   .years {
-    display: flex;
+    display: grid;
     flex: 0 0 auto;
-    flex-direction: column;
-    gap: 2px;
-    /* Show ~5 years; the rest scroll. A reserved (stable) gutter keeps the thin
-       scrollbar from ever overlapping or clipping the labels, whether the OS
-       uses overlay or always-visible scrollbars. */
-    max-height: 8.5rem;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: var(--line) transparent;
+    /* Fill down --rail-rows, then start a column. The row count comes from the
+       component so it can balance the columns (4 + 4 rather than 7 + 1). */
+    grid-auto-flow: column;
+    grid-template-rows: repeat(var(--rail-rows, 1), auto);
+    grid-auto-columns: max-content;
+    /* The single-year caption is a <p>, which arrives with the global paragraph
+       margin. */
+    margin: 0;
+    gap: var(--space-0-5) var(--space-2);
   }
 
-  /* WebKit fallback (Safari / older Chrome) for the thin themed scrollbars. */
-  .years::-webkit-scrollbar,
+  /* WebKit fallback (Safari / older Chrome) for the thin themed scrollbar. */
   .graph-scroll::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
-  .years::-webkit-scrollbar-track,
   .graph-scroll::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  .years::-webkit-scrollbar-thumb,
   .graph-scroll::-webkit-scrollbar-thumb {
     border-radius: 4px;
     background: var(--line);
   }
 
-  .years::-webkit-scrollbar-thumb:hover,
   .graph-scroll::-webkit-scrollbar-thumb:hover {
     background: var(--muted);
   }
 
   .years button {
+    position: relative;
     min-height: 0;
-    /* Keep full height inside the capped, scrollable column (don't flex-shrink). */
-    flex: 0 0 auto;
-    padding: var(--space-1);
+    /* Roomier at the bottom than the top: the year's bar lives in that space. */
+    padding: var(--space-1) var(--space-2) var(--space-2);
     border: 0;
     background: transparent;
     color: var(--muted);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     text-align: right;
+  }
+
+  /* A rule under each year, as long as that year was loud relative to the
+     busiest one, so the rail doubles as a coarse history of the account instead
+     of being a bare list of numbers.
+
+     A rule rather than a filled row, which was the first attempt and was wrong:
+     the selected year is already a filled accent block, so filled rows in a
+     second colour read as "also selected" rather than as data. A 2px rule cannot
+     be confused with a selection.
+
+     scaleX on a full-width bar rather than a percentage width, because the width
+     has to be measured inside the button's own padding — anchoring to `right`
+     with a percentage width would measure against the padding box and hang the
+     long bars out past the left edge. */
+  .years button::after {
+    content: '';
+    position: absolute;
+    right: var(--space-2);
+    bottom: var(--space-0-5);
+    left: var(--space-2);
+    height: 2px;
+    /* --data-bar, not a ramp step: this is one series with no ramp to sit on,
+       which is the case that token exists for. It happens to equal --data-2
+       today; taking the ramp step would silently break if the ramp is retuned. */
+    background: var(--data-bar);
+    /* Right-anchored, so every bar ends on the same line as the digits above it
+       and the rail reads right-to-left off a shared edge. */
+    transform: scaleX(var(--share, 0));
+    transform-origin: right;
   }
 
   .years button:hover {
@@ -298,10 +360,27 @@
     color: var(--accent-ink);
   }
 
-  /* Phone: the picker column costs width the grid needs, so stack it as a
-     horizontal rail above the grid instead. Restructuring the container to a
-     column leaves .calendar-main's no-grow rule untouched — it only governs the
-     row axis, which no longer exists here. */
+  /* --data-bar is nearly the accent itself, so it vanishes on the selected block.
+     Ink at reduced weight keeps the bar readable without competing with the
+     digits. */
+  .years button.active::after {
+    background: var(--accent-ink);
+    opacity: 0.4;
+  }
+
+  /* The lone year of a single-year account: same type as a year button, but flat
+     — no hit target, no bar, nothing to suggest there is a choice here. */
+  .only-year {
+    padding: var(--space-1) var(--space-2);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Phone: the rail's columns cost width the grid needs, so lay it along the top
+     as a single scrolling line instead. .calendar-main's no-grow rule survives
+     the switch untouched — it governs the row axis, which no longer exists here
+     — but its alignment does not; see below. */
   @media (max-width: 800px) {
     .calendar {
       flex-direction: column;
@@ -309,19 +388,33 @@
       gap: var(--space-2);
     }
 
+    /* align-self is the horizontal axis now, so the `center` both of these carry
+       for the desktop rail shrink-wraps them to max-content — 662px of grid and
+       of year rail inside a 390px phone — and pushes the whole document sideways
+       instead of letting each one's own overflow-x take it. Probe for this with
+       documentElement.scrollWidth > clientWidth at 390px; it does not look like
+       anything in a screenshot of the component alone. */
+    .calendar-main,
+    .years {
+      align-self: stretch;
+    }
+
     /* Grid stays first in the DOM so it leads the reading order; only the visual
        order flips. */
     .years {
       order: -1;
-      flex-direction: row;
-      flex-wrap: nowrap;
+      /* One row, however many years there are: the grid keeps flowing along
+         columns and the row scrolls. --rail-rows is ignored here rather than
+         recomputed, so the phone layout owes the component nothing. */
+      grid-template-rows: auto;
       gap: var(--space-1);
-      max-height: none;
+      /* Not centred: a centred rail that overflows scrolls its own first years
+         out of reach on the left, with no way back. */
+      justify-content: start;
       overflow-x: auto;
       overflow-y: hidden;
       /* A scrollbar under a single-line rail costs more height than it earns on a
          phone, and the years are reachable by swipe or keyboard without it. */
-      scrollbar-gutter: auto;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
     }

@@ -588,7 +588,7 @@
   .time-row {
     display: flex;
     flex-wrap: wrap;
-    align-items: stretch;
+    align-items: flex-start;
     gap: var(--space-12);
   }
 

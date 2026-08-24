@@ -2,8 +2,8 @@ import type { CalendarDay } from '$lib/types';
 
 /**
  * Pure helpers for the GitHub-style listening calendar: a fixed Jan–Dec grid
- * for a single year (`buildYearGrid`) plus the list of years to offer
- * (`availableYears`). Deterministic — pass `endDate` to cap the current
+ * for a single year (`buildYearGrid`) plus the years to offer and how loud each
+ * one was (`yearTotals`). Deterministic — pass `endDate` to cap the current
  * (partial) year so future days render as empty squares.
  */
 
@@ -25,6 +25,13 @@ export interface MonthLabel {
   /** Index into `weeks` where this month's label should sit. */
   column: number;
   label: string;
+}
+
+export interface YearTotal {
+  year: number;
+  value: number;
+  /** 0..1 against the busiest year, so the picker can carry a bar. */
+  share: number;
 }
 
 export interface ContributionGrid {
@@ -86,13 +93,28 @@ function emptyGrid(): ContributionGrid {
   return { weeks: [], monthLabels: [], maxValue: 0, total: 0 };
 }
 
-/** Distinct years that have any data, newest first — drives the year selector. */
-export function availableYears(days: CalendarDay[]): number[] {
-  const years = new Set<number>();
+/**
+ * Every year that has data, newest first, with its total and that total as a
+ * fraction of the busiest year. Drives the year picker: the years are the
+ * options, and `share` lets each option carry a bar so the picker doubles as a
+ * coarse history of the account rather than being a bare list of numbers.
+ *
+ * `share` is relative to the loudest year, not to a fixed ceiling, so the top
+ * year always reads as full — the picker compares years to each other, which is
+ * the only comparison it can honestly make.
+ */
+export function yearTotals(days: CalendarDay[], metric: CalendarMetric): YearTotal[] {
+  const totals = new Map<number, number>();
   for (const day of days) {
-    years.add(Number(day.local_date.slice(0, 4)));
+    const year = Number(day.local_date.slice(0, 4));
+    totals.set(year, (totals.get(year) ?? 0) + dayValue(day, metric));
   }
-  return [...years].sort((left, right) => right - left);
+  // Guard the divisor rather than the numerator: a year can legitimately total 0
+  // (days recorded with no plays under this metric) and must still be offered.
+  const max = Math.max(1, ...totals.values());
+  return [...totals.entries()]
+    .sort(([left], [right]) => right - left)
+    .map(([year, value]) => ({ year, value, share: value / max }));
 }
 
 /**
