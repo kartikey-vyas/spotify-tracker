@@ -57,15 +57,30 @@ An ambient pixel character walks the dashboard chrome, driven off the rendered D
 
 Worth knowing from outside the subsystem: **components opt in by tagging elements** (`data-pixel-collision`, `data-pixel-record`, `data-pixel-artist`), never by importing the pixel world. Adding a behaviour to a list means tagging it, not wiring it.
 
-## Paper Shaders — the loading mark and the cover filters
+## Paper Shaders — the record mark and the dither fields
 
-`@paper-design/shaders` (WebGL2) drives `RecordMark.svelte`, the spinning dithered record that replaced the old braille Spotify loader. `/admin/mark` is an admin-gated playground for tuning it, and for trying the nine image filters in `src/lib/effects/coverEffects.ts` against real album covers plus the hover overlays in `hoverOverlays.ts`. It is a tuning surface only — nothing there is persisted, and no filter is applied to the production cover wall.
+`@paper-design/shaders` (WebGL2) started as `RecordMark.svelte` — the spinning dithered record that replaced the old braille Spotify loader — and its dithering shader has since become the app's ambient design layer:
+
+- **`DitherField.svelte`** renders the shader as an absolute-fill layer (accent cells on a transparent ground) inside its nearest positioned ancestor. **`DitherFrame.svelte`** wraps it as a padded band behind slotted content and owns the rule that slotted `.panel`s get an opaque page ground. The overview metric cards, the explore selector row, and the #1 rows of the homepage stat lists all sit on these fields.
+- The cover wall runs a hover-only dither **wave** (`HOVER_OVERLAYS.ditherWave` in `src/lib/effects/hoverOverlays.ts`): ONE shared `ShaderMount`, created lazily on first hover and parked over the hovered tile — never one per tile. The covers themselves stay untouched; decoration goes on the chrome around the art, which is a standing taste rule, not an accident.
+- Shared plumbing lives in **`src/lib/effects/webgl.ts`**: `readThemeVar`/`readThemeColors` (hex CSS-var → RGBA) and `disposeShaderMount` (capture the canvas before `dispose()`, then force `WEBGL_lose_context`). Use these; there were once four hand-rolled copies.
+- Context budget as shipped: the homepage holds 3 persistent contexts (cards frame + two rank waves) plus 1 lazy hover wave; explore holds 1. `ShaderMount` pauses itself off-viewport and on hidden tabs, and speed 0 stops its rAF loop outright.
+
+`/admin/mark` is the admin-gated tuning surface: the record mark, the **Dither frame** and **Rank wave** benches — their sliders seed from the exported `DITHER_FIELD_DEFAULTS` / `RANK_WAVE_DEFAULTS` objects, so they always open on what ships — plus the nine image filters in `src/lib/effects/coverEffects.ts` against real album covers and the hover overlays. The image filters remain experiments: none is applied to production covers.
 
 Three things about this library are not discoverable from its types, and each one cost real time:
 
 1. **Browsers cap live WebGL2 contexts at 16.** Measured. A cover wall renders up to 36 tiles, so one `ShaderMount` per tile is not viable and never will be — bake the effect through a single reused offscreen mount, or move one shared mount to whichever tile needs it. Going over silently kills the *oldest* contexts, which are usually something else on the page. Chromium also frees contexts lazily, so re-mounting overlaps old and new; release explicitly with `WEBGL_lose_context`, capturing the canvas **before** `dispose()` detaches it.
 2. **Every `u_size` is a 0..1 dial, not a size in any unit.** Each is the `t` of a `mix()` choosing how many pattern cells span the tile, running high-to-low, so a larger value means *fewer, coarser* cells. Feed one a value above 1 and the mix extrapolates into negative cell counts and the tile renders blank — which is why halftone CMYK looked broken until the range was fixed.
 3. **The image filters end with the image mixed back in**, so the cover's own colours are the output and `colorFront`/`colorBack` only show outside it. Pushing the overlay terms up saturates the blend until the image contribution reaches zero and the tile washes out to flat colour. Keep them low and move the structural terms instead.
+
+## Paper — the design tool
+
+The musik design system lives in a Paper file ("musik — design system", https://app.paper.design/file/01M0QBA624ZJWSP2ANA2V8GN87): ~49 tokens plus artboards for Foundations, Components, the desktop and mobile screens, and an "Ambient motion — pitches" board of unbuilt directions. Work against it through the paper-desktop MCP plugin. Three things cost time:
+
+- **Token names diverge deliberately.** The Paper file's `--color-data-*` shipped in `src/styles.css` as `--data-1`…`--data-4` / `--data-bar` / `--data-empty`, because nothing else in `styles.css` carries a `--color-` prefix. The code is the authority on names; the Paper file is the authority on intent.
+- **A Paper flexbox rebuild of a CSS layout invents bugs that are not in the app.** Of four layout "kinks" the Paper screens appeared to expose, only one was real (the others were artifacts of rebuilding tables and overflow rules as flexbox). Verify any Paper-surfaced bug against the actual CSS before changing code.
+- **The MCP write quota is weekly** and has been exhausted mid-session; reads keep working after writes stop.
 
 ## Svelte 5 in legacy mode — two traps
 
