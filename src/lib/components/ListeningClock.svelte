@@ -97,21 +97,23 @@
   }
 
   .track {
-    fill: color-mix(in srgb, var(--line) 16%, transparent);
+    fill: var(--data-empty);
   }
 
   /* Non-peak hours in a softened accent so the peak hour reads instantly. */
   .value {
-    fill: color-mix(in oklab, var(--accent) 45%, var(--surface-2));
+    fill: var(--data-bar);
     pointer-events: none;
   }
 
   .value.peak {
-    fill: var(--accent);
+    fill: var(--data-4);
   }
 
   .label {
     fill: var(--muted);
+    /* Hour ticks inside the dial are chart furniture, sized to the ring rather
+       than to the type scale — the same exemption the calendar cells take. */
     font-size: 9px;
     font-variant-numeric: tabular-nums;
     text-anchor: middle;
@@ -120,7 +122,7 @@
 
   .peak-value {
     fill: var(--accent);
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     text-anchor: middle;
     dominant-baseline: middle;

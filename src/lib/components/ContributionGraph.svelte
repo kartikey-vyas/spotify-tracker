@@ -181,16 +181,16 @@
   }
 
   .cell[data-level='1'] {
-    background: color-mix(in oklab, var(--accent) 28%, var(--surface-2));
+    background: var(--data-1);
   }
   .cell[data-level='2'] {
-    background: color-mix(in oklab, var(--accent) 52%, var(--surface-2));
+    background: var(--data-2);
   }
   .cell[data-level='3'] {
-    background: color-mix(in oklab, var(--accent) 76%, var(--surface-2));
+    background: var(--data-3);
   }
   .cell[data-level='4'] {
-    background: var(--accent);
+    background: var(--data-4);
   }
 
   .cell.pad {

@@ -78,7 +78,7 @@
   /* Softened accent for the field of bars; the tallest year in full accent. */
   .bar {
     width: 100%;
-    background: color-mix(in oklab, var(--accent) 55%, var(--surface-2));
+    background: var(--data-bar);
   }
 
   .bar.max {
@@ -86,7 +86,7 @@
   }
 
   .bar.empty {
-    background: color-mix(in srgb, var(--line) 16%, transparent);
+    background: var(--data-empty);
     height: 2px;
   }
 

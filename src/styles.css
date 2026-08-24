@@ -44,6 +44,21 @@
   --space-8: 32px;
   --space-12: 48px;
 
+  /* Data ramp — the calendar, the clock and the release-year chart are one
+     instrument, not three that happen to look similar. Each used to mix its own
+     percentage of accent into --surface-2 (28/52/76 here, 45 there, 55 in the
+     third) and two of them defined an identical "no data" colour separately.
+     Defined once here, in :root rather than per theme, so every theme derives
+     the same ramp from its own accent: var() resolves at use time, so --accent
+     is whichever theme is active. */
+  --data-1: color-mix(in oklab, var(--accent) 28%, var(--surface-2));
+  --data-2: color-mix(in oklab, var(--accent) 52%, var(--surface-2));
+  --data-3: color-mix(in oklab, var(--accent) 76%, var(--surface-2));
+  --data-4: var(--accent);
+  /* Mid-weight fill for a single-series bar, where there is no ramp to sit on. */
+  --data-bar: color-mix(in oklab, var(--accent) 52%, var(--surface-2));
+  --data-empty: color-mix(in srgb, var(--line) 16%, transparent);
+
   font-family:
     "JetBrains Mono Variable", "SFMono-Regular", Consolas, "Liberation Mono",
     Menlo, ui-monospace, monospace;
