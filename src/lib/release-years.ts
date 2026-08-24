@@ -1,10 +1,13 @@
 import type { ReleaseYearBucket } from '$lib/types';
 
+export const EARLIEST_RELEASE_YEAR = 1950;
+
 /**
  * Builds a release-year histogram from sparse per-year play counts. Pure and
- * deterministic. Bars span every year from the earliest to the latest present
- * (gaps zero-filled) in ascending order, each carrying a `fraction` (0–1) of the
- * busiest year for bar heights.
+ * deterministic. Releases from the cutoff year or earlier share the first
+ * bucket, then bars span every year through the latest present (gaps
+ * zero-filled) in ascending order. Each carries a `fraction` (0–1) of the
+ * busiest bucket for bar heights.
  */
 
 export interface ReleaseYearBar {
@@ -26,7 +29,8 @@ export function buildReleaseYearChart(buckets: ReleaseYearBucket[]): ReleaseYear
   const playsByYear = new Map<number, number>();
   let total = 0;
   for (const { year, plays } of buckets) {
-    playsByYear.set(year, (playsByYear.get(year) ?? 0) + plays);
+    const bucketYear = Math.max(year, EARLIEST_RELEASE_YEAR);
+    playsByYear.set(bucketYear, (playsByYear.get(bucketYear) ?? 0) + plays);
     total += plays;
   }
 

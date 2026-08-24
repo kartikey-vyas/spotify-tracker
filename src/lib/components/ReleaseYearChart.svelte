@@ -1,6 +1,10 @@
 <script lang="ts">
   import type { ReleaseYearBucket } from '$lib/types';
-  import { buildReleaseYearChart, type ReleaseYearBar } from '$lib/release-years';
+  import {
+    buildReleaseYearChart,
+    EARLIEST_RELEASE_YEAR,
+    type ReleaseYearBar
+  } from '$lib/release-years';
   import { formatPlays } from '$lib/metrics';
   import { tooltip as tipAction } from '$lib/actions/tooltip';
 
@@ -11,9 +15,12 @@
 
   // Label decade boundaries plus the most recent year to keep the axis readable.
   const showLabel = (year: number): boolean => year % 10 === 0 || year === lastYear;
+  const yearLabel = (year: number): string =>
+    year === EARLIEST_RELEASE_YEAR ? `≤${EARLIEST_RELEASE_YEAR}` : String(year);
 
   function tooltip(bar: ReleaseYearBar): string {
-    return bar.value > 0 ? `${bar.year} · ${formatPlays(bar.value)}` : `${bar.year} · No plays`;
+    const label = yearLabel(bar.year);
+    return bar.value > 0 ? `${label} · ${formatPlays(bar.value)}` : `${label} · No plays`;
   }
 </script>
 
@@ -35,7 +42,7 @@
 
       <div class="axis" aria-hidden="true">
         {#each chart.bars as bar (bar.year)}
-          <span class="tick">{showLabel(bar.year) ? bar.year : ''}</span>
+          <span class="tick">{showLabel(bar.year) ? yearLabel(bar.year) : ''}</span>
         {/each}
       </div>
     </div>

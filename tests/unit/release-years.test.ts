@@ -37,4 +37,13 @@ describe('buildReleaseYearChart', () => {
     expect(chart.bars.map((bar) => bar.value)).toEqual([1, 7]);
     expect(chart.total).toBe(8);
   });
+
+  it('combines 1950 and earlier into a single cutoff bucket', () => {
+    const chart = buildReleaseYearChart([at(1900, 2), at(1949, 3), at(1950, 5), at(1952, 4)]);
+
+    expect(chart.bars.map((bar) => bar.year)).toEqual([1950, 1951, 1952]);
+    expect(chart.bars.map((bar) => bar.value)).toEqual([10, 0, 4]);
+    expect(chart.maxValue).toBe(10);
+    expect(chart.total).toBe(14);
+  });
 });
