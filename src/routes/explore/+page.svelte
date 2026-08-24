@@ -4,7 +4,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
-  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
+  import RecordMark from '$lib/components/RecordMark.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
   import {
     bestAvailableMetric,
@@ -411,7 +411,7 @@
   </div>
 
   {#if loading && rankings.length === 0}
-    <section class="panel panel-loading section-gap"><SpotifyLoader size="lg" label="Loading explorer data..." /></section>
+    <section class="panel panel-loading section-gap"><RecordMark size="lg" label="Loading explorer data..." /></section>
   {:else if error}
     <section class="panel section-gap"><p class="error">{error}</p></section>
   {:else}

@@ -28,7 +28,7 @@
     visibilityLabel,
     type AdminDashboard
   } from '$lib/adminHealth';
-  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
+  import RecordMark from '$lib/components/RecordMark.svelte';
   import { getAdminDashboard, isCurrentUserAdmin } from '$lib/queries/admin';
   import { publicSupabaseConfigured } from '$lib/supabase';
 
@@ -85,7 +85,7 @@
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY.</p>
     </section>
   {:else if loading}
-    <section class="panel panel-loading"><SpotifyLoader label="Loading admin health..." /></section>
+    <section class="panel panel-loading"><RecordMark label="Loading admin health..." /></section>
   {:else if !isAdmin}
     <section class="panel auth-panel">
       <h2>Admin sign-in required</h2>

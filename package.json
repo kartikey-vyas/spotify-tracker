@@ -24,6 +24,7 @@
     "db:size": "tsx scripts/db-size.ts"
   },
   "dependencies": {
+    "@paper-design/shaders": "^0.0.80",
     "@supabase/supabase-js": "^2.49.0",
     "dotenv": "^16.4.7"
   },
