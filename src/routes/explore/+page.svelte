@@ -4,7 +4,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
-  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
+  import RecordMark from '$lib/components/RecordMark.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
   import {
     bestAvailableMetric,
@@ -327,9 +327,9 @@
   <div class="toolbar">
     <div class="picker-field">
       <span class="picker-label">Profile</span>
-      <details bind:this={profileMenu} class="picker-menu">
-        <summary>{selectedProfile?.display_name ?? 'Choose profile'}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Profile">
+      <details bind:this={profileMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{selectedProfile?.display_name ?? 'Choose profile'}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Profile">
           {#each profiles as profile}
             <button
               class:active={profile.slug === selectedSlug}
@@ -349,9 +349,9 @@
 
     <div class="picker-field">
       <span class="picker-label">Date range</span>
-      <details bind:this={rangeMenu} class="picker-menu">
-        <summary>{rangeLabel(preset)}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Date range">
+      <details bind:this={rangeMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{rangeLabel(preset)}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Date range">
           {#each exploreDateRangeOptions as option}
             <button
               class:active={option.value === preset}
@@ -369,9 +369,9 @@
 
     <div class="picker-field">
       <span class="picker-label">Entity</span>
-      <details bind:this={entityMenu} class="picker-menu">
-        <summary>{entityLabel(entityType)}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Entity">
+      <details bind:this={entityMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{entityLabel(entityType)}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Entity">
           {#each entityOptions as option}
             <button
               class:active={option.value === entityType}
@@ -389,9 +389,9 @@
 
     <div class="picker-field">
       <span class="picker-label">Metric</span>
-      <details bind:this={metricMenu} class="picker-menu">
-        <summary>{metricLabel(metric)}</summary>
-        <div class="picker-options" role="radiogroup" aria-label="Metric">
+      <details bind:this={metricMenu} class="menu picker-menu">
+        <summary class="menu-trigger is-field">{metricLabel(metric)}</summary>
+        <div class="menu-options is-field" role="radiogroup" aria-label="Metric">
           {#each metricOptions as option}
             {@const disabled = !isMetricAvailable(rankings, option.value)}
             <button
@@ -411,7 +411,7 @@
   </div>
 
   {#if loading && rankings.length === 0}
-    <section class="panel panel-loading section-gap"><SpotifyLoader size="lg" label="Loading explorer data..." /></section>
+    <section class="panel panel-loading section-gap"><RecordMark size="lg" label="Loading explorer data..." /></section>
   {:else if error}
     <section class="panel section-gap"><p class="error">{error}</p></section>
   {:else}
@@ -541,81 +541,11 @@
     color: var(--muted);
   }
 
+  /* Only the width is local; the menu itself is the shared component. */
   .picker-menu {
-    position: relative;
     min-width: 160px;
   }
 
-  .picker-menu summary {
-    min-height: 32px;
-    padding: 5px 28px 5px 9px;
-    border: 1px solid var(--line);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .picker-menu summary::after {
-    position: absolute;
-    top: 13px;
-    right: 9px;
-    width: 0;
-    height: 0;
-    border-top: 5px solid var(--muted);
-    border-right: 4px solid transparent;
-    border-left: 4px solid transparent;
-    content: "";
-  }
-
-  .picker-menu[open] summary::after {
-    transform: rotate(180deg);
-  }
-
-  .picker-menu summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .picker-menu summary:hover {
-    background: var(--surface-2);
-  }
-
-  .picker-options {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 10;
-    display: grid;
-    min-width: 100%;
-    border: 1px solid var(--line);
-    background: var(--surface);
-  }
-
-  .picker-options button {
-    display: block;
-    width: 100%;
-    min-height: 32px;
-    padding: 7px 9px;
-    border: 0;
-    border-bottom: 1px solid var(--line);
-    background: transparent;
-    color: var(--text);
-    text-align: left;
-    white-space: nowrap;
-  }
-
-  .picker-options button:last-child {
-    border-bottom: 0;
-  }
-
-  .picker-options button:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-
-  .picker-options button.active {
-    background: var(--accent);
-    color: var(--accent-ink);
-  }
 
   /* Heading + one hairline rule; content sits on the page background. */
   .section-heading {
@@ -623,13 +553,13 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    padding-bottom: 7px;
+    padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--line);
-    margin-bottom: 14px;
+    margin-bottom: var(--space-4);
   }
 
   .section-heading .muted {
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
   }
 
   .section-heading h2,
@@ -647,7 +577,7 @@
 
   .detail-panel {
     display: grid;
-    gap: 20px;
+    gap: var(--space-6);
   }
 
   .empty-detail {
@@ -668,13 +598,13 @@
   }
 
   .compact .muted {
-    font-size: 0.78rem;
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
   .compact strong {
-    font-size: 1.5rem;
+    font-size: var(--text-lg);
     font-weight: 700;
     letter-spacing: -0.02em;
     line-height: 1.15;
@@ -683,7 +613,7 @@
 
   .detail-section {
     display: grid;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   .ranking-scroll.is-artist-ranking {
@@ -755,7 +685,7 @@
     top: calc(100% + 6px);
     left: 0;
     color: var(--muted);
-    font-size: 0.74rem;
+    font-size: var(--text-2xs);
     line-height: 1;
     white-space: nowrap;
   }

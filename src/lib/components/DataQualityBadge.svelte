@@ -16,7 +16,7 @@
     border-radius: 0;
     background: transparent;
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
     font-weight: 400;
     white-space: nowrap;
   }

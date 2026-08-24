@@ -42,8 +42,8 @@
   .stat-list li {
     display: flex;
     align-items: baseline;
-    gap: 10px;
-    padding: 5px 0;
+    gap: var(--space-3);
+    padding: var(--space-1) 0;
     border-bottom: 1px solid var(--line);
     counter-increment: rank;
   }

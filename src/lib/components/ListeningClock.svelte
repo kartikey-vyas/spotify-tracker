@@ -93,25 +93,60 @@
     width: 100%;
     max-width: 230px;
     height: auto;
+    /* Belt and braces for the height: WebKit is unreliable at deriving an SVG's
+       intrinsic ratio from its viewBox when the element is a flex item, and
+       gets it wrong in the direction that collapses the dial. */
+    aspect-ratio: 1;
     font-family: inherit;
   }
 
+  /* Stacked on a phone the dial has the full column to itself, and the hour
+     labels are in user units, so a larger dial is also a more legible one. */
+  @media (max-width: 800px) {
+    svg {
+      max-width: 280px;
+    }
+  }
+
   .track {
-    fill: color-mix(in srgb, var(--line) 16%, transparent);
+    fill: var(--data-empty);
   }
 
   /* Non-peak hours in a softened accent so the peak hour reads instantly. */
   .value {
-    fill: color-mix(in oklab, var(--accent) 45%, var(--surface-2));
+    fill: var(--data-bar);
     pointer-events: none;
   }
 
   .value.peak {
-    fill: var(--accent);
+    fill: var(--data-4);
+  }
+
+  /* Same affordance as the release-year chart and the calendar: the hovered
+     hour lifts while the tooltip names it.
+
+     The track is the hit target — it spans the whole wedge and the value sits
+     on top of it with pointer-events off — so the highlight has to reach the
+     value as an adjacent sibling. That holds because the value is emitted
+     directly after its own track, and only when the hour has plays: an empty
+     hour has no next .value to match, so it takes the outline alone rather
+     than being tinted as though something had been played. */
+  .track:hover {
+    stroke: var(--text);
+    stroke-width: 1;
+    /* The dial is scaled from a 200-unit viewBox, so without this the outline
+       would be 1.15px on desktop and 1.4px on a phone. */
+    vector-effect: non-scaling-stroke;
+  }
+
+  .track:hover + .value {
+    fill: var(--accent-dark);
   }
 
   .label {
     fill: var(--muted);
+    /* Hour ticks inside the dial are chart furniture, sized to the ring rather
+       than to the type scale — the same exemption the calendar cells take. */
     font-size: 9px;
     font-variant-numeric: tabular-nums;
     text-anchor: middle;
@@ -120,7 +155,7 @@
 
   .peak-value {
     fill: var(--accent);
-    font-size: 13px;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     text-anchor: middle;
     dominant-baseline: middle;

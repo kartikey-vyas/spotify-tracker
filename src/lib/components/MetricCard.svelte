@@ -16,12 +16,12 @@
 <style>
   .metric-card {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .metric-label {
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
   }
 
   .metric-label::before {
@@ -29,7 +29,7 @@
   }
 
   .metric-card strong {
-    font-size: 1rem;
+    font-size: var(--text-base);
   }
 
   .metric-card p {
@@ -40,7 +40,7 @@
   .metric-caption {
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    font-size: 0.72rem;
+    font-size: var(--text-2xs);
     opacity: 0.7;
   }
 

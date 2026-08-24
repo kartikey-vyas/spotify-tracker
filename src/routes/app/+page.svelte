@@ -5,7 +5,7 @@
   import RankingTable from '$lib/components/RankingTable.svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
-  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
+  import RecordMark from '$lib/components/RecordMark.svelte';
   import { bestAvailableMetric, metricLabel, overviewSummaryCards } from '$lib/metrics';
   import { publicSupabaseConfigured, supabase } from '$lib/supabase';
   import { getUserOverview } from '$lib/queries/overview';
@@ -292,7 +292,7 @@
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY.</p>
     </section>
   {:else if loading}
-    <section class="panel panel-loading"><SpotifyLoader label="Loading session..." /></section>
+    <section class="panel panel-loading"><RecordMark label="Loading session..." /></section>
   {:else}
     {#if message}<p class="notice">{message}</p>{/if}
     {#if error}<p class="error">{error}</p>{/if}
@@ -348,7 +348,7 @@
         </form>
       </section>
     {:else if resolvingUser && !profile}
-      <section class="panel panel-loading"><SpotifyLoader label="Loading..." /></section>
+      <section class="panel panel-loading"><RecordMark label="Loading..." /></section>
     {:else if view === 'setup'}
       <section class="panel auth-panel">
         <h2>Set up your account</h2>
@@ -505,7 +505,7 @@
   form,
   .actions {
     display: grid;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   label {

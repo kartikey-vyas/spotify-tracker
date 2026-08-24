@@ -28,7 +28,7 @@
     visibilityLabel,
     type AdminDashboard
   } from '$lib/adminHealth';
-  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
+  import RecordMark from '$lib/components/RecordMark.svelte';
   import { getAdminDashboard, isCurrentUserAdmin } from '$lib/queries/admin';
   import { publicSupabaseConfigured } from '$lib/supabase';
 
@@ -85,7 +85,7 @@
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY.</p>
     </section>
   {:else if loading}
-    <section class="panel panel-loading"><SpotifyLoader label="Loading admin health..." /></section>
+    <section class="panel panel-loading"><RecordMark label="Loading admin health..." /></section>
   {:else if !isAdmin}
     <section class="panel auth-panel">
       <h2>Admin sign-in required</h2>
@@ -306,6 +306,14 @@
       {/if}
     </section>
 
+    <section class="panel section-gap">
+      <h2>Tools</h2>
+      <p class="muted">Admin-only. Ships to production but is gated behind this check.</p>
+      <ul class="dev-links">
+        <li><a href="{base}/admin/mark/">Mark playground</a></li>
+      </ul>
+    </section>
+
     {#if dev}
       <section class="panel section-gap">
         <h2>Dev tools</h2>
@@ -313,7 +321,6 @@
         <ul class="dev-links">
           <li><a href="{base}/sprites/">Sprite explorer</a></li>
           <li><a href="{base}/sprites/edit/">Sprite editor</a></li>
-          <li><a href="{base}/loader/">SpotifyLoader preview</a></li>
         </ul>
       </section>
     {/if}
@@ -337,7 +344,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: var(--space-3);
   }
 
   .health-strip {
@@ -355,7 +362,7 @@
     display: block;
     margin-top: 2px;
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
 
@@ -378,12 +385,12 @@
   .catalog-panel {
     display: grid;
     align-content: start;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   .enrichment {
     display: grid;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .enrichment-head {
@@ -396,7 +403,7 @@
 
   .enrichment-title {
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
   }
 
   .meter {
@@ -413,20 +420,20 @@
   }
 
   .enrichment-note {
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
     margin: 0;
   }
 
   dl {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 12px;
+    gap: var(--space-2) var(--space-3);
     margin: 0;
   }
 
   dt {
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
   }
 
   dd {

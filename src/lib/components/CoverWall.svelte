@@ -115,6 +115,9 @@
   .cover-wall {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    /* Row gap is deliberately off the 4px spacing scale: .ladder spans from this
+       row's shelf up to the one above, so its -13px top is measured against this
+       exact 14px. Change one and you must re-derive the other. */
     gap: 14px 8px;
     margin: 0;
     padding: 0 0 8px;
@@ -173,6 +176,8 @@
     object-fit: cover;
   }
 
+  /* The art-missing glyph is sized as a graphic, not as text, so it sits off
+     the type scale on purpose. */
   .placeholder {
     color: var(--muted);
     font-size: 1.6rem;
@@ -183,7 +188,7 @@
     inset: auto 0 0 0;
     display: grid;
     gap: 1px;
-    padding: 6px 7px;
+    padding: var(--space-2);
     background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
     color: #fff;
     opacity: 0;
@@ -196,7 +201,7 @@
   }
 
   .title {
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
     line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -205,7 +210,7 @@
 
   .subtitle,
   .value {
-    font-size: 0.72rem;
+    font-size: var(--text-2xs);
     opacity: 0.85;
     overflow: hidden;
     text-overflow: ellipsis;

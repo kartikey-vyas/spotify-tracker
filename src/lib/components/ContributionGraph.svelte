@@ -15,6 +15,7 @@
   export let metric: CalendarMetric = 'plays';
 
   let selectedYear: number | null = null;
+  let yearButtons: Record<number, HTMLButtonElement | null> = {};
 
   $: years = availableYears(days);
   // Default to the newest year, and re-snap if the data set changes under us.
@@ -25,6 +26,11 @@
     selectedYear === null
       ? null
       : buildYearGrid(days, selectedYear, metric, { endDate: melbourneToday() });
+  // Below 800px the picker is a horizontal rail, so the selected year can sit off
+  // screen — after a click, and after the default snap above picks the newest year.
+  // `nearest` on both axes so this only ever moves the rail, never the page.
+  // Re-runs once bind:this fills the map, which is when the button first exists.
+  $: yearButtons[selectedYear ?? -1]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 
   const noun = metric === 'plays' ? 'plays' : 'minutes';
   const amount = (value: number): string =>
@@ -84,8 +90,9 @@
 
     {#if years.length > 1}
       <div class="years" role="radiogroup" aria-label="Year">
-        {#each years as year}
+        {#each years as year (year)}
           <button
+            bind:this={yearButtons[year]}
             class:active={year === selectedYear}
             type="button"
             role="radio"
@@ -108,8 +115,11 @@
   }
 
   .calendar-main {
-    /* Take the leftover width and allow shrinking so the grid scrolls in place. */
-    flex: 1 1 0;
+    /* Size to the grid and allow shrinking so it scrolls in place. Deliberately
+       does not grow: the grid is a fixed 12px per week, so a growing column just
+       strands the year picker against the far edge — worst in January, when only
+       a few weeks are drawn. */
+    flex: 0 1 auto;
     min-width: 0;
   }
 
@@ -127,7 +137,7 @@
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto;
-    gap: 6px 8px;
+    gap: var(--space-2);
     width: max-content;
   }
 
@@ -136,7 +146,7 @@
     display: grid;
     grid-template-columns: repeat(var(--columns), var(--cell));
     gap: var(--gap);
-    font-size: 0.72rem;
+    font-size: var(--text-2xs);
     color: var(--muted);
   }
 
@@ -151,7 +161,7 @@
     display: grid;
     grid-template-rows: repeat(7, var(--cell));
     gap: var(--gap);
-    font-size: 0.68rem;
+    font-size: var(--text-2xs);
     color: var(--muted);
   }
 
@@ -178,28 +188,46 @@
   }
 
   .cell[data-level='1'] {
-    background: color-mix(in oklab, var(--accent) 28%, var(--surface-2));
+    background: var(--data-1);
   }
   .cell[data-level='2'] {
-    background: color-mix(in oklab, var(--accent) 52%, var(--surface-2));
+    background: var(--data-2);
   }
   .cell[data-level='3'] {
-    background: color-mix(in oklab, var(--accent) 76%, var(--surface-2));
+    background: var(--data-3);
   }
   .cell[data-level='4'] {
-    background: var(--accent);
+    background: var(--data-4);
   }
 
   .cell.pad {
     background: transparent;
   }
 
+  /* Same affordance as the release-year chart: the hovered day darkens while
+     the tooltip names it. Scoped to .cells so the legend key, which reuses
+     .cell, stays inert — it is a caption, not data.
+
+     The outline does most of the visible work here. A bar is tall enough that
+     recolouring it reads from anywhere, but a 10px square sits almost entirely
+     under the pointer, so on its own the fill change is easy to miss. */
+  .cells .cell:not(.pad):hover {
+    outline: 1px solid var(--text);
+  }
+
+  /* A day with no plays keeps its empty fill — darkening it toward the accent
+     would imply listening that did not happen. The chart leaves its empty bars
+     alone for the same reason. */
+  .cells .cell:not(.pad):not([data-level='0']):hover {
+    background: var(--accent-dark);
+  }
+
   .legend {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-top: 10px;
-    font-size: 0.72rem;
+    gap: var(--space-1);
+    margin-top: var(--space-3);
+    font-size: var(--text-2xs);
   }
 
   .legend .cell {
@@ -251,11 +279,11 @@
     min-height: 0;
     /* Keep full height inside the capped, scrollable column (don't flex-shrink). */
     flex: 0 0 auto;
-    padding: 3px 4px;
+    padding: var(--space-1);
     border: 0;
     background: transparent;
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     text-align: right;
   }
@@ -268,5 +296,44 @@
   .years button.active {
     background: var(--accent);
     color: var(--accent-ink);
+  }
+
+  /* Phone: the picker column costs width the grid needs, so stack it as a
+     horizontal rail above the grid instead. Restructuring the container to a
+     column leaves .calendar-main's no-grow rule untouched — it only governs the
+     row axis, which no longer exists here. */
+  @media (max-width: 800px) {
+    .calendar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--space-2);
+    }
+
+    /* Grid stays first in the DOM so it leads the reading order; only the visual
+       order flips. */
+    .years {
+      order: -1;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      gap: var(--space-1);
+      max-height: none;
+      overflow-x: auto;
+      overflow-y: hidden;
+      /* A scrollbar under a single-line rail costs more height than it earns on a
+         phone, and the years are reachable by swipe or keyboard without it. */
+      scrollbar-gutter: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .years::-webkit-scrollbar {
+      display: none;
+    }
+
+    .years button {
+      padding: var(--space-1) var(--space-2);
+      text-align: center;
+      white-space: nowrap;
+    }
   }
 </style>

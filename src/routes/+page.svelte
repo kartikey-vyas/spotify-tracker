@@ -5,7 +5,7 @@
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
   import ListeningClock from '$lib/components/ListeningClock.svelte';
   import ReleaseYearChart from '$lib/components/ReleaseYearChart.svelte';
-  import SpotifyLoader from '$lib/components/SpotifyLoader.svelte';
+  import RecordMark from '$lib/components/RecordMark.svelte';
   import StatList from '$lib/components/StatList.svelte';
   import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
   import { publicSupabaseConfigured } from '$lib/supabase';
@@ -301,7 +301,7 @@
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY to load public dashboard data.</p>
     </section>
   {:else if loading}
-    <section class="panel panel-loading"><SpotifyLoader size="lg" label="Loading overview..." /></section>
+    <section class="panel panel-loading"><RecordMark size="lg" label="Loading overview..." /></section>
   {:else if error}
     <section class="panel"><p class="error">{error}</p></section>
   {:else if profiles.length === 0}
@@ -317,9 +317,11 @@
   {:else}
     <div class="profile-picker">
       <span class="profile-label">profile</span>
-      <details bind:this={profileMenu} class="profile-menu">
-        <summary>{selectedProfile ? profileOptionLabel(selectedProfile) : 'Choose profile'}</summary>
-        <div class="profile-options" role="radiogroup" aria-label="Profile">
+      <details bind:this={profileMenu} class="menu">
+        <summary class="menu-trigger"
+          >{selectedProfile ? profileOptionLabel(selectedProfile) : 'Choose profile'}</summary
+        >
+        <div class="menu-options is-profile" role="radiogroup" aria-label="Profile">
           {#each profiles as profile}
             <button
               class:active={profile.slug === selectedSlug}
@@ -440,8 +442,8 @@
      header. Two identical copies scroll by -50% for a seamless wrap. */
   .groove {
     overflow: hidden;
-    margin-bottom: 16px;
-    padding: 3px 0;
+    margin-bottom: var(--space-4);
+    padding: var(--space-1) 0;
     border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
   }
@@ -453,7 +455,7 @@
 
   .groove-copy {
     color: var(--muted);
-    font-size: 0.78rem;
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     white-space: nowrap;
@@ -498,14 +500,14 @@
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: 10px;
-    padding-bottom: 7px;
+    gap: var(--space-3);
+    padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--line);
-    margin-bottom: 14px;
+    margin-bottom: var(--space-4);
   }
 
   .section-heading .muted {
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
   }
 
   /* The cover wall keeps its original bordered shelf; its heading stays the
@@ -515,7 +517,7 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   /* Quiet inline profile picker: a dotted-underline name instead of a bordered
@@ -524,99 +526,20 @@
     display: inline-flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 8px;
-    margin-bottom: 36px;
+    gap: var(--space-2);
+    margin-bottom: var(--space-12);
   }
 
   .profile-label {
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: var(--text-sm);
   }
 
-  .profile-menu {
-    position: relative;
-  }
-
-  .profile-menu summary {
-    padding: 0 14px 0 0;
-    color: var(--text);
-    font-size: 0.9rem;
-    cursor: pointer;
-    list-style: none;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-    text-underline-offset: 3px;
-  }
-
-  .profile-menu summary::after {
-    position: absolute;
-    top: 7px;
-    right: 0;
-    width: 0;
-    height: 0;
-    border-top: 5px solid var(--muted);
-    border-right: 4px solid transparent;
-    border-left: 4px solid transparent;
-    content: "";
-  }
-
-  .profile-menu[open] summary::after {
-    transform: rotate(180deg);
-  }
-
-  .profile-menu summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .profile-menu summary:hover {
-    color: var(--muted);
-  }
-
-  /* Same quiet register as the trigger: a floating fragment of the page (bg
-     background, one hairline edge), options as link-like text. Active echoes
-     the summary's dotted underline. */
-  .profile-options {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 10;
-    display: grid;
-    min-width: 220px;
-    padding: 5px 0;
-    border: 1px solid var(--line);
-    background: var(--bg);
-  }
-
-  .profile-options button {
-    display: block;
-    width: 100%;
-    min-height: 0;
-    padding: 5px 12px;
-    border: 0;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.9rem;
-    text-align: left;
-  }
-
-  .profile-options button:hover {
-    background: transparent;
-    color: var(--text);
-  }
-
-  .profile-options button.active {
-    background: transparent;
-    color: var(--accent);
-    font-weight: 700;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-    text-underline-offset: 3px;
-  }
 
   /* Un-boxed sections need whitespace to hold the page together: major
      sections sit ~36px apart instead of the old 16px. */
   .section-gap {
-    margin-top: 36px;
+    margin-top: var(--space-12);
   }
 
   /* Wider gutter between the two un-boxed ranking columns. */
@@ -638,12 +561,12 @@
 
   .window-toggle button {
     min-height: 0;
-    padding: 5px 14px;
+    padding: var(--space-1) var(--space-4);
     border: 0;
     border-left: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
   }
 
@@ -666,7 +589,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    gap: 36px;
+    gap: var(--space-12);
   }
 
   .time-row .calendar-panel {
@@ -695,7 +618,23 @@
     display: flex;
     flex: 1 1 220px;
     flex-direction: column;
+    /* Stops the dial eating the row beside the calendar. Purely a two-column
+       constraint — see the media query below, where it has to come back off. */
     max-width: 300px;
+  }
+
+  @media (max-width: 800px) {
+    /* Once .time-row wraps to one column the cap has nothing to protect, and it
+       strands the panel against the left edge with dead space beside it. */
+    .time-row .clock-panel {
+      max-width: none;
+    }
+
+    /* A 48px gutter reads as a deliberate column break beside the calendar and
+       as a hole once the two panels are stacked. */
+    .time-row {
+      gap: var(--space-8);
+    }
   }
 
   /* Catalog footer: rights line + a flat CSS barcode (hard-stop stripes, so
@@ -705,8 +644,8 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 10px 16px;
-    padding-top: 10px;
+    gap: var(--space-3) var(--space-4);
+    padding-top: var(--space-3);
     border-top: 1px solid var(--line);
   }
 
@@ -716,7 +655,7 @@
     gap: 4px 8px;
     margin: 0;
     color: var(--muted);
-    font-size: 0.72rem;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }

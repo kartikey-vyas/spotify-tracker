@@ -1,3 +1,10 @@
+/* Self-hosted so every platform renders the same face. The variable file covers
+   100–800, which is why the stack below can ask for a 500 the old system-mono
+   stack could not supply. Its subsets are latin/greek/cyrillic/vietnamese only,
+   so the system fallbacks below still carry the odd symbol the UI uses — ♪ for
+   missing album art, ◦ in the ticker. */
+@import '@fontsource-variable/jetbrains-mono';
+
 :root {
   color-scheme: light;
   --bg: #eee4d3;
@@ -15,8 +22,46 @@
   --amber: #76500b;
   --red: #9a1d12;
   --shadow: none;
+
+  /* Type scale — five steps, theme-invariant, so the theme blocks below never
+     touch them. Replaces ten near-identical rem sizes, six of which sat within
+     two pixels of each other and read as noise rather than hierarchy. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 22px;
+
+  /* Spacing — a 4px grid. --space-0-5 is the one sub-grid step, for detail that
+     sits against a hairline. Data geometry (calendar cells, chart bars) and the
+     pixel-person collision rects are NOT spacing and are not on this scale. */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Data ramp — the calendar, the clock and the release-year chart are one
+     instrument, not three that happen to look similar. Each used to mix its own
+     percentage of accent into --surface-2 (28/52/76 here, 45 there, 55 in the
+     third) and two of them defined an identical "no data" colour separately.
+     Defined once here, in :root rather than per theme, so every theme derives
+     the same ramp from its own accent: var() resolves at use time, so --accent
+     is whichever theme is active. */
+  --data-1: color-mix(in oklab, var(--accent) 28%, var(--surface-2));
+  --data-2: color-mix(in oklab, var(--accent) 52%, var(--surface-2));
+  --data-3: color-mix(in oklab, var(--accent) 76%, var(--surface-2));
+  --data-4: var(--accent);
+  /* Mid-weight fill for a single-series bar, where there is no ramp to sit on. */
+  --data-bar: color-mix(in oklab, var(--accent) 52%, var(--surface-2));
+  --data-empty: color-mix(in srgb, var(--line) 16%, transparent);
+
   font-family:
-    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace;
+    "JetBrains Mono Variable", "SFMono-Regular", Consolas, "Liberation Mono",
+    Menlo, ui-monospace, monospace;
   font-size: 15px;
   background: var(--bg);
   color: var(--text);
@@ -198,7 +243,7 @@ select {
 
 button {
   cursor: pointer;
-  padding: 5px 8px;
+  padding: var(--space-1) var(--space-2);
 }
 
 button:hover,
@@ -226,6 +271,16 @@ input[type='checkbox'] {
   accent-color: var(--accent);
 }
 
+/* Ranges opt out of the bordered-input treatment above — a slider is a track,
+   not a field — and take the theme accent rather than the browser's blue. */
+input[type='range'] {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
+}
+
 ::placeholder {
   color: var(--muted);
   opacity: 1;
@@ -239,8 +294,8 @@ input[type='checkbox'] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px clamp(12px, 3vw, 32px);
+  gap: var(--space-4);
+  padding: var(--space-3) clamp(var(--space-4), 3vw, var(--space-8));
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
@@ -268,7 +323,7 @@ input[type='checkbox'] {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .header-controls {
@@ -277,7 +332,7 @@ input[type='checkbox'] {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -290,9 +345,9 @@ input[type='checkbox'] {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   line-height: 1;
-  padding: 2px 0;
+  padding: var(--space-0-5) 0;
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 2px;
@@ -303,97 +358,178 @@ input[type='checkbox'] {
   color: var(--text);
 }
 
-.site-nav a,
-.theme-menu summary {
+.site-nav a {
   min-height: 0;
   padding: 0;
   color: var(--text);
-  font-size: 0.94rem;
+  font-size: var(--text-sm);
 }
 
-.site-nav a:hover,
-.theme-menu summary:hover {
+.site-nav a:hover {
   background: transparent;
   color: var(--accent);
 }
 
-.theme-menu {
+/* ── Menu ───────────────────────────────────────────────────────────────────
+   One dropdown for the whole app. There used to be three near-identical ones —
+   theme, profile picker, explorer picker — differing mostly by accident: solid
+   vs dotted underline, a 6px vs 8px panel offset, muted vs full-strength option
+   text, a filled accent row in one and accent text in the others.
+
+   The panel is now the same everywhere. Only the trigger varies, and only
+   because an inline trigger and a form control are genuinely different jobs.
+   Per the menu rule, an open panel is a floating fragment of the page: same
+   ground, one hairline, no elevation, no row separators. */
+.menu {
   position: relative;
 }
 
-.theme-menu summary {
+/* Inline trigger — sits in running text (the nav, a caption line). Dotted
+   underline, not solid: solid underline in this app means "this navigates",
+   so a menu that borrows it reads as a link that will take you somewhere. */
+.menu-trigger {
+  --menu-caret-top: 7px;
+  min-height: 0;
+  padding: 0 var(--space-4) 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-sm);
   cursor: pointer;
   list-style: none;
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
 }
 
-.theme-menu summary::-webkit-details-marker {
+/* Field trigger — a toolbar control, so it is styled as exactly what it is: an
+   input. Same 32px target, border, and surface as input/select above. */
+.menu-trigger.is-field {
+  --menu-caret-top: 13px;
+  min-height: 32px;
+  padding: var(--space-1) var(--space-8) var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--text-base);
+  text-decoration: none;
+}
+
+.menu-trigger:hover {
+  color: var(--accent);
+}
+
+.menu-trigger.is-field:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.menu-trigger::-webkit-details-marker {
   display: none;
 }
 
-/* The open menu keeps the trigger's quiet register: a floating fragment of the
-   page (bg background, one hairline edge) listing link-like options — no row
-   separators, no filled chips. Active echoes the summary's solid underline. */
-.theme-options {
+/* One caret, positioned off the trigger's own height. */
+.menu-trigger::after {
   position: absolute;
-  top: calc(100% + 8px);
+  top: var(--menu-caret-top);
   right: 0;
-  /* set on open when a right-aligned menu would poke past the viewport's left
-     edge (narrow screens where the nav wraps and "theme" sits far left) */
-  transform: translateX(var(--theme-menu-shift, 0px));
+  width: 0;
+  height: 0;
+  border-top: 5px solid var(--muted);
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  content: "";
+}
+
+.menu-trigger.is-field::after {
+  right: var(--space-2);
+}
+
+[open] > .menu-trigger::after {
+  transform: rotate(180deg);
+}
+
+.menu-options {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
   z-index: 10;
   display: grid;
-  min-width: 112px;
-  padding: 5px 0;
+  padding: var(--space-1) 0;
   border: 1px solid var(--line);
   background: var(--bg);
 }
 
-.theme-options button {
+/* Right-aligned variant, for a trigger near the right edge of the viewport.
+   --menu-shift is set on open when the panel would otherwise poke off-screen. */
+.menu-options.is-right {
+  left: auto;
+  right: 0;
+  transform: translateX(var(--menu-shift, 0px));
+}
+
+.menu-options button {
   display: block;
   width: 100%;
   min-height: 0;
-  padding: 4px 12px;
+  padding: var(--space-1) var(--space-3);
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   text-align: left;
+  white-space: nowrap;
 }
 
-.theme-options button:hover {
-  background: transparent;
+.menu-options button:hover:not(:disabled) {
+  background: var(--surface-2);
   color: var(--text);
 }
 
-.theme-options button.active {
-  background: transparent;
+/* Accent text carries the selection. Deliberately not a filled accent row —
+   that is the window toggle's vocabulary, and a solid block of accent inside a
+   floating panel is louder than one amber moment per view allows. */
+.menu-options button.active {
   color: var(--accent);
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+}
+
+.menu-options button:disabled {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* Per-instance widths. Everything else about these menus is shared. */
+.menu-options.is-theme {
+  min-width: 112px;
+}
+
+.menu-options.is-profile {
+  min-width: 220px;
+}
+
+.menu-options.is-field {
+  min-width: 100%;
 }
 
 main {
-  padding: 0 clamp(12px, 3vw, 32px) 40px;
+  padding: 0 clamp(var(--space-4), 3vw, var(--space-8)) var(--space-8);
 }
 
 .page {
   width: min(1180px, 100%);
   margin: 0 auto;
-  padding-top: 24px;
+  padding-top: var(--space-6);
 }
 
 .page-header {
   display: grid;
-  gap: 4px;
-  margin-bottom: 24px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-6);
 }
 
 .eyebrow {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   font-weight: 400;
   text-transform: none;
 }
@@ -407,32 +543,32 @@ p {
 
 h1 {
   max-width: 900px;
-  font-size: 1.35rem;
+  font-size: var(--text-lg);
   line-height: 1.25;
   font-weight: 700;
 }
 
 h2 {
-  font-size: 1rem;
+  font-size: var(--text-base);
   line-height: 1.3;
   font-weight: 700;
 }
 
 h3 {
-  font-size: 1rem;
+  font-size: var(--text-base);
   line-height: 1.25;
 }
 
 .lede {
   max-width: 760px;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: var(--text-base);
   line-height: 1.45;
 }
 
 .grid {
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .grid.cols-2 {
@@ -456,13 +592,13 @@ h3 {
 }
 
 .panel {
-  padding: 12px;
+  padding: var(--space-3);
 }
 
 .panel-loading {
   display: grid;
   place-items: center;
-  padding: 32px 12px;
+  padding: var(--space-8) var(--space-3);
 }
 
 .muted {
@@ -471,11 +607,11 @@ h3 {
 
 .metric {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .metric strong {
-  font-size: 1rem;
+  font-size: var(--text-base);
   line-height: 1.25;
   font-weight: 700;
 }
@@ -484,8 +620,8 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 10px;
-  padding: 10px;
+  gap: var(--space-3);
+  padding: var(--space-3);
   border: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
@@ -493,12 +629,12 @@ h3 {
 
 .field {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .field label {
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 400;
 }
 
@@ -506,7 +642,7 @@ h3 {
 .field input {
   min-height: 32px;
   min-width: 150px;
-  padding: 5px 7px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
   border-radius: 0;
   background: var(--surface);
@@ -530,7 +666,7 @@ table {
 
 th,
 td {
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
@@ -538,7 +674,7 @@ td {
 
 th {
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 400;
   text-transform: none;
 }
@@ -552,7 +688,7 @@ th {
   border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: var(--text-sm);
   font-weight: 400;
 }
 
@@ -569,11 +705,11 @@ th {
   left: 0;
   z-index: 50;
   max-width: 280px;
-  padding: 4px 7px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
   line-height: 1.3;
   pointer-events: none;
 }
@@ -602,28 +738,19 @@ th {
 }
 
 @media (max-width: 800px) {
-  .site-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-  }
+  /* The mobile header lives in +layout.svelte, next to the markup it restructures:
+     below this width the header becomes a grid of brand + tools over a full-width
+     scrolling nav rail, which the flex-column rules that used to sit here could
+     only fight. */
 
-  .header-controls {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .site-nav {
-    justify-content: flex-start;
-  }
-
+  /* minmax(0, 1fr), not 1fr: a bare 1fr track floors at its content's min-content
+     width, so one long track name pushed the whole page wider than the phone and
+     the document scrolled sideways. The multi-column rules above already say
+     minmax(0, 1fr) for the same reason. */
   .grid.cols-2,
   .grid.cols-3,
   .grid.cols-4 {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  h1 {
-    font-size: 1.25rem;
-  }
 }
