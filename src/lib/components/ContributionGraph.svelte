@@ -204,6 +204,24 @@
     background: transparent;
   }
 
+  /* Same affordance as the release-year chart: the hovered day darkens while
+     the tooltip names it. Scoped to .cells so the legend key, which reuses
+     .cell, stays inert — it is a caption, not data.
+
+     The outline does most of the visible work here. A bar is tall enough that
+     recolouring it reads from anywhere, but a 10px square sits almost entirely
+     under the pointer, so on its own the fill change is easy to miss. */
+  .cells .cell:not(.pad):hover {
+    outline: 1px solid var(--text);
+  }
+
+  /* A day with no plays keeps its empty fill — darkening it toward the accent
+     would imply listening that did not happen. The chart leaves its empty bars
+     alone for the same reason. */
+  .cells .cell:not(.pad):not([data-level='0']):hover {
+    background: var(--accent-dark);
+  }
+
   .legend {
     display: flex;
     align-items: center;
