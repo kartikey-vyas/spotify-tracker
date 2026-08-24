@@ -1,13 +1,19 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { base } from '$app/paths';
   import {
-    DitheringTypes,
-    ShaderFitOptions,
     ShaderMount,
-    imageDitheringFragmentShader
+    getShaderNoiseTexture,
+    type ShaderMountUniforms
   } from '@paper-design/shaders';
   import RecordMark from '$lib/components/RecordMark.svelte';
+  import {
+    COVER_EFFECTS,
+    COVER_SIZING,
+    EFFECT_KEYS,
+    type CoverEffect,
+    type ThemeColors
+  } from '$lib/effects/coverEffects';
   import { getPresetDateRange } from '$lib/dateRanges';
   import { defaultProfileSlug } from '$lib/profileDefaults';
   import { isCurrentUserAdmin } from '$lib/queries/admin';
@@ -18,11 +24,13 @@
 
   const SHAPES = ['simplex', 'warp', 'dots', 'wave', 'ripple', 'swirl', 'sphere'] as const;
   const DITHERS = ['2x2', '4x4', '8x8', 'random'] as const;
-  const COVER_LIMIT = 24;
-  const COVER_BAKE_SIZE = 192;
+  const COVER_PREVIEW = 8;
+  const COVER_FETCH = 16;
+  const NOISE_TIMEOUT_MS = 1500;
 
   let isAdmin = false;
   let loading = true;
+  let pageDestroyed = false;
 
   /* Defaults mirror RecordMark's own, so the panel opens on what ships. */
   let shape: (typeof SHAPES)[number] = 'simplex';
@@ -39,20 +47,20 @@ type: '${dither}'   speed: ${speed}
 label: ${labelPct}% / hole ${holePct}%
 size: ${diameter}px`;
 
-  /* Cover-wall preview: independent of the RecordMark knobs above. */
-  let coverPxSize = 2;
-  let coverColorSteps = 3;
-  let coverBaking = false;
-  let coverBakedCount = 0;
-  let coverBakeTotal = 0;
+  const initialEffectKey = EFFECT_KEYS[0] ?? 'dithering';
+  let effectKey = initialEffectKey;
+  let effectParams: Record<string, number> = { ...COVER_EFFECTS[initialEffectKey].defaults };
+  let coverShowOriginals = false;
+  let coverLoading = false;
   let coverError = '';
-  let coverShowBaked = true;
-  let coverOriginalSrcs: string[] = [];
-  let coverBakedSrcs: string[] = [];
+  let coverImages: HTMLImageElement[] = [];
   let coverTitles: string[] = [];
+  let coverHosts: Array<HTMLDivElement | undefined> = [];
+  let coverMounts: ShaderMount[] = [];
+  let noiseTexture: HTMLImageElement | undefined;
 
-  let bakeHost: HTMLDivElement | null = null;
-  let bakeMount: ShaderMount | null = null;
+  $: coverSnippet = formatCoverSnippet(effectKey, effectParams);
+  $: selectedEffect = COVER_EFFECTS[effectKey] ?? COVER_EFFECTS[initialEffectKey];
 
   function pickTheme(next: Theme): void {
     applyTheme(next);
@@ -61,11 +69,15 @@ size: ${diameter}px`;
     } catch {
       /* Private browsing can refuse writes; the theme still applies. */
     }
+    applyCoverUniforms(effectKey, effectParams);
   }
 
   onMount(async () => {
     isAdmin = await isCurrentUserAdmin();
     loading = false;
+    if (isAdmin && publicSupabaseConfigured) {
+      await loadCovers();
+    }
   });
 
   function readVar(name: string): [number, number, number, number] {
@@ -86,12 +98,50 @@ size: ${diameter}px`;
     ];
   }
 
-  function waitTwoFrames(): Promise<void> {
+  function themeColors(): ThemeColors {
+    return {
+      bg: readVar('--bg'),
+      accent: readVar('--accent'),
+      text: readVar('--text'),
+      surface2: readVar('--surface-2')
+    };
+  }
+
+  function formatCoverSnippet(key: string, params: Record<string, number>): string {
+    const lines = Object.entries(params).map(([name, value]) => `${name}: ${value}`);
+    return `effect: '${key}'\n${lines.join('\n')}`;
+  }
+
+  function controlValueLabel(effect: CoverEffect, key: string, value: number): string {
+    const control = effect.controls.find((item) => item.key === key);
+    const option = control?.options?.find((item) => item.value === value);
+    return option?.label ?? String(value);
+  }
+
+  function bindCoverHost(node: HTMLDivElement, index: number) {
+    coverHosts[index] = node;
+    return {
+      destroy() {
+        if (coverHosts[index] === node) coverHosts[index] = undefined;
+      }
+    };
+  }
+
+  function awaitImage(img: HTMLImageElement, timeoutMs: number): Promise<void> {
+    if (img.complete && img.naturalWidth > 0) return Promise.resolve();
     return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
-      });
+      const done = () => resolve();
+      img.addEventListener('load', done, { once: true });
+      img.addEventListener('error', done, { once: true });
+      setTimeout(done, timeoutMs);
     });
+  }
+
+  async function loadNoiseTexture(): Promise<HTMLImageElement | undefined> {
+    const noise = getShaderNoiseTexture();
+    if (!noise) return undefined;
+    await awaitImage(noise, NOISE_TIMEOUT_MS);
+    return noise;
   }
 
   function loadCoverImage(url: string): Promise<HTMLImageElement | null> {
@@ -104,23 +154,108 @@ size: ${diameter}px`;
     });
   }
 
-  function teardownBake(): void {
-    bakeMount?.dispose();
-    bakeMount = null;
-    bakeHost?.remove();
-    bakeHost = null;
+  function disposeCoverMounts(): void {
+    /* Capture the canvases BEFORE disposing — dispose() detaches them from the
+       host, so querying afterwards finds nothing.
+
+       Chromium frees a WebGL context lazily, so re-mounting overlaps the
+       outgoing and incoming contexts. With 4 RecordMarks already on this page
+       that pushes past the 16 contexts browsers allow, and the oldest canvases
+       get killed — which is the RecordMarks. Forcing the loss releases them
+       immediately instead. */
+    const canvases = coverHosts
+      .map((host) => host?.querySelector('canvas'))
+      .filter((c): c is HTMLCanvasElement => Boolean(c));
+
+    for (const mount of coverMounts) {
+      mount.dispose();
+    }
+    for (const canvas of canvases) {
+      canvas.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+    coverMounts = [];
   }
 
-  async function bakeCovers(nextPxSize: number, nextColorSteps: number): Promise<void> {
-    if (coverBaking) return;
-    coverBaking = true;
+  function builtUniforms(effect: CoverEffect, params: Record<string, number>): ShaderMountUniforms {
+    return effect.build(params, themeColors()) as ShaderMountUniforms;
+  }
+
+  function remountCovers(key: string, params: Record<string, number>): void {
+    disposeCoverMounts();
+    if (pageDestroyed) return;
+
+    const effect = COVER_EFFECTS[key];
+    if (!effect) return;
+
+    const built = builtUniforms(effect, params);
+    const count = Math.min(COVER_PREVIEW, coverImages.length);
+
+    for (let i = 0; i < count; i++) {
+      if (coverMounts.length >= COVER_PREVIEW) break;
+      const host = coverHosts[i];
+      const img = coverImages[i];
+      if (!host || !img) continue;
+      try {
+        coverMounts.push(
+          new ShaderMount(
+            host,
+            effect.shader,
+            {
+              ...COVER_SIZING,
+              u_image: img,
+              ...(effect.needsNoise && noiseTexture ? { u_noiseTexture: noiseTexture } : {}),
+              ...built
+            },
+            undefined,
+            0,
+            0
+          )
+        );
+      } catch (caught) {
+        coverError = caught instanceof Error ? caught.message : String(caught);
+        disposeCoverMounts();
+        return;
+      }
+    }
+  }
+
+  function applyCoverUniforms(key: string, params: Record<string, number>): void {
+    if (coverMounts.length === 0) return;
+    const effect = COVER_EFFECTS[key];
+    if (!effect) return;
+    const uniforms = builtUniforms(effect, params);
+    for (const mount of coverMounts) {
+      mount.setUniforms(uniforms);
+    }
+  }
+
+  function selectEffect(key: string): void {
+    const params = { ...COVER_EFFECTS[key].defaults };
+    effectKey = key;
+    effectParams = params;
+    remountCovers(key, params);
+  }
+
+  function setParam(key: string, value: number): void {
+    const params = { ...effectParams, [key]: value };
+    effectParams = params;
+    applyCoverUniforms(effectKey, params);
+  }
+
+  function resetEffect(key: string): void {
+    const params = { ...COVER_EFFECTS[key].defaults };
+    effectParams = params;
+    applyCoverUniforms(key, params);
+  }
+
+  async function loadCovers(): Promise<void> {
+    if (coverLoading) return;
+    coverLoading = true;
     coverError = '';
-    coverBakedCount = 0;
-    coverBakeTotal = 0;
-    coverBakedSrcs = [];
-    teardownBake();
+    disposeCoverMounts();
 
     try {
+      const noisePromise = loadNoiseTexture();
       const range = getPresetDateRange('last_30_days');
       const rows = await getProfileRankings({
         slug: defaultProfileSlug,
@@ -128,13 +263,13 @@ size: ${diameter}px`;
         start: range.start,
         end: range.end,
         metric: 'plays',
-        limit: COVER_LIMIT
+        limit: COVER_FETCH
       });
       const images = await fetchAlbumImages(rows.map((row) => Number(row.entity_id)));
 
       const urls: Array<{ title: string; url: string }> = [];
       for (const row of rows) {
-        if (urls.length >= COVER_LIMIT) break;
+        if (urls.length >= COVER_PREVIEW) break;
         const art = images.get(Number(row.entity_id));
         if (!art?.image_url) continue;
         urls.push({ title: row.entity_name, url: art.image_url });
@@ -142,81 +277,29 @@ size: ${diameter}px`;
 
       const loaded: Array<{ title: string; img: HTMLImageElement }> = [];
       for (const cover of urls) {
+        if (loaded.length >= COVER_PREVIEW) break;
         const img = await loadCoverImage(cover.url);
         if (img) loaded.push({ title: cover.title, img });
       }
 
-      coverOriginalSrcs = loaded.map((item) => item.img.src);
+      if (pageDestroyed) return;
+
+      noiseTexture = await noisePromise;
+      coverImages = loaded.map((item) => item.img);
       coverTitles = loaded.map((item) => item.title);
-      coverBakeTotal = loaded.length;
-
-      const first = loaded[0];
-      if (!first) return;
-
-      const host = document.createElement('div');
-      host.setAttribute('aria-hidden', 'true');
-      host.style.position = 'fixed';
-      host.style.left = '-9999px';
-      host.style.width = `${COVER_BAKE_SIZE}px`;
-      host.style.height = `${COVER_BAKE_SIZE}px`;
-      document.body.appendChild(host);
-      bakeHost = host;
-
-      const mount = new ShaderMount(
-        host,
-        imageDitheringFragmentShader,
-        {
-          u_fit: ShaderFitOptions.cover,
-          u_scale: 1,
-          u_rotation: 0,
-          u_offsetX: 0,
-          u_offsetY: 0,
-          u_originX: 0.5,
-          u_originY: 0.5,
-          u_worldWidth: 0,
-          u_worldHeight: 0,
-          u_image: first.img,
-          u_imageAspectRatio: 1,
-          u_type: DitheringTypes['8x8'],
-          u_pxSize: nextPxSize,
-          u_colorBack: readVar('--bg'),
-          u_colorFront: readVar('--accent'),
-          u_colorHighlight: readVar('--text'),
-          u_originalColors: false,
-          u_inverted: false,
-          u_colorSteps: nextColorSteps
-        },
-        { preserveDrawingBuffer: true },
-        0,
-        0
-      );
-      bakeMount = mount;
-
-      /* ResizeObserver sizes the canvas asynchronously; wait before the first read. */
-      await waitTwoFrames();
-
-      const baked: string[] = [];
-      for (const item of loaded) {
-        mount.setUniforms({ u_image: item.img });
-        await waitTwoFrames();
-        const canvas = host.querySelector('canvas');
-        if (!(canvas instanceof HTMLCanvasElement)) {
-          throw new Error('shader canvas missing');
-        }
-        baked.push(canvas.toDataURL());
-        coverBakedCount += 1;
-      }
-      coverBakedSrcs = baked;
+      await tick();
+      if (pageDestroyed) return;
+      remountCovers(effectKey, effectParams);
     } catch (caught) {
       coverError = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      teardownBake();
-      coverBaking = false;
+      coverLoading = false;
     }
   }
 
   onDestroy(() => {
-    teardownBake();
+    pageDestroyed = true;
+    disposeCoverMounts();
   });
 </script>
 
@@ -332,60 +415,100 @@ size: ${diameter}px`;
 
     <div class="cover-preview section-gap">
       <div class="section-heading">
-        <h2>Cover wall</h2>
+        <h2>Effects playground</h2>
         <span class="muted">
-          {#if coverBaking}
-            baked {coverBakedCount} / {coverBakeTotal}
+          {#if coverLoading}
+            loading covers…
           {:else}
-            last 30 days · {defaultProfileSlug}
+            last 30 days · {defaultProfileSlug} · {coverImages.length}/{COVER_PREVIEW}
           {/if}
         </span>
       </div>
 
       <div class="cover-toolbar">
-        <button
-          type="button"
-          disabled={coverBaking}
-          on:click={() => bakeCovers(coverPxSize, coverColorSteps)}
-        >
-          bake covers
-        </button>
-        {#if coverOriginalSrcs.length > 0}
-          <label class="cover-toggle" for="cover-baked">
-            <input id="cover-baked" type="checkbox" bind:checked={coverShowBaked} />
-            {coverShowBaked ? 'baked' : 'original'}
+        <div class="effect-pick">
+          <label for="fx-key">effect</label>
+          <select
+            id="fx-key"
+            value={effectKey}
+            on:change={(e) => selectEffect(e.currentTarget.value)}
+          >
+            {#each EFFECT_KEYS as key}
+              <option value={key}>{COVER_EFFECTS[key].label}</option>
+            {/each}
+          </select>
+          <span class="muted">
+            {selectedEffect.keepsColour ? 'keeps cover colours' : 're-tints the cover'}
+          </span>
+        </div>
+        <button type="button" on:click={() => resetEffect(effectKey)}>reset</button>
+        {#if coverImages.length > 0}
+          <label class="cover-toggle" for="cover-originals">
+            <input id="cover-originals" type="checkbox" bind:checked={coverShowOriginals} />
+            {coverShowOriginals ? 'originals' : 'effect'}
           </label>
         {/if}
       </div>
 
       <div class="cover-fields">
-        <div class="field">
-          <label for="cover-px">pxSize · {coverPxSize}</label>
-          <input id="cover-px" type="range" min="1" max="4" step="0.5" bind:value={coverPxSize} />
-        </div>
-        <div class="field">
-          <label for="cover-steps">colorSteps · {coverColorSteps}</label>
-          <input
-            id="cover-steps"
-            type="range"
-            min="2"
-            max="5"
-            step="1"
-            bind:value={coverColorSteps}
-          />
-        </div>
+        {#each selectedEffect.controls as control (control.key)}
+          <div class="field">
+            <label for="fx-{control.key}">
+              {control.label} · {controlValueLabel(selectedEffect, control.key, effectParams[control.key] ?? 0)}
+            </label>
+            {#if control.options}
+              <select
+                id="fx-{control.key}"
+                value={effectParams[control.key]}
+                on:change={(e) => setParam(control.key, Number(e.currentTarget.value))}
+              >
+                {#each control.options as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+            {:else}
+              <input
+                id="fx-{control.key}"
+                type="range"
+                min={control.min}
+                max={control.max}
+                step={control.step}
+                value={effectParams[control.key] ?? 0}
+                on:input={(e) => setParam(control.key, Number(e.currentTarget.value))}
+              />
+            {/if}
+          </div>
+        {/each}
       </div>
+
+      <pre class="snippet">{coverSnippet}</pre>
 
       {#if coverError}
         <p class="muted">{coverError}</p>
       {/if}
 
-      {#if coverOriginalSrcs.length > 0}
+      {#if coverImages.length > 0}
         <div class="cover-wall">
-          {#each coverShowBaked && coverBakedSrcs.length > 0 ? coverBakedSrcs : coverOriginalSrcs as src, index}
-            <img src={src} alt={coverTitles[index] ?? ''} width="96" height="96" />
+          {#each coverImages as img, index}
+            <div class="cover-cell">
+              <img
+                class="cover-layer"
+                class:is-hidden={!coverShowOriginals}
+                src={img.src}
+                alt={coverTitles[index] ?? ''}
+                width="96"
+                height="96"
+              />
+              <div
+                class="cover-layer cover-shader"
+                class:is-hidden={coverShowOriginals}
+                use:bindCoverHost={index}
+              ></div>
+            </div>
           {/each}
         </div>
+      {:else if !coverLoading}
+        <p class="muted">No album covers in this range.</p>
       {/if}
     </div>
   {/if}
@@ -474,6 +597,18 @@ size: ${diameter}px`;
     margin-bottom: var(--space-4);
   }
 
+  .effect-pick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .effect-pick label {
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
   .cover-toggle {
     display: flex;
     align-items: center;
@@ -489,15 +624,40 @@ size: ${diameter}px`;
     margin-bottom: var(--space-4);
   }
 
+  .cover-preview .snippet {
+    max-width: 340px;
+    margin-bottom: var(--space-4);
+  }
+
   .cover-wall {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
   }
 
-  .cover-wall img {
+  .cover-cell {
+    position: relative;
     width: 96px;
     height: 96px;
+    flex: 0 0 96px;
+  }
+
+  .cover-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
+  }
+
+  .cover-shader :global(canvas) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .cover-layer.is-hidden {
+    visibility: hidden;
+    pointer-events: none;
   }
 </style>
