@@ -1,24 +1,24 @@
 export type DateRangePreset =
-  | 'today'
-  | 'yesterday'
-  | 'this_week'
   | 'last_week'
   | 'this_month'
   | 'last_month'
+  | 'last_6_months'
+  | 'this_year'
+  | 'last_year'
   | 'last_7_days'
-  | 'last_30_days'
-  | 'last_365_days';
+  | 'last_30_days';
 
+/* The explorer's date picker, ordered near-to-far. A deliberate subset of the
+   presets above: the rolling windows (last_7_days, last_30_days) stay off the
+   menu but available programmatically — the homepage band uses them — because
+   calendar-shaped ranges read better as menu options. */
 export const dateRangeOptions: Array<{ value: DateRangePreset; label: string }> = [
-  { value: 'today', label: 'Today' },
-  { value: 'yesterday', label: 'Yesterday' },
-  { value: 'this_week', label: 'This week' },
   { value: 'last_week', label: 'Last week' },
   { value: 'this_month', label: 'This month' },
   { value: 'last_month', label: 'Last month' },
-  { value: 'last_7_days', label: 'Last 7 days' },
-  { value: 'last_30_days', label: 'Last 30 days' },
-  { value: 'last_365_days', label: 'Last 365 days' }
+  { value: 'last_6_months', label: 'Last 6 months' },
+  { value: 'this_year', label: 'This year' },
+  { value: 'last_year', label: 'Last year' }
 ];
 
 const timeZone = 'Australia/Melbourne';
@@ -78,14 +78,6 @@ export function getPresetDateRange(preset: DateRangePreset): { start: string; en
   const today = dateFromParts(now.year, now.month, now.day);
 
   switch (preset) {
-    case 'today':
-      return { start: isoDate(today), end: isoDate(today) };
-    case 'yesterday': {
-      const day = addDays(today, -1);
-      return { start: isoDate(day), end: isoDate(day) };
-    }
-    case 'this_week':
-      return { start: isoDate(mondayStart(today)), end: isoDate(today) };
     case 'last_week': {
       const start = addDays(mondayStart(today), -7);
       return { start: isoDate(start), end: isoDate(addDays(start, 6)) };
@@ -100,11 +92,24 @@ export function getPresetDateRange(preset: DateRangePreset): { start: string; en
       const end = addDays(thisMonth, -1);
       return { start: isoDate(start), end: isoDate(end) };
     }
+    case 'last_6_months': {
+      /* Rolling window ending today, inclusive — the +1 day mirrors how
+         last_7_days spans -6: six exact months land on today, not tomorrow. */
+      const start = addDays(addMonths(today, -6), 1);
+      return { start: isoDate(start), end: isoDate(today) };
+    }
+    case 'this_year': {
+      const start = dateFromParts(now.year, 1, 1);
+      return { start: isoDate(start), end: isoDate(today) };
+    }
+    case 'last_year': {
+      const start = dateFromParts(now.year - 1, 1, 1);
+      const end = dateFromParts(now.year - 1, 12, 31);
+      return { start: isoDate(start), end: isoDate(end) };
+    }
     case 'last_7_days':
       return { start: isoDate(addDays(today, -6)), end: isoDate(today) };
     case 'last_30_days':
       return { start: isoDate(addDays(today, -29)), end: isoDate(today) };
-    case 'last_365_days':
-      return { start: isoDate(addDays(today, -364)), end: isoDate(today) };
   }
 }

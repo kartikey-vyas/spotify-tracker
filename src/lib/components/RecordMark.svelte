@@ -7,6 +7,7 @@
     ShaderMount,
     ditheringFragmentShader
   } from '@paper-design/shaders';
+  import { readThemeVar } from '$lib/effects/webgl';
 
   export let size: 'sm' | 'md' | 'lg' = 'md';
   export let label = '';
@@ -40,30 +41,12 @@
   $: px = diameter ?? DIAMETER[size];
   $: holeOfLabel = Math.round((holePct / labelPct) * 100);
 
-  function readVar(name: string): [number, number, number, number] {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const hex = raw.replace('#', '');
-    const full =
-      hex.length === 3
-        ? hex
-            .split('')
-            .map((c) => c + c)
-            .join('')
-        : hex;
-    return [
-      parseInt(full.slice(0, 2), 16) / 255,
-      parseInt(full.slice(2, 4), 16) / 255,
-      parseInt(full.slice(4, 6), 16) / 255,
-      1
-    ];
-  }
-
   /* The unlit dither cells are the page ground, not a surface tint, so the disc
      has no hard edge — where the noise field goes dark the mark simply fades
      into the page. It reads as a disc catching light rather than a stamped-out
      circle, which is the whole character of it. */
   function colors() {
-    return { u_colorBack: readVar('--bg'), u_colorFront: readVar('--accent') };
+    return { u_colorBack: readThemeVar('--bg'), u_colorFront: readThemeVar('--accent') };
   }
 
   function applyTheme(): void {
@@ -143,7 +126,7 @@
 <!-- Every class here is prefixed `mark-`, which is not this codebase's habit and
      is deliberate. The obvious names for a record — disc, groove, label — are
      also the obvious names for things that have nothing to do with a record, and
-     two of them were already taken elsewhere: `.groove` is the homepage's ticker
+     two of them were already taken elsewhere: `.groove` was the homepage's ticker
      and `.label` is the listening clock's hour text. Svelte's scoping normally
      keeps them apart, but it is the ONLY thing keeping them apart, and when a
      dev server served this component's CSS unscoped the ticker inherited this

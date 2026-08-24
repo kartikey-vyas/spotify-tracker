@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import DitherFrame from '$lib/components/DitherFrame.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
@@ -63,34 +64,6 @@
   // Loading while data is already on screen (a 7d/30d toggle): dim the band so
   // the swap eases instead of popping. Distinct from the cold-load skeleton.
   $: bandPending = bandLoading && !bandSkeleton;
-
-  // One long groove of today's numbers for the needle-drop ticker under the
-  // site header. Built from the overview cache so it is ready at first paint.
-  // Each window's count and its top artist stay one group (joined with a small
-  // middot); the hollow ◦ only separates windows, so the pairing reads.
-  $: grooveText = overview
-    ? [
-        [
-          `${todayPlays.toLocaleString()} plays today`,
-          overview.today.top_artist ? `top artist ${overview.today.top_artist}` : ''
-        ],
-        [
-          `${last7DaysPlays.toLocaleString()} plays this week`,
-          overview.this_week.top_artists[0]?.entity_name
-            ? `on rotation ${overview.this_week.top_artists[0].entity_name}`
-            : ''
-        ],
-        [
-          `${last30DaysPlays.toLocaleString()} plays this month`,
-          overview.last_30_days.top_artists[0]?.entity_name
-            ? `heavy rotation ${overview.last_30_days.top_artists[0].entity_name}`
-            : ''
-        ]
-      ]
-        .map((group) => group.filter(Boolean).join(' · '))
-        .filter(Boolean)
-        .join(' ◦ ')
-    : '';
 
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -278,15 +251,6 @@
 </script>
 
 <section class="page">
-  {#if grooveText && !error}
-    <div class="groove" aria-hidden="true">
-      <div class="groove-track">
-        <span class="groove-copy">{grooveText}&nbsp;&nbsp;◦&nbsp;&nbsp;</span>
-        <span class="groove-copy groove-dup">{grooveText}&nbsp;&nbsp;◦&nbsp;&nbsp;</span>
-      </div>
-    </div>
-  {/if}
-
   <div class="page-header">
     <span class="eyebrow">Australia/Melbourne</span>
     <h1>{selectedProfile?.display_name ?? 'Listening history'}</h1>
@@ -337,11 +301,18 @@
       </details>
     </div>
 
-    <section class="grid cols-3">
-      {#each summaryRows() as row}
-        <MetricCard label={row.label} value={row.value} caption={row.caption} detail={row.detail} />
-      {/each}
-    </section>
+    <DitherFrame>
+      <section class="grid cols-3">
+        {#each summaryRows() as row}
+          <MetricCard
+            label={row.label}
+            value={row.value}
+            caption={row.caption}
+            detail={row.detail}
+          />
+        {/each}
+      </section>
+    </DitherFrame>
 
     <div class="window-bar section-gap">
       <div class="window-toggle" role="group" aria-label="Time window for top music">
@@ -359,8 +330,8 @@
     </div>
 
     {#if bandSkeleton || topAlbums.length > 0}
-      <section class="panel band-region" class:is-pending={bandPending}>
-        <div class="panel-heading">
+      <section class="band-region" class:is-pending={bandPending}>
+        <div class="section-heading">
           <h2>Top albums {windowLabel}</h2>
           <span class="muted">Cover wall</span>
         </div>
@@ -374,7 +345,7 @@
           <h2>Top artists {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        <StatList rows={topArtists} loading={bandSkeleton} entityKind="artist" />
+        <StatList rows={topArtists} loading={bandSkeleton} entityKind="artist" waveTop />
       </div>
 
       <div>
@@ -382,7 +353,7 @@
           <h2>Top tracks {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        <StatList rows={topTracks} loading={bandSkeleton} />
+        <StatList rows={topTracks} loading={bandSkeleton} waveTop />
       </div>
     </section>
 
@@ -438,61 +409,6 @@
 </section>
 
 <style>
-  /* Needle-drop ticker: one slow groove of today's numbers under the site
-     header. Two identical copies scroll by -50% for a seamless wrap. */
-  .groove {
-    overflow: hidden;
-    margin-bottom: var(--space-4);
-    padding: var(--space-1) 0;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-  }
-
-  .groove-track {
-    display: flex;
-    width: max-content;
-  }
-
-  .groove-copy {
-    color: var(--muted);
-    font-size: var(--text-2xs);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .groove-track {
-      animation: groove-scroll 75s linear infinite;
-    }
-
-    @keyframes groove-scroll {
-      from {
-        transform: translateX(0);
-      }
-      to {
-        transform: translateX(-50%);
-      }
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .groove-track {
-      display: block;
-      width: auto;
-    }
-
-    .groove-copy {
-      display: block;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .groove-dup {
-      display: none;
-    }
-  }
-
   /* Un-boxed sections: a heading plus one hairline rule. Content below sits
      directly on the page background — the rule is the only chrome. */
   .section-heading {
@@ -508,16 +424,6 @@
 
   .section-heading .muted {
     font-size: var(--text-sm);
-  }
-
-  /* The cover wall keeps its original bordered shelf; its heading stays the
-     plain flex row from the base design (no extra rule inside the box). */
-  .panel-heading {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
   }
 
   /* Quiet inline profile picker: a dotted-underline name instead of a bordered

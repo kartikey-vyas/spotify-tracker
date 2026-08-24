@@ -6,13 +6,17 @@
     getShaderNoiseTexture,
     type ShaderMountUniforms
   } from '@paper-design/shaders';
+  import { DITHER_FIELD_DEFAULTS } from '$lib/components/DitherField.svelte';
+  import DitherFrame from '$lib/components/DitherFrame.svelte';
+  import MetricCard from '$lib/components/MetricCard.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
+  import StatList, { RANK_WAVE_DEFAULTS } from '$lib/components/StatList.svelte';
+  import type { RankingRow } from '$lib/types';
   import {
     COVER_EFFECTS,
     COVER_SIZING,
     EFFECT_KEYS,
-    type CoverEffect,
-    type ThemeColors
+    type CoverEffect
   } from '$lib/effects/coverEffects';
   import {
     HOVER_OVERLAYS,
@@ -20,6 +24,7 @@
     OVERLAY_SIZING,
     type HoverOverlay
   } from '$lib/effects/hoverOverlays';
+  import { readThemeColors, disposeShaderMount } from '$lib/effects/webgl';
   import { getPresetDateRange } from '$lib/dateRanges';
   import { defaultProfileSlug } from '$lib/profileDefaults';
   import { isCurrentUserAdmin } from '$lib/queries/admin';
@@ -52,6 +57,43 @@
 type: '${dither}'   speed: ${speed}
 label: ${labelPct}% / hole ${holePct}%
 size: ${diameter}px`;
+
+  /* Dither frame bench: the field behind the homepage metric cards. State is
+     seeded from the shipping defaults object, so the panel always opens on
+     what actually ships. */
+  let frameShape: (typeof SHAPES)[number] = DITHER_FIELD_DEFAULTS.shape;
+  let frameDither: (typeof DITHERS)[number] = DITHER_FIELD_DEFAULTS.dither;
+  let frameScale: number = DITHER_FIELD_DEFAULTS.scale;
+  let framePx: number = DITHER_FIELD_DEFAULTS.pxSize;
+  let frameSpeed: number = DITHER_FIELD_DEFAULTS.speed;
+
+  $: frameSnippet = `shape: '${frameShape}'   dither: '${frameDither}'
+scale: ${frameScale}   pxSize: ${framePx}   speed: ${frameSpeed}`;
+
+  /* Rank wave bench: the wave behind a stat list's #1 row. Its own dials,
+     separate from the frame's, seeded from StatList's shipping defaults. */
+  let rankWave = { ...RANK_WAVE_DEFAULTS };
+
+  $: rankSnippet = `scale: ${rankWave.scale}   pxSize: ${rankWave.pxSize}
+speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
+
+  const rankRow = (id: string, name: string, plays: number): RankingRow => ({
+    entity_id: id,
+    entity_name: name,
+    minutes: 0,
+    plays,
+    qualified_plays: plays,
+    unique_tracks: 0,
+    skipped_count: 0,
+    known_skip_count: 0,
+    unknown_duration_plays: 0
+  });
+
+  const rankRows: RankingRow[] = [
+    rankRow('1', 'Massive Attack', 35),
+    rankRow('2', 'Aphex Twin', 20),
+    rankRow('3', 'Tame Impala', 20)
+  ];
 
   const initialEffectKey = EFFECT_KEYS[0] ?? 'dithering';
   let effectKey = initialEffectKey;
@@ -95,33 +137,6 @@ size: ${diameter}px`;
       await loadCovers();
     }
   });
-
-  function readVar(name: string): [number, number, number, number] {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const hex = raw.replace('#', '');
-    const full =
-      hex.length === 3
-        ? hex
-            .split('')
-            .map((c) => c + c)
-            .join('')
-        : hex;
-    return [
-      parseInt(full.slice(0, 2), 16) / 255,
-      parseInt(full.slice(2, 4), 16) / 255,
-      parseInt(full.slice(4, 6), 16) / 255,
-      1
-    ];
-  }
-
-  function themeColors(): ThemeColors {
-    return {
-      bg: readVar('--bg'),
-      accent: readVar('--accent'),
-      text: readVar('--text'),
-      surface2: readVar('--surface-2')
-    };
-  }
 
   function formatCoverSnippet(key: string, params: Record<string, number>): string {
     const lines = Object.entries(params).map(([name, value]) => `${name}: ${value}`);
@@ -193,7 +208,7 @@ size: ${diameter}px`;
   }
 
   function builtUniforms(effect: CoverEffect, params: Record<string, number>): ShaderMountUniforms {
-    return effect.build(params, themeColors()) as ShaderMountUniforms;
+    return effect.build(params, readThemeColors()) as ShaderMountUniforms;
   }
 
   function remountCovers(key: string, params: Record<string, number>): void {
@@ -317,11 +332,7 @@ size: ${diameter}px`;
 
   function disposeOverlay(): void {
     if (!overlayMount) return;
-    /* Same capture-before-dispose rule as the cover mounts: dispose() detaches
-       the canvas, so the context can only be released explicitly beforehand. */
-    const canvas = overlayHost?.querySelector('canvas');
-    overlayMount.dispose();
-    canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
+    disposeShaderMount(overlayMount, overlayHost);
     overlayMount = undefined;
   }
 
@@ -332,7 +343,7 @@ size: ${diameter}px`;
     return {
       ...OVERLAY_SIZING,
       ...(overlay.needsNoise && noiseTexture ? { u_noiseTexture: noiseTexture } : {}),
-      ...overlay.build(params, themeColors())
+      ...overlay.build(params, readThemeColors())
     } as ShaderMountUniforms;
   }
 
@@ -516,6 +527,99 @@ size: ${diameter}px`;
         <RecordMark {shape} {dither} {scale} {pxSize} {speed} {labelPct} {holePct} size="sm" />
         <RecordMark {shape} {dither} {scale} {pxSize} {speed} {labelPct} {holePct} size="md" />
         <RecordMark {shape} {dither} {scale} {pxSize} {speed} {labelPct} {holePct} size="lg" />
+      </div>
+    </div>
+
+    <div class="frame-bench section-gap">
+      <div class="section-heading">
+        <h2>Dither frame</h2>
+        <span class="muted">the field behind the homepage metric cards</span>
+      </div>
+      <div class="bench">
+        <div class="frame-stage">
+          <DitherFrame
+            shape={frameShape}
+            dither={frameDither}
+            scale={frameScale}
+            pxSize={framePx}
+            speed={frameSpeed}
+          >
+            <section class="grid cols-3">
+              <MetricCard label="Today" value="51 plays" caption="top artist" detail="LCD Soundsystem" />
+              <MetricCard label="Last 7 days" value="143 plays" caption="top artist" detail="JPEGMAFIA" />
+              <MetricCard label="Last 30 days" value="563 plays" caption="top artist" detail="Massive Attack" />
+            </section>
+          </DitherFrame>
+        </div>
+
+        <div class="panel controls">
+          <div class="field">
+            <label for="fr-shape">shape</label>
+            <select id="fr-shape" bind:value={frameShape}>
+              {#each SHAPES as s}<option value={s}>{s}</option>{/each}
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="fr-dither">dither</label>
+            <select id="fr-dither" bind:value={frameDither}>
+              {#each DITHERS as d}<option value={d}>{d}</option>{/each}
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="fr-scale">scale · {frameScale}</label>
+            <input id="fr-scale" type="range" min="0.05" max="2" step="0.05" bind:value={frameScale} />
+          </div>
+
+          <div class="field">
+            <label for="fr-px">pxSize · {framePx}</label>
+            <input id="fr-px" type="range" min="0.5" max="5" step="0.25" bind:value={framePx} />
+          </div>
+
+          <div class="field">
+            <label for="fr-speed">speed · {frameSpeed}</label>
+            <input id="fr-speed" type="range" min="0" max="3" step="0.1" bind:value={frameSpeed} />
+          </div>
+
+          <pre class="snippet">{frameSnippet}</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="rank-bench section-gap">
+      <div class="section-heading">
+        <h2>Rank wave</h2>
+        <span class="muted">the wave behind a stat list's #1 row</span>
+      </div>
+      <div class="bench">
+        <div class="frame-stage">
+          <StatList rows={rankRows} waveTop wave={rankWave} />
+        </div>
+
+        <div class="panel controls">
+          <div class="field">
+            <label for="rk-scale">scale · {rankWave.scale}</label>
+            <input id="rk-scale" type="range" min="0.05" max="3" step="0.05" bind:value={rankWave.scale} />
+          </div>
+
+          <div class="field">
+            <label for="rk-px">pxSize · {rankWave.pxSize}</label>
+            <input id="rk-px" type="range" min="0.5" max="5" step="0.25" bind:value={rankWave.pxSize} />
+          </div>
+
+          <div class="field">
+            <label for="rk-speed">speed · {rankWave.speed}</label>
+            <input id="rk-speed" type="range" min="0" max="3" step="0.1" bind:value={rankWave.speed} />
+          </div>
+
+          <div class="field">
+            <label for="rk-opacity">opacity · {rankWave.opacity}</label>
+            <input id="rk-opacity" type="range" min="0" max="1" step="0.05" bind:value={rankWave.opacity} />
+          </div>
+
+          <pre class="snippet">{rankSnippet}</pre>
+        </div>
       </div>
     </div>
 
@@ -784,6 +888,11 @@ size: ${diameter}px`;
     flex-wrap: wrap;
     align-items: flex-end;
     gap: var(--space-12);
+  }
+
+  .frame-stage {
+    flex: 1 1 420px;
+    min-width: 0;
   }
 
   .cover-bench {

@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
+  import DitherFrame from '$lib/components/DitherFrame.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
@@ -60,7 +61,7 @@
 
   let mounted = false;
   let syncingUrl = false;
-  let preset: ExploreDateRangePreset = 'last_30_days';
+  let preset: ExploreDateRangePreset = 'this_month';
   let selectedSlug = defaultProfileSlug;
   let entityType: EntityType = 'artist';
   let metric: Metric = 'plays';
@@ -145,7 +146,7 @@
       }
 
       const rangeParam = url.searchParams.get('range');
-      preset = isExploreDateRangePreset(rangeParam) ? rangeParam : 'last_30_days';
+      preset = isExploreDateRangePreset(rangeParam) ? rangeParam : 'this_month';
 
       const entityParam = url.searchParams.get('entity');
       entityType = isEntityType(entityParam) ? entityParam : 'artist';
@@ -324,7 +325,10 @@
     <p class="lede">Rank artists, tracks, and albums for one profile at a time.</p>
   </div>
 
-  <div class="toolbar">
+  <!-- The pickers are cards on the dither field; the field fills the gaps
+       between them, same treatment as the overview page's metric cards. -->
+  <DitherFrame>
+    <div class="toolbar">
     <div class="picker-field">
       <span class="picker-label">Profile</span>
       <details bind:this={profileMenu} class="menu picker-menu">
@@ -408,7 +412,8 @@
         </div>
       </details>
     </div>
-  </div>
+    </div>
+  </DitherFrame>
 
   {#if loading && rankings.length === 0}
     <section class="panel panel-loading section-gap"><RecordMark size="lg" label="Loading explorer data..." /></section>
@@ -523,27 +528,54 @@
     margin-top: 32px;
   }
 
-  /* Toolbar as a quiet band: filters sit on the page background, closed off
-     by a single bottom rule instead of a full box. */
+  /* Four equal columns across the full page width; the dither field fills
+     the gaps between the boxes, homepage-metric-cards style. */
   .toolbar {
-    padding: 0 0 16px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-3);
+    padding: 0;
     border: 0;
-    border-bottom: 1px solid var(--line);
   }
 
+  /* Each picker is a card on the field, same treatment as the overview
+     page's metric cards: hairline box, opaque page ground. */
   .picker-field {
     display: grid;
-    gap: 4px;
-    min-width: 160px;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    background: var(--bg);
   }
 
   .picker-label {
     color: var(--muted);
   }
 
-  /* Only the width is local; the menu itself is the shared component. */
   .picker-menu {
-    min-width: 160px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Bigger control: the trigger fills its card and steps up from the shared
+     32px field height to 40px, caret re-centred to match. */
+  .picker-menu :global(.menu-trigger.is-field) {
+    --menu-caret-top: 17px;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 40px;
+  }
+
+  .picker-menu :global(.menu-options.is-field) {
+    width: 100%;
+  }
+
+  @media (max-width: 800px) {
+    .toolbar {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
 

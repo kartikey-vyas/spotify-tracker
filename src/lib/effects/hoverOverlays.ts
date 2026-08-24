@@ -19,7 +19,10 @@
  *   contexts a browser allows; one shared overlay makes 13, eight would not fit.
  */
 import {
+  DitheringShapes,
+  DitheringTypes,
   ShaderFitOptions,
+  ditheringFragmentShader,
   godRaysFragmentShader,
   smokeRingFragmentShader,
   swirlFragmentShader
@@ -76,6 +79,30 @@ const COMMON: OverlayControl[] = [
 ];
 
 export const HOVER_OVERLAYS: Record<string, HoverOverlay> = {
+  ditherWave: {
+    label: 'dither wave',
+    shader: ditheringFragmentShader,
+    needsNoise: false,
+    controls: [
+      ...COMMON,
+      slider('scale', 'scale', 0.1, 2, 0.05),
+      slider('pxSize', 'pixel size', 1, 6, 0.25)
+    ],
+    /* The record mark's own shader, shape `wave`: a travelling sine whose
+       dithered falloff reads as a music wave rolling across the cover. This
+       is the overlay the cover wall ships. */
+    defaults: { opacity: 0.9, speed: 3, scale: 0.5, pxSize: 1.75 },
+    build: (p, c) => ({
+      u_colorBack: CLEAR,
+      u_colorFront: fade(c.accent, p.opacity),
+      u_shape: DitheringShapes.wave,
+      u_type: DitheringTypes['8x8'],
+      u_pxSize: p.pxSize,
+      /* Overrides OVERLAY_SIZING's u_scale: spread this AFTER the sizing. */
+      u_scale: p.scale
+    })
+  },
+
   godRays: {
     label: 'god rays',
     shader: godRaysFragmentShader,
