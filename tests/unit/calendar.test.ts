@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { availableYears, buildYearGrid } from '../../src/lib/calendar.js';
+import { buildYearGrid, yearTotals } from '../../src/lib/calendar.js';
 import type { CalendarDay } from '../../src/lib/types.js';
 
 const cellByDate = (grid: ReturnType<typeof buildYearGrid>, date: string) =>
@@ -11,20 +11,42 @@ const day = (local_date: string, plays: number, minutes = 0): CalendarDay => ({
   minutes
 });
 
-describe('availableYears', () => {
+describe('yearTotals', () => {
+  const sample = [
+    day('2019-05-01', 1),
+    day('2020-01-02', 3),
+    day('2026-06-29', 2),
+    day('2020-12-31', 1)
+  ];
+
   it('returns distinct years with data, newest first', () => {
-    expect(
-      availableYears([
-        day('2019-05-01', 1),
-        day('2020-01-02', 3),
-        day('2026-06-29', 2),
-        day('2020-12-31', 1)
-      ])
-    ).toEqual([2026, 2020, 2019]);
+    expect(yearTotals(sample, 'plays').map((total) => total.year)).toEqual([2026, 2020, 2019]);
+  });
+
+  it('sums each year and shares it against the busiest one', () => {
+    // 2020 is the busiest at 4, so it is the 1.0 the others are measured against.
+    expect(yearTotals(sample, 'plays')).toEqual([
+      { year: 2026, value: 2, share: 0.5 },
+      { year: 2020, value: 4, share: 1 },
+      { year: 2019, value: 1, share: 0.25 }
+    ]);
+  });
+
+  it('totals the metric it is asked for, not always plays', () => {
+    const days = [day('2021-01-01', 9, 40), day('2021-01-02', 9, 10)];
+    expect(yearTotals(days, 'minutes')).toEqual([{ year: 2021, value: 50, share: 1 }]);
+  });
+
+  it('still offers a year whose total is zero under this metric', () => {
+    // Plays-only rows (API source, no duration) total 0 minutes but are real
+    // years with real squares, so the picker must not drop them or divide by 0.
+    expect(yearTotals([day('2022-03-04', 5, 0)], 'minutes')).toEqual([
+      { year: 2022, value: 0, share: 0 }
+    ]);
   });
 
   it('is empty for no data', () => {
-    expect(availableYears([])).toEqual([]);
+    expect(yearTotals([], 'plays')).toEqual([]);
   });
 });
 
