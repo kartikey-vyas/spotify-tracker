@@ -93,7 +93,19 @@
     width: 100%;
     max-width: 230px;
     height: auto;
+    /* Belt and braces for the height: WebKit is unreliable at deriving an SVG's
+       intrinsic ratio from its viewBox when the element is a flex item, and
+       gets it wrong in the direction that collapses the dial. */
+    aspect-ratio: 1;
     font-family: inherit;
+  }
+
+  /* Stacked on a phone the dial has the full column to itself, and the hour
+     labels are in user units, so a larger dial is also a more legible one. */
+  @media (max-width: 800px) {
+    svg {
+      max-width: 280px;
+    }
   }
 
   .track {

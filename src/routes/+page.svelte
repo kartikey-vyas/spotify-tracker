@@ -618,7 +618,23 @@
     display: flex;
     flex: 1 1 220px;
     flex-direction: column;
+    /* Stops the dial eating the row beside the calendar. Purely a two-column
+       constraint — see the media query below, where it has to come back off. */
     max-width: 300px;
+  }
+
+  @media (max-width: 800px) {
+    /* Once .time-row wraps to one column the cap has nothing to protect, and it
+       strands the panel against the left edge with dead space beside it. */
+    .time-row .clock-panel {
+      max-width: none;
+    }
+
+    /* A 48px gutter reads as a deliberate column break beside the calendar and
+       as a hole once the two panels are stacked. */
+    .time-row {
+      gap: var(--space-8);
+    }
   }
 
   /* Catalog footer: rights line + a flat CSS barcode (hard-stop stripes, so
