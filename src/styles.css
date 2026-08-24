@@ -738,20 +738,10 @@ th {
 }
 
 @media (max-width: 800px) {
-  .site-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .header-controls {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .site-nav {
-    justify-content: flex-start;
-  }
+  /* The mobile header lives in +layout.svelte, next to the markup it restructures:
+     below this width the header becomes a grid of brand + tools over a full-width
+     scrolling nav rail, which the flex-column rules that used to sit here could
+     only fight. */
 
   /* minmax(0, 1fr), not 1fr: a bare 1fr track floors at its content's min-content
      width, so one long track name pushed the whole page wider than the phone and

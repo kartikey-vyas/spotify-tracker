@@ -15,6 +15,7 @@
   export let metric: CalendarMetric = 'plays';
 
   let selectedYear: number | null = null;
+  let yearButtons: Record<number, HTMLButtonElement | null> = {};
 
   $: years = availableYears(days);
   // Default to the newest year, and re-snap if the data set changes under us.
@@ -25,6 +26,11 @@
     selectedYear === null
       ? null
       : buildYearGrid(days, selectedYear, metric, { endDate: melbourneToday() });
+  // Below 800px the picker is a horizontal rail, so the selected year can sit off
+  // screen — after a click, and after the default snap above picks the newest year.
+  // `nearest` on both axes so this only ever moves the rail, never the page.
+  // Re-runs once bind:this fills the map, which is when the button first exists.
+  $: yearButtons[selectedYear ?? -1]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 
   const noun = metric === 'plays' ? 'plays' : 'minutes';
   const amount = (value: number): string =>
@@ -84,8 +90,9 @@
 
     {#if years.length > 1}
       <div class="years" role="radiogroup" aria-label="Year">
-        {#each years as year}
+        {#each years as year (year)}
           <button
+            bind:this={yearButtons[year]}
             class:active={year === selectedYear}
             type="button"
             role="radio"
@@ -271,5 +278,44 @@
   .years button.active {
     background: var(--accent);
     color: var(--accent-ink);
+  }
+
+  /* Phone: the picker column costs width the grid needs, so stack it as a
+     horizontal rail above the grid instead. Restructuring the container to a
+     column leaves .calendar-main's no-grow rule untouched — it only governs the
+     row axis, which no longer exists here. */
+  @media (max-width: 800px) {
+    .calendar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--space-2);
+    }
+
+    /* Grid stays first in the DOM so it leads the reading order; only the visual
+       order flips. */
+    .years {
+      order: -1;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      gap: var(--space-1);
+      max-height: none;
+      overflow-x: auto;
+      overflow-y: hidden;
+      /* A scrollbar under a single-line rail costs more height than it earns on a
+         phone, and the years are reachable by swipe or keyboard without it. */
+      scrollbar-gutter: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .years::-webkit-scrollbar {
+      display: none;
+    }
+
+    .years button {
+      padding: var(--space-1) var(--space-2);
+      text-align: center;
+      white-space: nowrap;
+    }
   }
 </style>
