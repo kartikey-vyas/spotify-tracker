@@ -62,6 +62,13 @@ export interface CoverEffect {
   label: string;
   /** True when the cover keeps its own colours rather than being re-tinted. */
   keepsColour: boolean;
+  /**
+   * True when the shader actually reads `u_time`, so giving its mount a
+   * non-zero speed animates it. Only water, liquidMetal and heatmap do;
+   * halftoneDots declares the uniform but never samples it, which is exactly
+   * the sort of thing that looks animated in a prop list and is not.
+   */
+  animates: boolean;
   shader: string;
   /** Whether the shader samples the shared noise texture. */
   needsNoise: boolean;
@@ -100,6 +107,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   dithering: {
     label: 'dithering',
     keepsColour: false,
+    animates: false,
     shader: imageDitheringFragmentShader,
     needsNoise: false,
     controls: [
@@ -128,6 +136,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   flutedGlass: {
     label: 'fluted glass',
     keepsColour: true,
+    animates: false,
     shader: flutedGlassFragmentShader,
     needsNoise: false,
     controls: [
@@ -177,6 +186,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   paperTexture: {
     label: 'paper texture',
     keepsColour: true,
+    animates: false,
     shader: paperTextureFragmentShader,
     needsNoise: true,
     controls: [
@@ -217,6 +227,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   water: {
     label: 'water',
     keepsColour: true,
+    animates: true,
     shader: waterFragmentShader,
     needsNoise: false,
     controls: [
@@ -245,6 +256,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   halftoneDots: {
     label: 'halftone dots',
     keepsColour: true,
+    animates: false,
     shader: halftoneDotsFragmentShader,
     needsNoise: false,
     controls: [
@@ -279,6 +291,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   halftoneCmyk: {
     label: 'halftone CMYK',
     keepsColour: true,
+    animates: false,
     shader: halftoneCmykFragmentShader,
     needsNoise: true,
     controls: [
@@ -317,6 +330,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   lensDistortion: {
     label: 'lens distortion',
     keepsColour: true,
+    animates: false,
     shader: lensDistortionFragmentShader,
     needsNoise: false,
     controls: [
@@ -354,6 +368,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   liquidMetal: {
     label: 'liquid metal',
     keepsColour: false,
+    animates: true,
     shader: liquidMetalFragmentShader,
     needsNoise: false,
     controls: [
@@ -387,6 +402,7 @@ export const COVER_EFFECTS: Record<string, CoverEffect> = {
   heatmap: {
     label: 'heatmap',
     keepsColour: false,
+    animates: true,
     shader: heatmapFragmentShader,
     needsNoise: false,
     controls: [

@@ -14,6 +14,12 @@
     type CoverEffect,
     type ThemeColors
   } from '$lib/effects/coverEffects';
+  import {
+    HOVER_OVERLAYS,
+    OVERLAY_KEYS,
+    OVERLAY_SIZING,
+    type HoverOverlay
+  } from '$lib/effects/hoverOverlays';
   import { getPresetDateRange } from '$lib/dateRanges';
   import { defaultProfileSlug } from '$lib/profileDefaults';
   import { isCurrentUserAdmin } from '$lib/queries/admin';
@@ -59,8 +65,18 @@ size: ${diameter}px`;
   let coverMounts: ShaderMount[] = [];
   let noiseTexture: HTMLImageElement | undefined;
 
+  const initialOverlayKey = OVERLAY_KEYS[0] ?? 'godRays';
+  let hoverEnabled = false;
+  let overlayKey = initialOverlayKey;
+  let overlayParams: Record<string, number> = { ...HOVER_OVERLAYS[initialOverlayKey].defaults };
+  let overlayHost: HTMLDivElement | undefined;
+  let overlayMount: ShaderMount | undefined;
+  let hoveredIndex = -1;
+  let baseSpeed = 1;
+
   $: coverSnippet = formatCoverSnippet(effectKey, effectParams);
   $: selectedEffect = COVER_EFFECTS[effectKey] ?? COVER_EFFECTS[initialEffectKey];
+  $: selectedOverlay = HOVER_OVERLAYS[overlayKey] ?? HOVER_OVERLAYS[initialOverlayKey];
 
   function pickTheme(next: Theme): void {
     applyTheme(next);
@@ -297,9 +313,99 @@ size: ${diameter}px`;
     }
   }
 
+  /* ---- hover animation ------------------------------------------------- */
+
+  function disposeOverlay(): void {
+    if (!overlayMount) return;
+    /* Same capture-before-dispose rule as the cover mounts: dispose() detaches
+       the canvas, so the context can only be released explicitly beforehand. */
+    const canvas = overlayHost?.querySelector('canvas');
+    overlayMount.dispose();
+    canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
+    overlayMount = undefined;
+  }
+
+  function overlayUniforms(
+    overlay: HoverOverlay,
+    params: Record<string, number>
+  ): ShaderMountUniforms {
+    return {
+      ...OVERLAY_SIZING,
+      ...(overlay.needsNoise && noiseTexture ? { u_noiseTexture: noiseTexture } : {}),
+      ...overlay.build(params, themeColors())
+    } as ShaderMountUniforms;
+  }
+
+  function remountOverlay(key: string, params: Record<string, number>): void {
+    disposeOverlay();
+    if (pageDestroyed || !hoverEnabled || !overlayHost) return;
+    const overlay = HOVER_OVERLAYS[key];
+    if (!overlay) return;
+    try {
+      overlayMount = new ShaderMount(
+        overlayHost,
+        overlay.shader,
+        overlayUniforms(overlay, params),
+        undefined,
+        params.speed ?? 1,
+        0
+      );
+    } catch (caught) {
+      coverError = caught instanceof Error ? caught.message : String(caught);
+    }
+  }
+
+  function selectOverlay(key: string): void {
+    const params = { ...HOVER_OVERLAYS[key].defaults };
+    overlayKey = key;
+    overlayParams = params;
+    remountOverlay(key, params);
+  }
+
+  function setOverlayParam(key: string, value: number): void {
+    const params = { ...overlayParams, [key]: value };
+    overlayParams = params;
+    const overlay = HOVER_OVERLAYS[overlayKey];
+    if (!overlayMount || !overlay) return;
+    overlayMount.setUniforms(overlayUniforms(overlay, params));
+    /* speed is a mount property rather than a uniform, so it needs its own call
+       — setting it through setUniforms silently does nothing. */
+    if (key === 'speed') overlayMount.setSpeed(value);
+  }
+
+  function resetOverlay(key: string): void {
+    const params = { ...HOVER_OVERLAYS[key].defaults };
+    overlayParams = params;
+    setOverlayParam('speed', params.speed);
+  }
+
+  function toggleHover(enabled: boolean): void {
+    hoverEnabled = enabled;
+    hoveredIndex = -1;
+    if (enabled) remountOverlay(overlayKey, overlayParams);
+    else disposeOverlay();
+  }
+
+  function enterCover(index: number): void {
+    hoveredIndex = index;
+    if (!hoverEnabled) return;
+    /* The base filter animates in place when its own shader reads u_time, which
+       costs nothing — no extra context, just a speed change on a mount that
+       already exists. The overlay is for the six that have no time term. */
+    const effect = COVER_EFFECTS[effectKey];
+    if (effect?.animates) coverMounts[index]?.setSpeed(baseSpeed);
+  }
+
+  function leaveCover(index: number): void {
+    if (hoveredIndex === index) hoveredIndex = -1;
+    /* Speed 0 stops the rAF loop outright, so an unhovered tile costs nothing. */
+    coverMounts[index]?.setSpeed(0);
+  }
+
   onDestroy(() => {
     pageDestroyed = true;
     disposeCoverMounts();
+    disposeOverlay();
   });
 </script>
 
@@ -429,7 +535,12 @@ size: ${diameter}px`;
         {#if coverImages.length > 0}
           <div class="cover-wall">
             {#each coverImages as img, index}
-              <div class="cover-cell">
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <div
+                class="cover-cell"
+                on:mouseenter={() => enterCover(index)}
+                on:mouseleave={() => leaveCover(index)}
+              >
                 <img
                   class="cover-layer"
                   class:is-hidden={!coverShowOriginals}
@@ -445,6 +556,19 @@ size: ${diameter}px`;
                 ></div>
               </div>
             {/each}
+
+            <!-- One overlay for the whole wall, parked over whichever tile is
+                 hovered. Eight of these would not fit under the 16-context cap
+                 and only one can ever be visible anyway. -->
+            <div
+              class="cover-overlay"
+              class:is-hidden={!hoverEnabled || hoveredIndex < 0}
+              style="--hover-col: {hoveredIndex < 0 ? 0 : hoveredIndex % 4}; --hover-row: {hoveredIndex <
+              0
+                ? 0
+                : Math.floor(hoveredIndex / 4)}"
+              bind:this={overlayHost}
+            ></div>
           </div>
         {:else if !coverLoading}
           <p class="muted">No album covers in this range.</p>
@@ -509,6 +633,71 @@ size: ${diameter}px`;
                 {/if}
               </div>
             {/each}
+          </div>
+
+          <div class="hover-block">
+            <label class="cover-toggle" for="hover-on">
+              <input
+                id="hover-on"
+                type="checkbox"
+                checked={hoverEnabled}
+                on:change={(e) => toggleHover(e.currentTarget.checked)}
+              />
+              hover animation
+            </label>
+
+            {#if hoverEnabled}
+              <div class="effect-pick">
+                <label for="hover-key">overlay</label>
+                <select
+                  id="hover-key"
+                  value={overlayKey}
+                  on:change={(e) => selectOverlay(e.currentTarget.value)}
+                >
+                  {#each OVERLAY_KEYS as key}
+                    <option value={key}>{HOVER_OVERLAYS[key].label}</option>
+                  {/each}
+                </select>
+                <button type="button" on:click={() => resetOverlay(overlayKey)}>reset</button>
+              </div>
+
+              <div class="cover-fields">
+                {#each selectedOverlay.controls as control (control.key)}
+                  <div class="field">
+                    <label for="hv-{control.key}">
+                      {control.label} · {overlayParams[control.key] ?? 0}
+                    </label>
+                    <input
+                      id="hv-{control.key}"
+                      type="range"
+                      min={control.min}
+                      max={control.max}
+                      step={control.step}
+                      value={overlayParams[control.key] ?? 0}
+                      on:input={(e) => setOverlayParam(control.key, Number(e.currentTarget.value))}
+                    />
+                  </div>
+                {/each}
+
+                {#if selectedEffect.animates}
+                  <div class="field">
+                    <label for="hv-base">base filter speed · {baseSpeed}</label>
+                    <input
+                      id="hv-base"
+                      type="range"
+                      min="0"
+                      max="3"
+                      step="0.1"
+                      bind:value={baseSpeed}
+                    />
+                  </div>
+                {:else}
+                  <p class="muted">
+                    {selectedEffect.label} has no time term, so only the overlay moves.
+                  </p>
+                {/if}
+              </div>
+            {/if}
           </div>
 
           <pre class="snippet">{coverSnippet}</pre>
@@ -648,10 +837,38 @@ size: ${diameter}px`;
        minmax(0, 1fr) rather than a bare 1fr: 1fr floors at the track's
        min-content width, and a canvas that has not been sized yet reports its
        300px default, which shoves the controls off the row. */
+    position: relative;
     display: grid;
     flex: 1 1 420px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-2);
+  }
+
+  .cover-overlay {
+    /* Parked over the hovered cell rather than living in one. Translate
+       percentages resolve against this element's own width, which is exactly
+       one cell, so a column step is 100% of itself plus one gap. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc((100% - 3 * var(--space-2)) / 4);
+    aspect-ratio: 1;
+    transform: translate(
+      calc(var(--hover-col) * (100% + var(--space-2))),
+      calc(var(--hover-row) * (100% + var(--space-2)))
+    );
+    pointer-events: none;
+  }
+
+  .cover-overlay.is-hidden {
+    visibility: hidden;
+  }
+
+  .hover-block {
+    display: grid;
+    gap: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
   }
 
   .cover-cell {
@@ -667,7 +884,8 @@ size: ${diameter}px`;
     object-fit: cover;
   }
 
-  .cover-shader :global(canvas) {
+  .cover-shader :global(canvas),
+  .cover-overlay :global(canvas) {
     display: block;
     width: 100%;
     height: 100%;
