@@ -11,8 +11,11 @@
 
 <script lang="ts">
   import { base } from '$app/paths';
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import { ShaderMount, type ShaderMountUniforms } from '@paper-design/shaders';
   import { tooltip } from '$lib/actions/tooltip';
+  import { HOVER_OVERLAYS, OVERLAY_SIZING } from '$lib/effects/hoverOverlays';
+  import { disposeShaderMount, readThemeColors } from '$lib/effects/webgl';
 
   export let items: CoverItem[] = [];
   // When true, render skeleton tiles instead of items (same grid + row trim).
@@ -31,6 +34,15 @@
   }
 
   onMount(() => {
+    motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    /* Themes only swap CSS variables, so refresh the wave's uniforms when the
+       attribute flips rather than rebuilding them on every hover. */
+    themeWatcher = new MutationObserver(() => fxMount?.setUniforms(waveUniforms()));
+    themeWatcher.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    });
+
     if (!grid) return;
     measureColumns();
     const observer = new ResizeObserver(measureColumns);
@@ -56,6 +68,59 @@
   function captionText(item: CoverItem): string {
     return [item.title, item.subtitle].filter(Boolean).join(' — ');
   }
+
+  /* ---- hover wave --------------------------------------------------------
+     One dither-wave ShaderMount for the whole wall, parked over whichever
+     tile is hovered. A second hovered tile cannot exist, and per-tile mounts
+     would blow the 16-WebGL-context budget (this wall renders up to 36). */
+  const waveOverlay = HOVER_OVERLAYS.ditherWave;
+
+  let fxHost: HTMLDivElement | undefined;
+  let fxMount: ShaderMount | null = null;
+  let fxFailed = false;
+  let fxVisible = false;
+  let themeWatcher: MutationObserver | null = null;
+  let motionQuery: MediaQueryList | null = null;
+
+  function waveUniforms(): ShaderMountUniforms {
+    return {
+      ...OVERLAY_SIZING,
+      ...waveOverlay.build(waveOverlay.defaults, readThemeColors())
+    } as ShaderMountUniforms;
+  }
+
+  function enterTile(event: Event): void {
+    const li = (event.currentTarget as HTMLElement).closest('li');
+    if (!li || !fxHost) return;
+    fxHost.style.left = `${li.offsetLeft}px`;
+    fxHost.style.top = `${li.offsetTop}px`;
+    fxHost.style.width = `${li.offsetWidth}px`;
+    fxHost.style.height = `${li.offsetWidth}px`;
+    if (!fxMount && !fxFailed) {
+      try {
+        fxMount = new ShaderMount(fxHost, waveOverlay.shader, waveUniforms(), undefined, 0, 0);
+      } catch {
+        /* No WebGL2. The tooltip still names the album; skip the wave. */
+        fxFailed = true;
+        return;
+      }
+    }
+    fxMount?.setSpeed(motionQuery?.matches ? 0 : waveOverlay.defaults.speed);
+    fxVisible = true;
+  }
+
+  function leaveTile(): void {
+    fxVisible = false;
+    /* Speed 0 stops the rAF loop outright, so an unhovered wall costs nothing. */
+    fxMount?.setSpeed(0);
+  }
+
+  onDestroy(() => {
+    themeWatcher?.disconnect();
+    if (!fxMount) return;
+    disposeShaderMount(fxMount, fxHost);
+    fxMount = null;
+  });
 </script>
 
 {#if loading || items.length > 0}
@@ -75,12 +140,17 @@
           data-pixel-artist={item.subtitle ?? undefined}
           data-pixel-artist-rank={index + 1}
         >
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
           <svelte:element
             this={item.href ? 'a' : 'div'}
             class="tile"
             href={item.href ? `${base}${item.href}` : undefined}
             data-pixel-collision="ignore"
             use:tooltip={[captionText(item), item.value].filter(Boolean).join(' · ')}
+            on:mouseenter={enterTile}
+            on:mouseleave={leaveTile}
+            on:focusin={enterTile}
+            on:focusout={leaveTile}
           >
             {#if item.imageUrl && !failed[item.id]}
               <img
@@ -93,11 +163,6 @@
             {:else}
               <span class="art placeholder" aria-hidden="true">♪</span>
             {/if}
-            <span class="overlay" data-pixel-collision="ignore">
-              <span class="title">{item.title}</span>
-              {#if item.subtitle}<span class="subtitle">{item.subtitle}</span>{/if}
-              {#if item.value}<span class="value">{item.value}</span>{/if}
-            </span>
           </svelte:element>
           <span class="shelf" data-pixel-collision="platform"></span>
           {#if index % 3 === 1}
@@ -106,6 +171,8 @@
         </li>
       {/each}
     {/if}
+    <!-- The single hover wave, parked over the hovered tile from enterTile. -->
+    <div class="hover-fx" class:is-visible={fxVisible} bind:this={fxHost} aria-hidden="true"></div>
   </ul>
 {:else}
   <p class="empty muted">No albums for this view.</p>
@@ -113,6 +180,8 @@
 
 <style>
   .cover-wall {
+    /* Positioning context for the parked hover wave. */
+    position: relative;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
     /* Row gap is deliberately off the 4px spacing scale: .ladder spans from this
@@ -131,18 +200,27 @@
   /* Pixel shelf board each row of records stands on; the pixel people walk
      along these. The element spans exactly the tile so its collision rect
      ends flush with the wall (overhang stubs were standable and people
-     pinballed down them); the 4px visual ears that connect boards across
-     column gaps are box-shadows, which the geometry scanner cannot see. */
+     pinballed down them). All paint lives on the ::before, which also extends
+     4px into each column gap to connect boards across it — pseudo-elements
+     and overflowing paint are both invisible to the geometry scanner. */
   .shelf {
     position: absolute;
     left: 0;
     right: 0;
     bottom: -7px;
     height: 6px;
-    background: var(--line);
-    box-shadow:
-      -4px 0 0 var(--line),
-      4px 0 0 var(--line);
+  }
+
+  /* A 2px board the records stand on, with a 1px echo rule beneath it — the
+     app's paired-hairline-rules vocabulary. The 3px of air between them is
+     what makes it read as a shelf edge rather than one thick bar. */
+  .shelf::before {
+    content: '';
+    position: absolute;
+    inset: 0 -4px;
+    background:
+      linear-gradient(var(--line), var(--line)) 0 0 / 100% 2px no-repeat,
+      linear-gradient(var(--line), var(--line)) 0 5px / 100% 1px no-repeat;
   }
 
   /* Invisible climbing zone in the column gap, spanning from this row's
@@ -183,38 +261,25 @@
     font-size: 1.6rem;
   }
 
-  .overlay {
+  /* The shared hover wave. Hidden rather than unmounted between hovers so the
+     WebGL context survives; pointer-events off so it never eats the tile's
+     own mouseleave. */
+  .hover-fx {
     position: absolute;
-    inset: auto 0 0 0;
-    display: grid;
-    gap: 1px;
-    padding: var(--space-2);
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
-    color: #fff;
-    opacity: 0;
-    transition: opacity 0.12s ease;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 
-  .tile:hover .overlay,
-  .tile:focus-visible .overlay {
-    opacity: 1;
+  .hover-fx.is-visible {
+    visibility: visible;
   }
 
-  .title {
-    font-size: var(--text-xs);
-    line-height: 1.2;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .subtitle,
-  .value {
-    font-size: var(--text-2xs);
-    opacity: 0.85;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .hover-fx :global(canvas) {
+    display: block;
+    width: 100%;
+    height: 100%;
   }
 
   .empty {
