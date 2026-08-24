@@ -425,91 +425,99 @@ size: ${diameter}px`;
         </span>
       </div>
 
-      <div class="cover-toolbar">
-        <div class="effect-pick">
-          <label for="fx-key">effect</label>
-          <select
-            id="fx-key"
-            value={effectKey}
-            on:change={(e) => selectEffect(e.currentTarget.value)}
-          >
-            {#each EFFECT_KEYS as key}
-              <option value={key}>{COVER_EFFECTS[key].label}</option>
-            {/each}
-          </select>
-          <span class="muted">
-            {selectedEffect.keepsColour ? 'keeps cover colours' : 're-tints the cover'}
-          </span>
-        </div>
-        <button type="button" on:click={() => resetEffect(effectKey)}>reset</button>
+      <div class="cover-bench">
         {#if coverImages.length > 0}
-          <label class="cover-toggle" for="cover-originals">
-            <input id="cover-originals" type="checkbox" bind:checked={coverShowOriginals} />
-            {coverShowOriginals ? 'originals' : 'effect'}
-          </label>
+          <div class="cover-wall">
+            {#each coverImages as img, index}
+              <div class="cover-cell">
+                <img
+                  class="cover-layer"
+                  class:is-hidden={!coverShowOriginals}
+                  src={img.src}
+                  alt={coverTitles[index] ?? ''}
+                  width="300"
+                  height="300"
+                />
+                <div
+                  class="cover-layer cover-shader"
+                  class:is-hidden={coverShowOriginals}
+                  use:bindCoverHost={index}
+                ></div>
+              </div>
+            {/each}
+          </div>
+        {:else if !coverLoading}
+          <p class="muted">No album covers in this range.</p>
         {/if}
-      </div>
 
-      <div class="cover-fields">
-        {#each selectedEffect.controls as control (control.key)}
-          <div class="field">
-            <label for="fx-{control.key}">
-              {control.label} · {controlValueLabel(selectedEffect, control.key, effectParams[control.key] ?? 0)}
-            </label>
-            {#if control.options}
+        <div class="cover-controls">
+          <div class="cover-toolbar">
+            <div class="effect-pick">
+              <label for="fx-key">effect</label>
               <select
-                id="fx-{control.key}"
-                value={effectParams[control.key]}
-                on:change={(e) => setParam(control.key, Number(e.currentTarget.value))}
+                id="fx-key"
+                value={effectKey}
+                on:change={(e) => selectEffect(e.currentTarget.value)}
               >
-                {#each control.options as option}
-                  <option value={option.value}>{option.label}</option>
+                {#each EFFECT_KEYS as key}
+                  <option value={key}>{COVER_EFFECTS[key].label}</option>
                 {/each}
               </select>
-            {:else}
-              <input
-                id="fx-{control.key}"
-                type="range"
-                min={control.min}
-                max={control.max}
-                step={control.step}
-                value={effectParams[control.key] ?? 0}
-                on:input={(e) => setParam(control.key, Number(e.currentTarget.value))}
-              />
+              <span class="muted">
+                {selectedEffect.keepsColour ? 'keeps cover colours' : 're-tints the cover'}
+              </span>
+            </div>
+            <button type="button" on:click={() => resetEffect(effectKey)}>reset</button>
+            {#if coverImages.length > 0}
+              <label class="cover-toggle" for="cover-originals">
+                <input id="cover-originals" type="checkbox" bind:checked={coverShowOriginals} />
+                {coverShowOriginals ? 'originals' : 'effect'}
+              </label>
             {/if}
           </div>
-        {/each}
-      </div>
 
-      <pre class="snippet">{coverSnippet}</pre>
+          <div class="cover-fields">
+            {#each selectedEffect.controls as control (control.key)}
+              <div class="field">
+                <label for="fx-{control.key}">
+                  {control.label} · {controlValueLabel(
+                    selectedEffect,
+                    control.key,
+                    effectParams[control.key] ?? 0
+                  )}
+                </label>
+                {#if control.options}
+                  <select
+                    id="fx-{control.key}"
+                    value={effectParams[control.key]}
+                    on:change={(e) => setParam(control.key, Number(e.currentTarget.value))}
+                  >
+                    {#each control.options as option}
+                      <option value={option.value}>{option.label}</option>
+                    {/each}
+                  </select>
+                {:else}
+                  <input
+                    id="fx-{control.key}"
+                    type="range"
+                    min={control.min}
+                    max={control.max}
+                    step={control.step}
+                    value={effectParams[control.key] ?? 0}
+                    on:input={(e) => setParam(control.key, Number(e.currentTarget.value))}
+                  />
+                {/if}
+              </div>
+            {/each}
+          </div>
 
-      {#if coverError}
-        <p class="muted">{coverError}</p>
-      {/if}
+          <pre class="snippet">{coverSnippet}</pre>
 
-      {#if coverImages.length > 0}
-        <div class="cover-wall">
-          {#each coverImages as img, index}
-            <div class="cover-cell">
-              <img
-                class="cover-layer"
-                class:is-hidden={!coverShowOriginals}
-                src={img.src}
-                alt={coverTitles[index] ?? ''}
-                width="96"
-                height="96"
-              />
-              <div
-                class="cover-layer cover-shader"
-                class:is-hidden={coverShowOriginals}
-                use:bindCoverHost={index}
-              ></div>
-            </div>
-          {/each}
+          {#if coverError}
+            <p class="muted">{coverError}</p>
+          {/if}
         </div>
-      {:else if !coverLoading}
-        <p class="muted">No album covers in this range.</p>
-      {/if}
+      </div>
     </div>
   {/if}
 </section>
@@ -589,12 +597,25 @@ size: ${diameter}px`;
     gap: var(--space-12);
   }
 
+  .cover-bench {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-12);
+  }
+
+  .cover-controls {
+    display: flex;
+    flex: 0 1 300px;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
   .cover-toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3);
-    margin-bottom: var(--space-4);
   }
 
   .effect-pick {
@@ -620,26 +641,22 @@ size: ${diameter}px`;
   .cover-fields {
     display: grid;
     gap: var(--space-3);
-    max-width: 340px;
-    margin-bottom: var(--space-4);
-  }
-
-  .cover-preview .snippet {
-    max-width: 340px;
-    margin-bottom: var(--space-4);
   }
 
   .cover-wall {
-    display: flex;
-    flex-wrap: wrap;
+    /* Four across, so eight covers make two rows beside the controls.
+       minmax(0, 1fr) rather than a bare 1fr: 1fr floors at the track's
+       min-content width, and a canvas that has not been sized yet reports its
+       300px default, which shoves the controls off the row. */
+    display: grid;
+    flex: 1 1 420px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-2);
   }
 
   .cover-cell {
     position: relative;
-    width: 96px;
-    height: 96px;
-    flex: 0 0 96px;
+    aspect-ratio: 1;
   }
 
   .cover-layer {
