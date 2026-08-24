@@ -122,6 +122,27 @@
     fill: var(--data-4);
   }
 
+  /* Same affordance as the release-year chart and the calendar: the hovered
+     hour lifts while the tooltip names it.
+
+     The track is the hit target — it spans the whole wedge and the value sits
+     on top of it with pointer-events off — so the highlight has to reach the
+     value as an adjacent sibling. That holds because the value is emitted
+     directly after its own track, and only when the hour has plays: an empty
+     hour has no next .value to match, so it takes the outline alone rather
+     than being tinted as though something had been played. */
+  .track:hover {
+    stroke: var(--text);
+    stroke-width: 1;
+    /* The dial is scaled from a 200-unit viewBox, so without this the outline
+       would be 1.15px on desktop and 1.4px on a phone. */
+    vector-effect: non-scaling-stroke;
+  }
+
+  .track:hover + .value {
+    fill: var(--accent-dark);
+  }
+
   .label {
     fill: var(--muted);
     /* Hour ticks inside the dial are chart furniture, sized to the ring rather
