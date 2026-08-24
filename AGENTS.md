@@ -57,6 +57,16 @@ An ambient pixel character walks the dashboard chrome, driven off the rendered D
 
 Worth knowing from outside the subsystem: **components opt in by tagging elements** (`data-pixel-collision`, `data-pixel-record`, `data-pixel-artist`), never by importing the pixel world. Adding a behaviour to a list means tagging it, not wiring it.
 
+## Paper Shaders — the loading mark and the cover filters
+
+`@paper-design/shaders` (WebGL2) drives `RecordMark.svelte`, the spinning dithered record that replaced the old braille Spotify loader. `/admin/mark` is an admin-gated playground for tuning it, and for trying the nine image filters in `src/lib/effects/coverEffects.ts` against real album covers plus the hover overlays in `hoverOverlays.ts`. It is a tuning surface only — nothing there is persisted, and no filter is applied to the production cover wall.
+
+Three things about this library are not discoverable from its types, and each one cost real time:
+
+1. **Browsers cap live WebGL2 contexts at 16.** Measured. A cover wall renders up to 36 tiles, so one `ShaderMount` per tile is not viable and never will be — bake the effect through a single reused offscreen mount, or move one shared mount to whichever tile needs it. Going over silently kills the *oldest* contexts, which are usually something else on the page. Chromium also frees contexts lazily, so re-mounting overlaps old and new; release explicitly with `WEBGL_lose_context`, capturing the canvas **before** `dispose()` detaches it.
+2. **Every `u_size` is a 0..1 dial, not a size in any unit.** Each is the `t` of a `mix()` choosing how many pattern cells span the tile, running high-to-low, so a larger value means *fewer, coarser* cells. Feed one a value above 1 and the mix extrapolates into negative cell counts and the tile renders blank — which is why halftone CMYK looked broken until the range was fixed.
+3. **The image filters end with the image mixed back in**, so the cover's own colours are the output and `colorFront`/`colorBack` only show outside it. Pushing the overlay terms up saturates the blend until the image contribution reaches zero and the tile washes out to flat colour. Keep them low and move the structural terms instead.
+
 ## Svelte 5 in legacy mode — two traps
 
 The app compiles Svelte 5 but the components use Svelte 4 syntax (`$:`, `export let`). Two behaviours cost real debugging time:
