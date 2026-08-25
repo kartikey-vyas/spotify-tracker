@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { SpatialHash } from '../../src/lib/pixel-person/physics';
-import { createPixelPerson, stepPixelPerson } from '../../src/lib/pixel-person/simulation';
+import {
+  createPixelPerson,
+  RECORD_ERRAND,
+  stepPixelPerson
+} from '../../src/lib/pixel-person/simulation';
 import type {
   Collider,
   ItemSource,
@@ -183,7 +187,7 @@ describe('ladder climb-down rides', () => {
   });
 });
 
-describe('errand-driven ladder routing', () => {
+describe('record errands stay on their promenade', () => {
   const upperShelf = () => collider({ id: 'upper-shelf', x: 0, y: 60, width: 300 });
   const lowerShelf = () => collider({ id: 'lower-shelf', x: 0, y: 160, width: 300 });
   const ladder = (): Collider => ({
@@ -221,13 +225,10 @@ describe('errand-driven ladder routing', () => {
     person.activityUntil = 0;
     person.nextRecordAt = 0;
     person.nextHideAt = 999_000;
-    // Keeps the ambient ladder-ride chance on cooldown at now=50, so any
-    // planned ladder must come from the deliberate errand route.
-    person.lastClimbAt = 0;
     return person;
   }
 
-  it('plans an up ride toward a source only reachable from the shelf above', () => {
+  it('does not ride up toward a source on the shelf above', () => {
     const world = geometry({
       colliders: [upperShelf(), lowerShelf(), ladder()],
       itemSources: [highSource()]
@@ -240,12 +241,11 @@ describe('errand-driven ladder routing', () => {
 
     expect(person.activity).not.toBe('seek-record');
     expect(person.recordErrand).toBeNull();
-    expect(person.plannedLadder?.ladderId).toBe('ladder-1');
-    expect(person.plannedLadder?.direction).toBe('up');
-    expect(person.nextRecordAt - 50).toBe(2_000);
+    expect(person.plannedLadder).toBeNull();
+    expect(person.nextRecordAt - 50).toBe(RECORD_ERRAND.retryMs);
   });
 
-  it('plans a down ride toward a source only reachable from the shelf below', () => {
+  it('does not ride down toward a source on the shelf below', () => {
     const world = geometry({
       colliders: [upperShelf(), lowerShelf(), ladder()],
       itemSources: [lowSource()]
@@ -256,9 +256,9 @@ describe('errand-driven ladder routing', () => {
 
     stepPixelPerson(person, world, spatial, 0.05, 50);
 
-    expect(person.plannedLadder?.ladderId).toBe('ladder-1');
-    expect(person.plannedLadder?.direction).toBe('down');
-    expect(person.nextRecordAt - 50).toBe(2_000);
+    expect(person.recordErrand).toBeNull();
+    expect(person.plannedLadder).toBeNull();
+    expect(person.nextRecordAt - 50).toBe(RECORD_ERRAND.retryMs);
   });
 
   it('falls back to the plain retry when no ladder connects to the source', () => {
@@ -272,7 +272,7 @@ describe('errand-driven ladder routing', () => {
     stepPixelPerson(person, world, spatial, 0.05, 50);
 
     expect(person.plannedLadder).toBeNull();
-    expect(person.nextRecordAt - 50).toBe(6_000);
+    expect(person.nextRecordAt - 50).toBe(RECORD_ERRAND.retryMs);
   });
 
   it('prefers a level-reachable source over routing toward an off-level one', () => {
@@ -290,7 +290,7 @@ describe('errand-driven ladder routing', () => {
     expect(person.plannedLadder).toBeNull();
   });
 
-  it('rides the ladder up and ends up carrying the off-level record', () => {
+  it('never carries an off-level record during a long ambient run', () => {
     const world = geometry({
       colliders: [upperShelf(), lowerShelf(), ladder()],
       itemSources: [highSource()]
@@ -298,24 +298,13 @@ describe('errand-driven ladder routing', () => {
     const spatial = new SpatialHash(world.colliders);
     const person = errandPerson({ x: 40, y: 129, supportId: 'lower-shelf' });
 
-    // Route -> walk -> ride -> re-plan on the upper shelf -> seek -> browse -> stoop.
-    const allowed = [
-      'wander',
-      'idle',
-      'climb',
-      'mantle',
-      'seek-record',
-      'record-browse',
-      'record-stoop'
-    ];
-    let step = 1;
-    while (!person.carrying && step <= 900) {
+    for (let step = 1; step <= 1_800; step += 1) {
       stepPixelPerson(person, world, spatial, 0.05, step * 50);
-      expect(allowed).toContain(person.activity as string);
-      step += 1;
+      expect(person.activity).not.toBe('climb');
+      expect(person.plannedLadder).toBeNull();
+      expect(person.recordErrand).toBeNull();
+      expect(person.carrying).toBeNull();
     }
-
-    expect(person.carrying?.sourceId).toBe('high-source');
   });
 });
 

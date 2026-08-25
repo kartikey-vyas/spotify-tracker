@@ -1,3 +1,7 @@
+<script lang="ts">
+  import PixelPromenade from '$lib/components/PixelPromenade.svelte';
+</script>
+
 <section class="page">
   <div class="page-header">
     <span class="eyebrow">About</span>
@@ -8,7 +12,9 @@
     </p>
   </div>
 
-  <section class="grid cols-2">
+  <PixelPromenade station="about-lobby" marker="right" />
+
+  <section class="grid cols-2 about-grid">
     <div class="panel">
       <h2>Where the data comes from</h2>
       <p class="muted">
@@ -44,5 +50,9 @@
   .footnote {
     margin-top: 1.5rem;
     font-size: var(--text-sm);
+  }
+
+  .about-grid {
+    margin-top: var(--space-6);
   }
 </style>

@@ -6,6 +6,7 @@
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import DitherFrame from '$lib/components/DitherFrame.svelte';
   import ListeningHistoryChart from '$lib/components/ListeningHistoryChart.svelte';
+  import PixelPromenade from '$lib/components/PixelPromenade.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
@@ -522,12 +523,14 @@
     </div>
   </DitherFrame>
 
+  <PixelPromenade station="explorer-listening-desk" marker="left" />
+
   {#if loading && rankings.length === 0}
-    <section class="panel panel-loading section-gap"><RecordMark size="lg" label="Loading explorer data..." /></section>
+    <section class="panel panel-loading promenade-follow"><RecordMark size="lg" label="Loading explorer data..." /></section>
   {:else if error}
-    <section class="panel section-gap"><p class="error">{error}</p></section>
+    <section class="panel promenade-follow"><p class="error">{error}</p></section>
   {:else}
-    <section class="explorer-layout section-gap" class:has-detail={Boolean(entityId)}>
+    <section class="explorer-layout promenade-follow" class:has-detail={Boolean(entityId)}>
       <div class="ranking-col">
         <div class="section-heading">
           <h2>Ranking</h2>
@@ -644,8 +647,8 @@
 </section>
 
 <style>
-  .section-gap {
-    margin-top: 32px;
+  .promenade-follow {
+    margin-top: var(--space-6);
   }
 
   /* Four equal columns across the full page width; the dither field fills

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { characterRegistry, tinyPerson } from '../../src/lib/pixel-person/characters';
+import {
+  ambientCharacterRegistry,
+  characterRegistry,
+  tinyPerson
+} from '../../src/lib/pixel-person/characters';
 import { normalizeArtistName } from '../../src/lib/pixel-person/artist-name';
 import {
   artistCharacterFor,
@@ -51,14 +55,14 @@ describe('resolveCharacter', () => {
 
 describe('pickCharacter', () => {
   it('returns only generic characters when no artists are present', () => {
-    const generics = new Set(Object.keys(characterRegistry));
+    const generics = new Set(Object.keys(ambientCharacterRegistry));
     for (const roll of [0, 0.25, 0.5, 0.75, 0.999]) {
       expect(generics.has(pickCharacter([], () => roll).id)).toBe(true);
     }
   });
 
   it('still returns a generic when present artists are unregistered', () => {
-    const generics = new Set(Object.keys(characterRegistry));
+    const generics = new Set(Object.keys(ambientCharacterRegistry));
     const picked = pickCharacter([presence('Nobody At All', 1)], () => 0.5);
     expect(generics.has(picked.id)).toBe(true);
   });
@@ -118,11 +122,13 @@ describe('Frank Ocean', () => {
     expect(artistCharacterFor('Frank Ocean')?.artistKey).toBe('frank ocean');
   });
 
-  it('keeps the base rig dimensions', () => {
+  it('uses a high-density source at the established CSS footprint', () => {
     const frank = artistCharacterFor('Frank Ocean');
-    expect(frank?.pixelWidth).toBe(24);
-    expect(frank?.pixelHeight).toBe(32);
-    expect(frank?.scale).toBe(1);
+    expect(frank?.pixelWidth).toBe(48);
+    expect(frank?.pixelHeight).toBe(64);
+    expect(frank?.scale).toBe(0.5);
+    expect((frank?.pixelWidth ?? 0) * (frank?.scale ?? 0)).toBe(24);
+    expect((frank?.pixelHeight ?? 0) * (frank?.scale ?? 0)).toBe(32);
   });
 
   it('has every frame at the declared dimensions with a resolvable palette', () => {
@@ -151,7 +157,7 @@ describe('Frank Ocean', () => {
    * under test, not today's population count.
    */
   function frankBoundary(rank: number): number {
-    const generics = Object.keys(characterRegistry).length;
+    const generics = Object.keys(ambientCharacterRegistry).length;
     return generics / (generics + 8 / (rank + 1));
   }
 

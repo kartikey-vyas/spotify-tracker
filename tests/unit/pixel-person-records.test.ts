@@ -506,7 +506,7 @@ describe('pixel person record errands', () => {
     expect(bailedAtMs!).toBeLessThanOrEqual(20_000);
   });
 
-  it('never hides while carrying a record', () => {
+  it('never turns record-wall occluders into ambient hiding places', () => {
     const occluder = { id: 'panel:occluder', groupId: 'panel', x: 60, y: 30, width: 120, height: 60 };
     const world = geometry({ occluders: [occluder], itemSources: [] });
     const spatial = new SpatialHash(world.colliders);
@@ -527,7 +527,8 @@ describe('pixel person record errands', () => {
     idler.activityUntil = 0;
     idler.nextHideAt = 0;
     stepPixelPerson(idler, world, spatial, 0.05, 50);
-    expect(idler.activity).toBe('seek-hide');
+    expect(idler.activity).not.toBe('seek-hide');
+    expect(idler.hide).toBeNull();
   });
 
   it('drops the carried record in place when grabbed', () => {
@@ -595,29 +596,20 @@ describe('crawl bail-out', () => {
 });
 
 describe('record discoverability', () => {
-  it('drifts wander goals toward an off-level source when the cooldown is ripe', () => {
-    // Source is far below the walking plane (not level-reachable), to the right.
+  it('leaves an off-level source for another promenade', () => {
     const source = recordSource({ x: 380, y: 400 });
     const world = geometry({ itemSources: [source] });
     const spatial = new SpatialHash(world.colliders);
+    const person = createPixelPerson(tinyPerson, body({ x: 40 }), 0);
+    person.activityUntil = 0;
+    person.nextRecordAt = 0;
 
-    let wanders = 0;
-    let toward = 0;
-    for (let trial = 0; trial < 600; trial += 1) {
-      const person = createPixelPerson(tinyPerson, body({ x: 40 }), 0);
-      person.activityUntil = 0;
-      person.nextRecordAt = 0;
-      stepPixelPerson(person, world, spatial, 0.001, 50);
-      expect(person.activity).not.toBe('seek-record');
-      if (person.activity === 'wander') {
-        wanders += 1;
-        if (person.goalX > 40) toward += 1;
-      }
-    }
-    // Unbiased wandering points toward the source 50% of the time; the 35%
-    // drift bias lifts the expected share to ~67.5%.
-    expect(wanders).toBeGreaterThan(300);
-    expect(toward / wanders).toBeGreaterThan(0.58);
+    stepPixelPerson(person, world, spatial, 0.001, 50);
+
+    expect(person.activity).not.toBe('seek-record');
+    expect(person.recordErrand).toBeNull();
+    expect(person.plannedLadder).toBeNull();
+    expect(person.nextRecordAt).toBe(50 + RECORD_ERRAND.retryMs);
   });
 
   it('spawns prefer supports near item sources over equivalent ones elsewhere', () => {
@@ -713,15 +705,14 @@ describe('invisible ladders', () => {
     expect(person.plannedLadder).toBeNull();
   });
 
-  it('plans ladder climbs from the ambient activity loop', () => {
+  it('does not plan ladder climbs from the ambient activity loop', () => {
     const world = geometry({
       colliders: [lowerShelf(), upperShelf(), ladder()],
       itemSources: []
     });
     const spatial = new SpatialHash(world.colliders);
 
-    let planned = false;
-    for (let trial = 0; trial < 60 && !planned; trial += 1) {
+    for (let trial = 0; trial < 60; trial += 1) {
       const person = createPixelPerson(
         tinyPerson,
         body({ x: 40, y: 129, supportId: 'lower-shelf' }),
@@ -731,10 +722,9 @@ describe('invisible ladders', () => {
       person.nextRecordAt = 999_000;
       person.nextHideAt = 999_000;
       stepPixelPerson(person, world, spatial, 0.001, 50);
-      if (person.plannedLadder?.ladderId === 'ladder-1') planned = true;
+      expect(person.plannedLadder).toBeNull();
+      expect(person.activity).not.toBe('climb');
     }
-
-    expect(planned).toBe(true);
   });
 });
 

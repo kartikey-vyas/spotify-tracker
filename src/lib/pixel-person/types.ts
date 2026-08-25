@@ -109,6 +109,8 @@ export interface FrameSource {
   file: string;
   /** `<animation>:<frameIndex>` -> the frame's source identifier. */
   names: Readonly<Record<string, string>>;
+  /** False for generated pilot frames that the paint editor can preview but not splice. */
+  editable?: boolean;
 }
 
 export interface CharacterDefinition {

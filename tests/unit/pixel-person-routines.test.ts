@@ -3,22 +3,34 @@ import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { SpatialHash } from '../../src/lib/pixel-person/physics';
 import { spriteTimeScale, REFERENCE_WALK_SPEED } from '../../src/lib/pixel-person/sprite';
 import {
+  beginDoorwayExit,
+  beginPixelPersonDrag,
   createPixelPerson,
-  HIDE,
   legRange,
   PURPOSEFUL_PHYSICS_CONFIG,
   RECORD_ERRAND,
   ROUTINE,
+  setPersonDefinition,
   stepPixelPerson,
   STROLL_PHYSICS_CONFIG,
   walkConfigFor
 } from '../../src/lib/pixel-person/simulation';
 import type {
+  CharacterDefinition,
   Collider,
   Occluder,
   PhysicsBody,
   WorldGeometry
 } from '../../src/lib/pixel-person/types';
+
+const largerPerson: CharacterDefinition = {
+  ...tinyPerson,
+  id: 'larger-person',
+  pixelWidth: 48,
+  pixelHeight: 64,
+  body: { offsetX: 10, offsetY: 2, width: 28, height: 50 },
+  dragGrip: { x: 4, y: 2 }
+};
 
 function body(overrides: Partial<PhysicsBody> = {}): PhysicsBody {
   return {
@@ -203,7 +215,7 @@ describe('routine commitment', () => {
     });
 
     expect(still + walking).toBe(steps);
-    expect(still).toBeGreaterThan(walking);
+    expect(still).toBeGreaterThan(walking * 3);
   });
 
   it('never doubles back without standing still first', () => {
@@ -337,10 +349,9 @@ describe('walk cadence', () => {
   });
 });
 
-describe('legs stay on the platform underfoot', () => {
-  // A raised ledge in a wide world. `kind: 'border'` with no groupId keeps
-  // chooseClimbPlan out of it, so the planner is what is under test rather
-  // than the climb branch.
+describe('promenade legs stay on the platform underfoot', () => {
+  // A raised ledge in a wide world. The planner is what is under test rather
+  // than an obstacle or viewport boundary.
   //
   // The width is chosen deliberately: wide enough that legRange will clamp to
   // it (its usable span beats ROUTINE.travelMinDistance), but narrower than
@@ -349,9 +360,7 @@ describe('legs stay on the platform underfoot', () => {
   // the test stops being able to tell the two apart — which it did at 400.
   const LEDGE = { x: 1_000, y: 60, width: 150 };
 
-  // The ground sits a hoppable distance below: deeper than the cliff sense's
-  // landing window and nobody could ever step off, which would make the
-  // escape-hatch test vacuous rather than passing.
+  // Ground below makes an accidental departure observable as a support change.
   function ledgeWorld(): WorldGeometry {
     return geometry({
       colliders: [
@@ -373,7 +382,7 @@ describe('legs stay on the platform underfoot', () => {
     return person;
   }
 
-  it('plans most legs within the span it is standing on', () => {
+  it('plans every leg within the span it is standing on', () => {
     let planned = 0;
     let withinLedge = 0;
 
@@ -385,20 +394,6 @@ describe('legs stay on the platform underfoot', () => {
       let lastGoal = person.goalX;
 
       drive.run(2_000, () => {
-        // Someone who wandered off stops producing ledge goals, so put them
-        // back and let them plan again — the measurement is "goals chosen
-        // while standing on the ledge", not "how long they stayed".
-        if (person.body.supportId !== 'ledge') {
-          person.body.x = LEDGE.x + LEDGE.width / 2;
-          person.body.y = LEDGE.y - person.body.height;
-          person.body.vx = 0;
-          person.body.vy = 0;
-          person.body.grounded = true;
-          person.body.supportId = 'ledge';
-          person.routine = null;
-          person.activityUntil = 0;
-          return;
-        }
         if (person.activity !== 'wander' || person.goalX === lastGoal) return;
         lastGoal = person.goalX;
         planned += 1;
@@ -407,36 +402,27 @@ describe('legs stay on the platform underfoot', () => {
     }
 
     expect(planned).toBeGreaterThan(20);
-    // The planner deliberately wanders off sometimes, so this is a majority
-    // rule rather than an absolute one — derived from that escape hatch so
-    // retuning it cannot silently invalidate the test.
-    const floor = 1 - ROUTINE.leavePlatformChance * 2;
-    expect(withinLedge / planned).toBeGreaterThan(floor);
+    expect(withinLedge).toBe(planned);
   });
 
-  it('still leaves the platform sometimes, so ledges are not cages', () => {
-    let seedsThatLeft = 0;
-
+  it('never leaves its authored platform during ambient routines', () => {
     for (const seed of TRAJECTORY_SEEDS) {
       vi.spyOn(Math, 'random').mockImplementation(seededRandom(seed));
       const world = ledgeWorld();
       const person = personOnLedge();
       const drive = driver(person, world, new SpatialHash(world.colliders));
-      let left = false;
       drive.run(4_000, () => {
-        if (person.body.supportId === 'ground') left = true;
+        expect(person.plannedClimb).toBeNull();
+        expect(person.plannedLadder).toBeNull();
+        expect(person.activity).not.toBe('climb');
+        expect(person.activity).not.toBe('seek-hide');
+        expect(person.activity).not.toBe('hiding');
+        expect(person.body.supportId).toBe('ledge');
       });
-      if (left) seedsThatLeft += 1;
     }
-
-    expect(seedsThatLeft).toBeGreaterThan(0);
   });
 
-  it('falls back to the open range when the support is too small to walk', () => {
-    // A perch narrower than the shortest leg. Clamping to it would leave the
-    // person shuffling on the spot, which is the behaviour being removed, so
-    // the range is asserted directly rather than through a step — on a perch
-    // this size the cliff sense would take over before a goal was revealing.
+  it('treats a support too small to walk as a resting place', () => {
     const world = geometry({
       colliders: [
         collider({ id: 'perch', x: 1_200, y: 60, width: 20, height: 2 }),
@@ -448,10 +434,14 @@ describe('legs stay on the platform underfoot', () => {
     person.body.y = 60 - person.body.height;
     person.body.supportId = 'perch';
 
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      const range = legRange(person, world);
-      expect(range.maxX - range.minX).toBeGreaterThan(ROUTINE.travelMinDistance);
-    }
+    const range = legRange(person, world);
+    expect(range).toEqual({ minX: 1_200, maxX: 1_206 });
+
+    const drive = driver(person, world, new SpatialHash(world.colliders));
+    drive.run(2_000);
+    expect(person.body.supportId).toBe('perch');
+    expect(person.body.x).toBeGreaterThanOrEqual(range.minX);
+    expect(person.body.x).toBeLessThanOrEqual(range.maxX);
   });
 
   it('clamps to a support wide enough to be worth walking', () => {
@@ -461,45 +451,71 @@ describe('legs stay on the platform underfoot', () => {
     person.body.y = LEDGE.y - person.body.height;
     person.body.supportId = 'ledge';
 
-    let clamped = 0;
     const attempts = 200;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const range = legRange(person, world);
-      if (range.minX >= LEDGE.x && range.maxX <= LEDGE.x + LEDGE.width) clamped += 1;
+      expect(range.minX).toBeGreaterThanOrEqual(LEDGE.x);
+      expect(range.maxX).toBeLessThanOrEqual(LEDGE.x + LEDGE.width - person.body.width);
     }
-
-    // Clamped except when the escape hatch fires, so the observed share should
-    // sit near its complement rather than at either extreme.
-    expect(clamped / attempts).toBeGreaterThan(1 - ROUTINE.leavePlatformChance * 2);
-    expect(clamped / attempts).toBeLessThan(1);
   });
 });
 
-describe('hiding is occasional', () => {
-  it('spends far longer between hides than in one', () => {
-    // The duty cycle is the rule: a hide plus the walk to it must be a small
-    // slice of the gap before the next one, or hiding competes with record
-    // errands for screen time.
-    const perHide = HIDE.exitUntilMs + HIDE.seekTimeoutMs;
-    expect(perHide * 4).toBeLessThan(HIDE.cooldownMs);
-  });
-
-  it('leaves the wall alone for most of a long run', () => {
+describe('ambient routines ignore UI obstacles', () => {
+  it('never turns an occluder into a hiding interrupt', () => {
     const occluder: Occluder = { id: 'panel', x: 900, y: 20, width: 200, height: 60 };
     const world = geometry({ occluders: [occluder] });
     const person = wanderer();
     person.nextHideAt = 0;
     const drive = driver(person, world, new SpatialHash(world.colliders));
 
-    let hiding = 0;
     const steps = 12_000;
     drive.run(steps, () => {
-      if (person.activity === 'seek-hide' || person.activity === 'hiding') hiding += 1;
+      expect(person.activity).not.toBe('seek-hide');
+      expect(person.activity).not.toBe('hiding');
+      expect(person.hide).toBeNull();
     });
+  });
+});
 
-    // Derived from the cadence rather than pinned to a measurement: at most
-    // one hide per cooldown window, each costing the seek plus the hide.
-    const worstCaseShare = (HIDE.exitUntilMs + HIDE.seekTimeoutMs) / HIDE.cooldownMs;
-    expect(hiding / steps).toBeLessThan(worstCaseShare);
+describe('mixed-size definition swaps', () => {
+  it('preserves the feet and horizontal centre while resizing the body', () => {
+    const person = createPixelPerson(tinyPerson, body({ x: 100, y: 200 }), 0);
+    const centerX = person.body.x + person.body.width / 2;
+    const feetY = person.body.y + person.body.height;
+
+    setPersonDefinition(person, largerPerson);
+
+    expect(person.definition).toBe(largerPerson);
+    expect(person.body).toMatchObject({ width: 28, height: 50 });
+    expect(person.body.x + person.body.width / 2).toBe(centerX);
+    expect(person.body.y + person.body.height).toBe(feetY);
+  });
+
+  it('clears geometry-bound motion planned for the old body box', () => {
+    const wall = collider({ id: 'wall', edge: 'right' });
+    const person = createPixelPerson(tinyPerson, body(), 0);
+    person.activity = 'climb';
+    person.climb = { wall, top: wall, side: 'right', direction: 'up' };
+    person.plannedLadder = { ladderId: 'ladder', goalX: 300 };
+
+    setPersonDefinition(person, largerPerson);
+
+    expect(person.activity).toBe('idle');
+    expect(person.climb).toBeNull();
+    expect(person.plannedLadder).toBeNull();
+  });
+
+  it('keeps active dragging and doorway exits intact', () => {
+    const dragged = createPixelPerson(tinyPerson, body(), 0);
+    beginPixelPersonDrag(dragged, 7, { x: 260, y: 20 }, 10);
+    setPersonDefinition(dragged, largerPerson);
+    expect(dragged.activity).toBe('drag');
+    expect(dragged.drag?.pointerId).toBe(7);
+
+    const departing = createPixelPerson(tinyPerson, body(), 0);
+    beginDoorwayExit(departing, 300, 10);
+    setPersonDefinition(departing, largerPerson);
+    expect(departing.activity).toBe('exit');
+    expect(departing.exit?.doorX).toBe(300);
   });
 });

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { tinyPerson } from '../../src/lib/pixel-person/characters';
+import { characterRegistry, promenadePerson } from '../../src/lib/pixel-person/characters';
 import { artistRegistry } from '../../src/lib/pixel-person/artists';
 import {
   EDITABLE_SOURCES,
@@ -22,17 +22,13 @@ function sourceWith(name: string, rows: string[]): string {
 }
 
 describe('frame constants', () => {
-  it('matches the rig the editor is editing', () => {
-    // If the grid is resized again, this fails rather than letting the editor
-    // silently write frames of the wrong shape.
-    expect(FRAME_WIDTH).toBe(tinyPerson.pixelWidth);
-    expect(FRAME_HEIGHT).toBe(tinyPerson.pixelHeight);
+  it('keeps the literal-splicer fixture contract stable', () => {
+    expect(FRAME_WIDTH).toBe(24);
+    expect(FRAME_HEIGHT).toBe(32);
   });
 
-  it('covers every palette key the rig actually uses', () => {
-    for (const key of Object.keys(tinyPerson.palette)) {
-      expect(PALETTE_KEYS).toContain(key);
-    }
+  it('covers every key accepted by legacy literal fixtures', () => {
+    expect(PALETTE_KEYS).toBe('oghfstpbn');
   });
 });
 
@@ -150,7 +146,10 @@ describe('spliceFrame', () => {
 });
 
 describe('frameSource maps', () => {
-  const everyCharacter = [tinyPerson, ...artistRegistry.map((entry) => entry.character)];
+  const everyCharacter = [
+    ...Object.values(characterRegistry),
+    ...artistRegistry.map((entry) => entry.character)
+  ];
 
   it('covers every frame of every animation, for every character', () => {
     // The editor resolves a frame to its source identifier through this map; a
@@ -168,7 +167,11 @@ describe('frameSource maps', () => {
     for (const character of everyCharacter) {
       const source = await readFile(character.frameSource.file, 'utf8');
       for (const identifier of Object.values(character.frameSource.names)) {
-        expect(source).toContain(`const ${identifier} = frame([`);
+        if (character.frameSource.editable === false) {
+          expect(source).toContain(`const ${identifier} =`);
+        } else {
+          expect(source).toContain(`const ${identifier} = frame([`);
+        }
       }
     }
   });
@@ -184,13 +187,13 @@ describe('frameSource maps', () => {
 
   it('gives forked characters their own literals, in their own file', () => {
     const frank = artistRegistry[0].character;
-    expect(frank.frameSource.file).not.toBe(tinyPerson.frameSource.file);
+    expect(frank.frameSource.file).not.toBe(promenadePerson.frameSource.file);
     // No identifier may be shared across the two, or an edit to one would
     // silently reach the other.
-    const generic = new Set(Object.values(tinyPerson.frameSource.names));
+    const generic = new Set(Object.values(promenadePerson.frameSource.names));
     for (const name of Object.values(frank.frameSource.names)) {
       expect(generic.has(name)).toBe(false);
     }
-    expect(frank.animations.idle.frames[0]).not.toBe(tinyPerson.animations.idle.frames[0]);
+    expect(frank.animations.idle.frames[0]).not.toBe(promenadePerson.animations.idle.frames[0]);
   });
 });

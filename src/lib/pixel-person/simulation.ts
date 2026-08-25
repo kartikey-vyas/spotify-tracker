@@ -66,9 +66,6 @@ const DELIVERY_EDGE_COMFORT = 48;
 // purpose when one is rooted at the current walking level and something
 // walkable exists at its top to land on.
 const LADDER_CLIMB = {
-  cooldownMs: 9_000,
-  maxDistance: 240,
-  chance: 0.4,
   arrivalSlackX: 5,
   topSlack: 8,
   bottomSlack: 8
@@ -90,36 +87,35 @@ const CRAWL_PHYSICS_CONFIG: PhysicsConfig = {
  */
 export const STROLL_PHYSICS_CONFIG: PhysicsConfig = {
   ...defaultPhysicsConfig,
-  walkSpeed: 26,
-  groundAcceleration: 140,
-  groundFriction: 200
+  walkSpeed: 22,
+  groundAcceleration: 110,
+  groundFriction: 180
 };
 export const PURPOSEFUL_PHYSICS_CONFIG: PhysicsConfig = {
   ...defaultPhysicsConfig,
-  walkSpeed: 36
+  walkSpeed: 32
 };
 
 export const RECORD_ERRAND = {
-  firstDelayMs: 12_000,
-  cooldownMs: 14_000,
-  cooldownJitterMs: 14_000,
-  retryMs: 6_000,
+  firstDelayMs: 30_000,
+  cooldownMs: 45_000,
+  cooldownJitterMs: 45_000,
+  retryMs: 18_000,
   maxTravelDistance: 420,
   travelTimeoutMs: 18_000,
   /** Standing at the shelf looking at the record before stooping for it. */
   browseMinMs: 1_200,
   browseJitterMs: 1_400,
   stoopMs: 800,
-  carryMinMs: 8_000,
-  carryJitterMs: 12_000,
+  carryMinMs: 12_000,
+  carryJitterMs: 10_000,
   deliverTimeoutMs: 26_000,
-  listenMinMs: 14_000,
-  listenJitterMs: 10_000,
-  returnDelayMs: 9_000,
-  returnJitterMs: 8_000,
+  listenMinMs: 20_000,
+  listenJitterMs: 16_000,
+  returnDelayMs: 30_000,
+  returnJitterMs: 30_000,
   wallExitMargin: 24,
   arrivalSlackX: 5,
-  driftChance: 0.35,
   recentMemory: 6
 } as const;
 
@@ -128,31 +124,24 @@ export const RECORD_ERRAND = {
  * here and in RECORD_ERRAND, so retuning the feel is a no-logic change.
  */
 export const ROUTINE = {
-  // Pauses outlast legs on average, which is what makes the population read as
-  // settled rather than busy: at the stroll speed the mean leg is a little
-  // under six seconds against a mean pause a little over six.
-  restMinMs: 4_000,
-  restJitterMs: 4_000,
-  lookMinMs: 5_000,
-  lookJitterMs: 5_000,
-  travelMinDistance: 64,
-  travelJitterDistance: 176,
+  // Promenade people are residents, not notifications: a short change of
+  // position is followed by a long spell of resting or taking in the page.
+  restMinMs: 16_000,
+  restJitterMs: 14_000,
+  lookMinMs: 18_000,
+  lookJitterMs: 18_000,
+  travelMinDistance: 32,
+  travelJitterDistance: 72,
   /** Slack on top of distance/speed before a travel beat is deemed hopeless. */
   travelAllowanceMs: 2_600,
   /** Chance a routine gets a second leg rather than ending after one. */
-  extraLegChance: 0.45,
+  extraLegChance: 0.15,
   /** Chance a second leg carries on the same way instead of doubling back. */
-  continueBias: 0.75,
+  continueBias: 0.6,
   /** Below this a leg is not worth walking; the beat is dropped. */
   minTravelDistance: 8,
   /** The beat of hesitation at a dead end, before turning around. */
-  reverseRestMs: 700,
-  /**
-   * Chance a routine ignores the platform it is standing on and plans across
-   * the whole viewport. Without it people would never wander off an edge, and
-   * the cliff hop and climb-down would stop happening at all.
-   */
-  leavePlatformChance: 0.2
+  reverseRestMs: 1_500
 } as const;
 
 /**
@@ -292,8 +281,8 @@ export interface PixelPersonRuntime {
   /** When this person appeared, for the entrance animation. */
   spawnedAt: number;
   /**
-   * The plan the next activity comes from. Null while an interrupt (errand,
-   * climb, ladder, hide) owns the person; a fresh one is rolled when they run
+   * The plan the next activity comes from. Null while a record errand or an
+   * explicit interaction owns the person; a fresh one is rolled when they run
    * out of things to do.
    */
   routine: Routine | null;
@@ -933,28 +922,30 @@ function walkableRange(
  * walk could be aimed straight through a wall or off a ledge and `reverse()`
  * would clean up on impact. That is what made half the remaining direction
  * changes happen mid-stride rather than out of a pause. Staying on the thing
- * you are standing on turns leaving it into a deliberate act — a climb, a
- * ladder ride, a hop — instead of a collision.
+ * you are standing on keeps the ambient motion on an authored promenade
+ * instead of turning arbitrary page geometry into a route.
  *
  * `viewport-floor` spans the whole scan width, so open ground is unaffected;
- * this only bites on panels and bridged cover-wall rows.
+ * this only bites on panels and authored promenade rails. A narrow support is
+ * a resting place, not an excuse to plan into open space.
  */
 export function legRange(
   person: PixelPersonRuntime,
   geometry: WorldGeometry
 ): { minX: number; maxX: number } {
   const bounds = walkableRange(person, geometry);
-  if (Math.random() < ROUTINE.leavePlatformChance) return bounds;
   const support = geometry.colliders.find(
     (candidate) => candidate.id === person.body.supportId
   );
   if (!support) return bounds;
   const minX = Math.max(bounds.minX, support.x);
   const maxX = Math.min(bounds.maxX, support.x + support.width - person.body.width);
-  // Too cramped to plan a real leg on — a narrow tile, or a platform mostly
-  // outside the comfortable viewport range. Pacing a span that small is the
-  // behaviour this whole change exists to remove, so fall back instead.
-  if (maxX - minX < ROUTINE.travelMinDistance) return bounds;
+  // A support can be narrower than the body, or mostly outside the comfortable
+  // viewport range. Keep the person parked at the closest valid point rather
+  // than treating that as permission to step off it.
+  if (maxX < minX) {
+    return { minX: person.body.x, maxX: person.body.x };
+  }
   return { minX, maxX };
 }
 
@@ -966,20 +957,12 @@ export function legRange(
  */
 function planRoutine(
   person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  biasX: number | null
+  geometry: WorldGeometry
 ): Routine {
   const { minX, maxX } = legRange(person, geometry);
   const beats: Beat[] = [];
   let cursorX = person.body.x;
-  let direction: Facing =
-    biasX !== null && Math.random() < RECORD_ERRAND.driftChance
-      ? biasX >= person.body.x
-        ? 1
-        : -1
-      : Math.random() < 0.5
-        ? -1
-        : 1;
+  let direction: Facing = Math.random() < 0.5 ? -1 : 1;
 
   const legs = Math.random() < ROUTINE.extraLegChance ? 2 : 1;
   for (let leg = 0; leg < legs; leg += 1) {
@@ -1061,32 +1044,9 @@ function chooseNextActivity(
     return;
   }
 
-  // Ladder rides get first pick of the activity slot: on the wall the record
-  // errand would otherwise always win it (its cooldown is about as long as
-  // the walk back), starving the climbs entirely.
-  if (
-    !person.carrying &&
-    now - person.lastClimbAt >= LADDER_CLIMB.cooldownMs &&
-    Math.random() < LADDER_CLIMB.chance
-  ) {
-    const ride = chooseLadderRide(person, geometry);
-    if (ride) {
-      person.plannedLadder = {
-        ladderId: ride.ladder.id,
-        goalX: ride.ladder.x + ride.ladder.width / 2 - person.body.width / 2,
-        direction: ride.direction
-      };
-      person.goalX = person.plannedLadder.goalX;
-      person.facing = person.goalX >= person.body.x ? 1 : -1;
-      person.activity = 'wander';
-      person.activityUntil = now + 8_000;
-      return;
-    }
-  }
-
-  // Record errands come before climb planning: cover tiles are solid supports,
-  // so the climb branch would otherwise always win while standing on the wall.
-  let wanderBiasX: number | null = null;
+  // Record errands remain part of the promenade, but only when the album can
+  // be reached from the person's current walking level. Other rows belong to
+  // another platform; ambient people never route to them by ladder.
   if (!person.carrying && now >= person.nextRecordAt) {
     const source = chooseRecordSource(person, geometry);
     if (source) {
@@ -1099,115 +1059,14 @@ function chooseNextActivity(
         now + RECORD_ERRAND.cooldownMs + Math.random() * RECORD_ERRAND.cooldownJitterMs;
       return;
     }
-    const route = findLadderRouteTowardRecord(person, geometry);
-    if (route) {
-      person.plannedLadder = route;
-      person.goalX = route.goalX;
-      person.facing = person.goalX >= person.body.x ? 1 : -1;
-      person.activity = 'wander';
-      person.activityUntil = now + 8_000;
-      // Re-plan quickly once the ride lands on the source's level.
-      person.nextRecordAt = now + 2_000;
-      return;
-    }
     person.nextRecordAt = now + RECORD_ERRAND.retryMs;
-    // No source at this level: drift wandering toward the nearest one so
-    // pick-ups are findable instead of pure chance (climbing does the rest).
-    wanderBiasX = nearestRecordSourceX(person, geometry);
-  }
-
-  const climbPlan = chooseClimbPlan(person, geometry.colliders, now);
-  if (climbPlan) {
-    person.plannedClimb = climbPlan;
-    person.goalX = climbPlan.goalX;
-    person.facing = climbPlan.goalX >= person.body.x ? 1 : -1;
-    person.activity = 'wander';
-    person.activityUntil = now + 15_000;
-    return;
-  }
-
-  if (now >= person.nextHideAt && !person.carrying) {
-    const target = chooseHideTarget(person, geometry.occluders);
-    if (target) {
-      const onLeft = person.body.x + person.body.width / 2 < target.x + target.width / 2;
-      const outsideX = onLeft ? target.x - person.body.width : target.x + target.width;
-      const overlapX = onLeft ? target.x - person.body.width * 0.35 : target.x + target.width - person.body.width * 0.65;
-      person.hide = {
-        occluder: target,
-        original: { x: outsideX, y: person.body.y },
-        target: { x: overlapX, y: person.body.y + 5 },
-        startedAt: 0
-      };
-      person.goalX = outsideX;
-      person.activity = 'seek-hide';
-      person.activityUntil = now + HIDE.seekTimeoutMs;
-      person.nextHideAt = now + HIDE.cooldownMs + Math.random() * HIDE.cooldownJitterMs;
-      return;
-    }
-    person.nextHideAt = now + HIDE.retryMs;
   }
 
   // Nothing wanted them: carry on with the plan, or make a new one.
   person.routine = routine;
   if (advanceRoutine(person, now)) return;
-  person.routine = planRoutine(person, geometry, wanderBiasX);
+  person.routine = planRoutine(person, geometry);
   advanceRoutine(person, now);
-}
-
-function chooseClimbPlan(
-  person: PixelPersonRuntime,
-  colliders: Collider[],
-  now: number
-): PlannedClimb | null {
-  if (now - person.lastClimbAt < 10_000) return null;
-  const support = colliders.find((collider) => collider.id === person.body.supportId);
-  if (!support?.groupId || (support.edge !== 'top' && support.kind !== 'solid')) return null;
-
-  if (support.kind === 'solid') {
-    if (support.height > MAX_CLIMB_HEIGHT) return null;
-    const leftDistance = Math.abs(person.body.x - support.x);
-    const rightDistance = Math.abs(
-      person.body.x + person.body.width - (support.x + support.width)
-    );
-    const side = leftDistance <= rightDistance ? 'left' : 'right';
-    return {
-      top: support,
-      wall: support,
-      side,
-      goalX:
-        side === 'left'
-          ? support.x + 2
-          : support.x + support.width - person.body.width - 2
-    };
-  }
-
-  const leftWall = colliders.find(
-    (collider) => collider.groupId === support.groupId && collider.edge === 'left'
-  );
-  const rightWall = colliders.find(
-    (collider) => collider.groupId === support.groupId && collider.edge === 'right'
-  );
-  const options: Array<{ distance: number; plan: PlannedClimb }> = [];
-  if (leftWall && leftWall.height <= MAX_CLIMB_HEIGHT) {
-    options.push({
-      distance: Math.abs(person.body.x - support.x),
-      plan: { top: support, wall: leftWall, side: 'left', goalX: support.x + 2 }
-    });
-  }
-  if (rightWall && rightWall.height <= MAX_CLIMB_HEIGHT) {
-    options.push({
-      distance: Math.abs(person.body.x + person.body.width - (support.x + support.width)),
-      plan: {
-        top: support,
-        wall: rightWall,
-        side: 'right',
-        goalX: support.x + support.width - person.body.width - 2
-      }
-    });
-  }
-
-  options.sort((left, right) => left.distance - right.distance);
-  return options[0]?.plan ?? null;
 }
 
 /**
@@ -1236,12 +1095,16 @@ function chooseRecordSource(
   geometry: WorldGeometry
 ): ItemSource | null {
   const bodyBottom = person.body.y + person.body.height;
+  const promenade = legRange(person, geometry);
   const candidates = geometry.itemSources
     .filter((source) => {
       if (source.kind !== 'record') return false;
       if (!intersects(source, geometry.viewportBounds)) return false;
+      const goalX = source.x + source.width / 2 - person.body.width / 2;
       return (
         sourceReachableAtLevel(source, bodyBottom, person.body.height) &&
+        goalX >= promenade.minX &&
+        goalX <= promenade.maxX &&
         horizontalDistance(person.body, source) <= RECORD_ERRAND.maxTravelDistance
       );
     })
@@ -1300,8 +1163,13 @@ function isInsideRecordWall(person: PixelPersonRuntime, geometry: WorldGeometry)
  */
 function chooseDeliveryGoalX(person: PixelPersonRuntime, geometry: WorldGeometry): number {
   const viewport = geometry.viewportBounds;
-  const minX = viewport.x + DELIVERY_EDGE_COMFORT;
-  const maxX = viewport.x + viewport.width - person.body.width - DELIVERY_EDGE_COMFORT;
+  const promenade = legRange(person, geometry);
+  const minX = Math.max(promenade.minX, viewport.x + DELIVERY_EDGE_COMFORT);
+  const maxX = Math.min(
+    promenade.maxX,
+    viewport.x + viewport.width - person.body.width - DELIVERY_EDGE_COMFORT
+  );
+  if (maxX < minX) return clamp(person.body.x, promenade.minX, promenade.maxX);
   const wall = recordWallBounds(geometry);
   if (!wall) {
     const direction = Math.random() < 0.5 ? -1 : 1;
@@ -1312,39 +1180,14 @@ function chooseDeliveryGoalX(person: PixelPersonRuntime, geometry: WorldGeometry
   const rightZone = { from: wall.x + wall.width + margin, to: maxX };
   const zones = [leftZone, rightZone].filter((zone) => zone.to - zone.from >= 40);
   if (zones.length === 0) {
-    // No horizontal room beside the wall: commit past a random wall end so
-    // the carrier walks off the shelf lip and cascades down and out, rather
-    // than dead-stopping at a goal on the lip itself. Only a slim viewport
-    // clamp applies — corner traps are handled by confinement bail-out.
+    // No horizontal room beside the wall: use the nearer promenade end as a
+    // short carry beat. Reaching it starts listening even if the art spans the
+    // whole rail; fetching a record is never permission to leave the platform.
     const side = Math.random() < 0.5 ? -1 : 1;
-    const overshoot = 30 + Math.random() * 60;
-    const target =
-      side === -1 ? wall.x - overshoot - person.body.width : wall.x + wall.width + overshoot;
-    return clamp(
-      target,
-      viewport.x + 16,
-      viewport.x + viewport.width - person.body.width - 16
-    );
+    return side === -1 ? minX : maxX;
   }
   const zone = zones[Math.floor(Math.random() * zones.length)];
   return zone.from + Math.random() * (zone.to - zone.from);
-}
-
-function nearestRecordSourceX(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): number | null {
-  let best: ItemSource | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const source of geometry.itemSources) {
-    if (source.kind !== 'record' || !intersects(source, geometry.viewportBounds)) continue;
-    const distance = horizontalDistance(person.body, source);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = source;
-    }
-  }
-  return best ? best.x + best.width / 2 : null;
 }
 
 export const DOORWAY_EXIT = {
@@ -1596,11 +1439,12 @@ function updateRecordStoop(
       now + RECORD_ERRAND.returnDelayMs + Math.random() * RECORD_ERRAND.returnJitterMs;
     const viewport = geometry.viewportBounds;
     const center = viewport.x + viewport.width / 2;
+    const promenade = legRange(person, geometry);
     person.recordErrand = null;
     person.goalX = clamp(
       center + (Math.random() - 0.5) * viewport.width * 0.4,
-      viewport.x + EDGE_COMFORT,
-      viewport.x + viewport.width - person.body.width - EDGE_COMFORT
+      promenade.minX,
+      promenade.maxX
     );
     person.facing = person.goalX >= person.body.x ? 1 : -1;
     // A one-beat routine so the stroll away gets a distance-derived budget and
@@ -1630,21 +1474,61 @@ function dropPayload(person: PixelPersonRuntime): DroppedRecord {
 }
 
 /**
- * Swaps a live person's character without disturbing its motion — used when the
- * artist rail populates after spawn and the character has to be re-picked.
- *
- * Owned here rather than by the caller so any invariant a swap comes to need
- * lives with the runtime it protects.
- *
- * Callers must ensure both definitions share a body box; every character does
- * today, so position and velocity carry over untouched.
+ * Swaps a live person's character while keeping their feet and horizontal
+ * centre fixed. Definitions may use different body boxes, so geometry-bound
+ * motions planned against the old box are abandoned before the new one takes
+ * over. Records, doorway exits and an active drag remain intact.
  */
 export function setPersonDefinition(
   person: PixelPersonRuntime,
   definition: CharacterDefinition
 ): void {
   if (person.definition.id === definition.id) return;
+  const oldWidth = person.body.width;
+  const oldHeight = person.body.height;
+  const centerX = person.body.x + oldWidth / 2;
+  const feetY = person.body.y + oldHeight;
+  const dimensionsChanged =
+    oldWidth !== definition.body.width || oldHeight !== definition.body.height;
+
   person.definition = definition;
+  if (!dimensionsChanged) return;
+
+  person.body.width = definition.body.width;
+  person.body.height = definition.body.height;
+  person.body.x = centerX - definition.body.width / 2;
+  person.body.y = feetY - definition.body.height;
+  person.previousX = person.body.x;
+  // Goals are body-left coordinates. Shift them with the centre so an errand
+  // or doorway walk still points at the same visual destination.
+  person.goalX += (oldWidth - definition.body.width) / 2;
+
+  person.plannedClimb = null;
+  person.plannedLadder = null;
+  const geometryBoundActivity =
+    person.crawling ||
+    person.activity === 'climb' ||
+    person.activity === 'mantle' ||
+    person.activity === 'seek-hide' ||
+    person.activity === 'hiding';
+  person.crawling = false;
+  person.crawlingSince = 0;
+  person.climb = null;
+  person.mantle = null;
+  person.hide = null;
+  person.hiddenOccluderId = null;
+  if (geometryBoundActivity) {
+    person.routine = null;
+    person.lookFlipAt = 0;
+    person.activity = 'idle';
+    person.activityUntil = 0;
+  }
+
+  if (person.drag) {
+    const bodyCenterY = definition.body.offsetY + definition.body.height / 2;
+    const gripY = definition.dragGrip.y * definition.scale;
+    person.drag.length = Math.max(8, bodyCenterY - gripY);
+  }
 }
 
 /** Abandons a planned pickup, e.g. when its artwork failed to load. */
@@ -1663,27 +1547,6 @@ export function dropCarriedRecord(person: PixelPersonRuntime): DroppedRecord | n
   const payload = dropPayload(person);
   person.carrying = null;
   return payload;
-}
-
-function chooseHideTarget(
-  person: PixelPersonRuntime,
-  occluders: Occluder[]
-): Occluder | null {
-  const bodyBottom = person.body.y + person.body.height;
-  return (
-    occluders
-      .filter((occluder) => {
-        const touchesLevel =
-          Math.abs(occluder.y - bodyBottom) <= 42 ||
-          (person.body.y < occluder.y + occluder.height && bodyBottom > occluder.y);
-        const distance = Math.min(
-          Math.abs(person.body.x - (occluder.x + occluder.width)),
-          Math.abs(person.body.x + person.body.width - occluder.x)
-        );
-        return touchesLevel && distance <= 300 && occluder.width >= person.body.width * 1.5;
-      })
-      .sort((left, right) => horizontalDistance(person.body, left) - horizontalDistance(person.body, right))[0] ?? null
-  );
 }
 
 function beginHiding(person: PixelPersonRuntime, now: number): void {
@@ -1747,107 +1610,6 @@ function updateHiding(
     person.activity = 'idle';
     setAnimation(person, 'idle', now);
   }
-}
-
-interface LadderRide {
-  ladder: Collider;
-  direction: 'up' | 'down';
-}
-
-function eligibleLadderRides(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): LadderRide[] {
-  const bodyBottom = person.body.y + person.body.height;
-  const rides: LadderRide[] = [];
-  for (const collider of geometry.colliders) {
-    if (collider.kind !== 'ladder') continue;
-    if (horizontalDistance(person.body, collider) > LADDER_CLIMB.maxDistance) continue;
-    const ladderBottom = collider.y + collider.height;
-    // Up ride: rooted at foot level, or hanging up to ~70px above it — the
-    // latter lets someone under the wall climb its lowest ladders back onto
-    // the shelves.
-    const climbHeight = bodyBottom - collider.y;
-    if (
-      ladderBottom <= bodyBottom + 12 &&
-      ladderBottom >= bodyBottom - 70 &&
-      climbHeight > 22 &&
-      climbHeight <= MAX_CLIMB_HEIGHT &&
-      hasWalkableTopNear(geometry, collider)
-    ) {
-      rides.push({ ladder: collider, direction: 'up' });
-    }
-    // Down ride: top at foot level with somewhere walkable at its bottom.
-    const dropHeight = ladderBottom - bodyBottom;
-    if (
-      Math.abs(collider.y - bodyBottom) <= 12 &&
-      dropHeight > 22 &&
-      dropHeight <= MAX_CLIMB_HEIGHT &&
-      hasWalkableBottomNear(geometry, collider)
-    ) {
-      rides.push({ ladder: collider, direction: 'down' });
-    }
-  }
-  return rides;
-}
-
-function chooseLadderRide(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): LadderRide | null {
-  const rides = eligibleLadderRides(person, geometry);
-  if (rides.length === 0) return null;
-  return rides[Math.floor(Math.random() * rides.length)];
-}
-
-/**
- * When no record source is level-reachable, finds the nearest ladder ride
- * whose far end lands on a level where one is — the errand's route between
- * shelves. Deliberate travel, so the ambient climb chance/cooldown don't
- * apply.
- */
-function findLadderRouteTowardRecord(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): { ladderId: string; goalX: number; direction: 'up' | 'down' } | null {
-  const feetY = person.body.y + person.body.height;
-  const offLevelSources = geometry.itemSources.filter(
-    (source) =>
-      source.kind === 'record' &&
-      intersects(source, geometry.viewportBounds) &&
-      !sourceReachableAtLevel(source, feetY, person.body.height) &&
-      // Slightly more generous than the level errand: the ladder ride itself
-      // covers part of the trip.
-      horizontalDistance(person.body, source) <= RECORD_ERRAND.maxTravelDistance + 80
-  );
-  if (offLevelSources.length === 0) return null;
-  // Prefer routes toward albums not carried recently, but a repeat still
-  // beats staying stranded when everything off-level is recent.
-  const fresh = offLevelSources.filter(
-    (source) => !person.recentRecordSourceIds.includes(source.id)
-  );
-  const targets = fresh.length > 0 ? fresh : offLevelSources;
-
-  let best: { ladderId: string; goalX: number; direction: 'up' | 'down' } | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const ride of eligibleLadderRides(person, geometry)) {
-    const farFeetY =
-      ride.direction === 'up' ? ride.ladder.y : ride.ladder.y + ride.ladder.height;
-    const connects = targets.some((source) =>
-      sourceReachableAtLevel(source, farFeetY, person.body.height)
-    );
-    if (!connects) continue;
-    const distance = horizontalDistance(person.body, ride.ladder);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = {
-        ladderId: ride.ladder.id,
-        goalX: ride.ladder.x + ride.ladder.width / 2 - person.body.width / 2,
-        direction: ride.direction
-      };
-    }
-  }
-  return best;
 }
 
 /** The walkable surface a ladder tops out onto, nearest to the ladder's top. */
