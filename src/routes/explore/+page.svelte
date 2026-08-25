@@ -3,7 +3,9 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
+  import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import DitherFrame from '$lib/components/DitherFrame.svelte';
+  import ListeningHistoryChart from '$lib/components/ListeningHistoryChart.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
@@ -15,22 +17,21 @@
     metricOptions,
     metricValue
   } from '$lib/metrics';
-  import {
-    buildTimelineHistogram,
-    monthlyBarWidth,
-    timelineBucketMode,
-    type TimelineHistogramBucket
-  } from '$lib/monthlyTimeline';
   import { defaultProfileSlug } from '$lib/profileDefaults';
   import {
+    fetchAlbumImages,
+    fetchTrackAlbumImages,
+    type AlbumImage
+  } from '$lib/queries/images';
+  import {
+    getProfileAlbumTopTracks,
     getProfileArtistDetail,
     getProfileDateSpan,
-    getProfileEntityTimeline,
+    getProfileEntityHistory,
     getProfileRankings
   } from '$lib/queries/rankings';
   import { listPublicProfiles } from '$lib/queries/profile';
   import type {
-    ArtistDetail,
     CalendarDay,
     EntityType,
     Metric,
@@ -52,13 +53,6 @@
     { value: 'all_time', label: 'All time' }
   ];
 
-  const emptyArtistDetail = (): ArtistDetail => ({
-    summary: null,
-    albums: [],
-    tracks: [],
-    monthly: []
-  });
-
   let mounted = false;
   let syncingUrl = false;
   let preset: ExploreDateRangePreset = 'this_month';
@@ -69,13 +63,19 @@
   let profiles: PublicProfileOption[] = [];
   let profileDateSpan: ProfileDateSpan | null = null;
   let rankings: RankingRow[] = [];
-  let artistDetail: ArtistDetail = emptyArtistDetail();
-  let artistTimeline: CalendarDay[] = [];
+  let detailSummary: RankingRow | null = null;
+  let detailAlbums: RankingRow[] = [];
+  let detailTracks: RankingRow[] = [];
+  let entityTimeline: CalendarDay[] = [];
+  let albumCovers: CoverItem[] = [];
+  let entityArtwork: AlbumImage | null = null;
+  let artworkFailed = false;
   let timelineMetric: 'minutes' | 'plays' = 'plays';
   let loading = false;
   let error = '';
   let detailError = '';
   let lastLoadKey = '';
+  let lastRankingKey = '';
   let lastSyncedSearch = '';
   let loadToken = 0;
   let profileMenu: HTMLDetailsElement | null = null;
@@ -85,19 +85,17 @@
 
   $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
   $: range = preset === 'all_time' ? profileDateSpan : getPresetDateRange(preset);
-  $: selectedArtistName = artistDetail.summary?.entity_name ?? selectedRankingRow?.entity_name ?? '';
   $: selectedRankingRow = entityId ? rankings.find((row) => row.entity_id === entityId) ?? null : null;
-  $: detailMetric = artistDetail.summary ? bestAvailableMetric([artistDetail.summary], metric) : metric;
-  $: selectedMetricValue = artistDetail.summary ? metricValue(artistDetail.summary, detailMetric) : 0;
-  $: timelineBuckets = range ? buildTimelineHistogram(artistTimeline, range.start, range.end) : [];
-  $: histogramBucketMode = range ? timelineBucketMode(range.start, range.end) : 'day';
+  $: selectedEntityName = detailSummary?.entity_name ?? selectedRankingRow?.entity_name ?? entityArtwork?.name ?? '';
+  $: detailMetric = detailSummary ? bestAvailableMetric([detailSummary], metric) : metric;
+  $: selectedMetricValue = detailSummary ? metricValue(detailSummary, detailMetric) : 0;
   $: timelineMetric = detailMetric === 'minutes' ? 'minutes' : 'plays';
   $: timelineMetricLabel = timelineMetric === 'minutes' ? 'Minutes' : 'Plays';
-  $: timelineMaxValue = Math.max(0, ...timelineBuckets.map((bucket) => bucket[timelineMetric]));
   $: if (mounted && !loading && !isMetricAvailable(rankings, metric)) {
     metric = 'plays';
   }
-  $: loadKey = `${selectedSlug}:${preset}:${range?.start ?? ''}:${range?.end ?? ''}:${entityType}:${metric}:${entityId}`;
+  $: rankingKey = `${selectedSlug}:${preset}:${range?.start ?? ''}:${range?.end ?? ''}:${entityType}:${metric}`;
+  $: loadKey = `${rankingKey}:${entityId}`;
   $: if (mounted && !syncingUrl && loadKey !== lastLoadKey) {
     void loadExplorer();
   }
@@ -150,7 +148,7 @@
 
       const entityParam = url.searchParams.get('entity');
       entityType = isEntityType(entityParam) ? entityParam : 'artist';
-      entityId = entityType === 'artist' ? (url.searchParams.get('id') ?? '') : (url.searchParams.get('id') ?? '');
+      entityId = url.searchParams.get('id') ?? '';
       if (requestedSlug !== nextSlug) entityId = '';
     } finally {
       syncingUrl = false;
@@ -232,77 +230,186 @@
 
   async function loadExplorer(): Promise<void> {
     const activeRange = range;
+    const activeSlug = selectedSlug;
+    const activeEntityType = entityType;
+    const activeEntityId = entityId;
+    const activeMetric = metric;
+    const activePreset = preset;
+    const activeRankingKey = rankingKey;
+    const needsRankings = activeRankingKey !== lastRankingKey;
     lastLoadKey = loadKey;
     error = '';
     detailError = '';
     loading = true;
     const token = ++loadToken;
+    resetDetail();
+    if (needsRankings) rankings = [];
 
     try {
       if (!activeRange || profiles.length === 0) {
         rankings = [];
-        artistDetail = emptyArtistDetail();
-        artistTimeline = [];
         return;
       }
 
-      const rows = await getProfileRankings({
-        slug: selectedSlug,
-        entityType,
-        start: activeRange.start,
-        end: activeRange.end,
-        metric,
-        limit: 100
-      });
-      if (token !== loadToken) return;
-      rankings = rows;
+      if (needsRankings) {
+        const rows = await getProfileRankings({
+          slug: activeSlug,
+          entityType: activeEntityType,
+          start: activeRange.start,
+          end: activeRange.end,
+          metric: activeMetric,
+          limit: 100
+        });
+        if (token !== loadToken) return;
+        rankings = rows;
+        lastRankingKey = activeRankingKey;
+      }
 
-      if (entityType === 'artist' && entityId) {
-        try {
-          const [detail, timeline] = await Promise.all([
-            getProfileArtistDetail({
-              slug: selectedSlug,
-              artistId: entityId,
-              start: activeRange.start,
-              end: activeRange.end,
-              metric,
-              limit: 12
-            }),
-            getProfileEntityTimeline({
-              slug: selectedSlug,
-              entityType: 'artist',
-              entityId,
-              start: activeRange.start,
-              end: activeRange.end
-            })
-          ]);
-          if (token !== loadToken) return;
-          artistDetail = detail;
-          artistTimeline = timeline;
-        } catch (caught) {
-          if (token !== loadToken) return;
-          artistDetail = emptyArtistDetail();
-          artistTimeline = [];
-          detailError = caught instanceof Error ? caught.message : String(caught);
-        }
-      } else {
-        artistDetail = emptyArtistDetail();
-        artistTimeline = [];
+      if (activeEntityId) {
+        await loadEntityDetail({
+          slug: activeSlug,
+          entityType: activeEntityType,
+          entityId: activeEntityId,
+          start: activeRange.start,
+          end: activeRange.end,
+          metric: activeMetric,
+          preset: activePreset,
+          token
+        });
       }
     } catch (caught) {
       if (token !== loadToken) return;
       error = caught instanceof Error ? caught.message : String(caught);
       rankings = [];
-      artistDetail = emptyArtistDetail();
-      artistTimeline = [];
+      resetDetail();
     } finally {
       if (token === loadToken) loading = false;
     }
   }
 
-  function timelineBucketTitle(bucket: TimelineHistogramBucket): string {
-    const value = bucket[timelineMetric];
-    return `${bucket.key}: ${formatMetric(value, timelineMetric)}`;
+  function resetDetail(): void {
+    detailSummary = null;
+    detailAlbums = [];
+    detailTracks = [];
+    entityTimeline = [];
+    albumCovers = [];
+    entityArtwork = null;
+    artworkFailed = false;
+  }
+
+  async function loadEntityDetail(params: {
+    slug: string;
+    entityType: EntityType;
+    entityId: string;
+    start: string;
+    end: string;
+    metric: Metric;
+    preset: ExploreDateRangePreset;
+    token: number;
+  }): Promise<void> {
+    try {
+      if (params.entityType === 'artist') {
+        const [detail, history] = await Promise.all([
+          getProfileArtistDetail({
+            slug: params.slug,
+            artistId: params.entityId,
+            start: params.start,
+            end: params.end,
+            metric: params.metric,
+            limit: 12
+          }),
+          getProfileEntityHistory(params)
+        ]);
+        if (params.token !== loadToken) return;
+        const summary = detail.summary ?? history.summary;
+        detailSummary = summary;
+        detailAlbums = detail.albums;
+        detailTracks = detail.tracks;
+        entityTimeline = history.timeline;
+        await loadArtistCovers({
+          ...params,
+          artistName: summary?.entity_name ?? ''
+        });
+        return;
+      }
+
+      if (params.entityType === 'album') {
+        const [history, tracks] = await Promise.all([
+          getProfileEntityHistory(params),
+          getProfileAlbumTopTracks({
+            slug: params.slug,
+            albumId: params.entityId,
+            start: params.start,
+            end: params.end,
+            metric: params.metric,
+            limit: 20
+          })
+        ]);
+        if (params.token !== loadToken) return;
+        detailSummary = history.summary;
+        detailTracks = tracks;
+        entityTimeline = history.timeline;
+        await loadEntityArtwork(params.entityType, params.entityId, params.token);
+        return;
+      }
+
+      const history = await getProfileEntityHistory(params);
+      if (params.token !== loadToken) return;
+      detailSummary = history.summary;
+      entityTimeline = history.timeline;
+      await loadEntityArtwork(params.entityType, params.entityId, params.token);
+    } catch (caught) {
+      if (params.token !== loadToken) return;
+      resetDetail();
+      detailError = caught instanceof Error ? caught.message : String(caught);
+    }
+  }
+
+  async function loadArtistCovers(params: {
+    slug: string;
+    preset: ExploreDateRangePreset;
+    metric: Metric;
+    token: number;
+    artistName: string;
+  }): Promise<void> {
+    try {
+      const images = await fetchAlbumImages(detailAlbums.map((row) => Number(row.entity_id)));
+      if (params.token !== loadToken) return;
+      const coverMetric = detailSummary ? bestAvailableMetric([detailSummary], params.metric) : params.metric;
+      albumCovers = detailAlbums.map((row) => ({
+        id: row.entity_id,
+        title: row.entity_name,
+        subtitle: params.artistName,
+        value: formatMetric(metricValue(row, coverMetric), coverMetric),
+        imageUrl: images.get(Number(row.entity_id))?.image_url ?? null,
+        href: `/explore/?profile=${encodeURIComponent(params.slug)}&range=${encodeURIComponent(params.preset)}&entity=album&id=${encodeURIComponent(row.entity_id)}`
+      }));
+    } catch {
+      if (params.token !== loadToken) return;
+      albumCovers = detailAlbums.map((row) => ({
+        id: row.entity_id,
+        title: row.entity_name,
+        subtitle: params.artistName,
+        value: formatMetric(metricValue(row, params.metric), params.metric),
+        imageUrl: null,
+        href: `/explore/?profile=${encodeURIComponent(params.slug)}&range=${encodeURIComponent(params.preset)}&entity=album&id=${encodeURIComponent(row.entity_id)}`
+      }));
+    }
+  }
+
+  async function loadEntityArtwork(type: EntityType, id: string, token: number): Promise<void> {
+    try {
+      const numericId = Number(id);
+      if (type === 'album') {
+        const images = await fetchAlbumImages([numericId]);
+        if (token === loadToken) entityArtwork = images.get(numericId) ?? null;
+      } else if (type === 'track') {
+        const images = await fetchTrackAlbumImages([numericId]);
+        if (token === loadToken) entityArtwork = images.get(numericId) ?? null;
+      }
+    } catch {
+      /* Artwork is decorative metadata; keep the listening detail usable. */
+    }
   }
 
   function rangeLabel(value: ExploreDateRangePreset): string {
@@ -420,105 +527,118 @@
   {:else if error}
     <section class="panel section-gap"><p class="error">{error}</p></section>
   {:else}
-    <section class="explorer-layout section-gap">
+    <section class="explorer-layout section-gap" class:has-detail={Boolean(entityId)}>
       <div class="ranking-col">
         <div class="section-heading">
           <h2>Ranking</h2>
           {#if selectedProfile}<span class="muted">{selectedProfile.display_name}</span>{/if}
         </div>
-        <div class="ranking-scroll" class:is-artist-ranking={entityType === 'artist'}>
-          <RankingTable rows={rankings} {entityType} {metric} profileSlug={selectedSlug} rangePreset={preset} />
+        <div class="ranking-scroll">
+          <RankingTable
+            rows={rankings}
+            {entityType}
+            {metric}
+            profileSlug={selectedSlug}
+            rangePreset={preset}
+            compact
+            selectedEntityId={entityId || null}
+          />
         </div>
       </div>
 
-      {#if entityType === 'artist'}
-        <aside class="detail-panel">
-          {#if detailError}
-            <p class="error">{detailError}</p>
-          {:else if !entityId}
-            <div class="empty-detail">
-              <h2>Artist detail</h2>
-              <p class="muted">Select an artist from the ranking.</p>
-            </div>
-          {:else if artistDetail.summary}
-            <div class="section-heading">
-              <h2>{selectedArtistName}</h2>
+      <aside class="detail-panel" id="entity-detail">
+        {#if detailError}
+          <p class="error">{detailError}</p>
+        {:else if !entityId}
+          <div class="empty-detail">
+            <h2>{entityLabel(entityType)} detail</h2>
+            <p class="muted">Select {entityType === 'artist' ? 'an' : 'a'} {entityType} from the ranking.</p>
+          </div>
+        {:else if loading && !detailSummary}
+          <div class="empty-detail"><RecordMark size="sm" label={`Loading ${entityType} detail...`} /></div>
+        {:else if detailSummary}
+          <div class="entity-heading" class:has-art={entityType !== 'artist'}>
+            {#if entityType !== 'artist'}
+              <div
+                class="entity-art"
+                data-pixel-collision="occluder"
+                data-pixel-record={entityArtwork?.image_url && !artworkFailed ? entityArtwork.image_url : undefined}
+              >
+                {#if entityArtwork?.image_url && !artworkFailed}
+                  <img
+                    src={entityArtwork.image_url}
+                    alt={`${entityArtwork.name} cover art`}
+                    on:error={() => (artworkFailed = true)}
+                  />
+                {:else}
+                  <span aria-hidden="true">♪</span>
+                {/if}
+              </div>
+            {/if}
+            <div class="entity-heading-copy">
+              <span class="eyebrow">{entityLabel(entityType)}</span>
+              <h2>{selectedEntityName}</h2>
               <span class="muted">{preset === 'all_time' ? 'All time' : range?.start + ' to ' + range?.end}</span>
             </div>
+          </div>
 
-            <div class="summary-strip">
-              <div class="metric compact">
-                <span class="muted">{metricOptions.find((option) => option.value === detailMetric)?.label ?? 'Metric'}</span>
-                <strong>{formatMetric(selectedMetricValue, detailMetric)}</strong>
-              </div>
-              <div class="metric compact">
-                <span class="muted">Plays</span>
-                <strong>{artistDetail.summary.plays.toLocaleString()}</strong>
-              </div>
-              <div class="metric compact">
-                <span class="muted">Unique tracks</span>
-                <strong>{artistDetail.summary.unique_tracks.toLocaleString()}</strong>
-              </div>
+          <div class="summary-strip">
+            <div class="metric compact">
+              <span class="muted">{metricOptions.find((option) => option.value === detailMetric)?.label ?? 'Metric'}</span>
+              <strong>{formatMetric(selectedMetricValue, detailMetric)}</strong>
             </div>
+            <div class="metric compact">
+              <span class="muted">Plays</span>
+              <strong>{detailSummary.plays.toLocaleString()}</strong>
+            </div>
+            <div class="metric compact">
+              <span class="muted">{entityType === 'track' ? 'Qualified plays' : 'Unique tracks'}</span>
+              <strong>{(entityType === 'track' ? detailSummary.qualified_plays : detailSummary.unique_tracks).toLocaleString()}</strong>
+            </div>
+          </div>
 
+          <section class="detail-section">
+            <div class="detail-subheading">
+              <h3>Listening history</h3>
+              <span class="muted">{timelineMetricLabel}</span>
+            </div>
+            {#if range}
+              <ListeningHistoryChart
+                days={entityTimeline}
+                start={range.start}
+                end={range.end}
+                metric={timelineMetric}
+                entityName={selectedEntityName}
+              />
+            {/if}
+          </section>
+
+          {#if entityType === 'artist'}
             <section class="detail-section">
-              <div class="detail-subheading">
-                <h3>Timeline</h3>
-                <span class="muted">{timelineMetricLabel}</span>
-              </div>
-              <div
-                class="histogram"
-                class:is-daily={histogramBucketMode === 'day'}
-                aria-label={`${selectedArtistName} timeline by ${timelineMetricLabel.toLowerCase()}`}
-              >
-                {#each timelineBuckets as bucket}
-                  {@const value = bucket[timelineMetric]}
-                  <div class="histogram-column" title={timelineBucketTitle(bucket)}>
-                    <div
-                      class="histogram-bar"
-                      class:is-empty={value <= 0}
-                      style:height={`${monthlyBarWidth(value, timelineMaxValue)}%`}
-                    ></div>
-                    {#if bucket.label}
-                      <span class="histogram-label">{bucket.label}</span>
-                    {/if}
-                  </div>
-                {:else}
-                  <p class="muted">No timeline data for this range.</p>
-                {/each}
-              </div>
+              <h3>Top albums</h3>
+              <CoverWall items={albumCovers} trimIncompleteRows={false} />
             </section>
-
-            <section class="detail-grid">
-              <div>
-                <h3>Top albums</h3>
-                <RankingTable
-                  rows={artistDetail.albums}
-                  entityType="album"
-                  metric={detailMetric}
-                  profileSlug={selectedSlug}
-                  rangePreset={preset}
-                />
-              </div>
-              <div>
-                <h3>Top tracks</h3>
-                <RankingTable
-                  rows={artistDetail.tracks}
-                  entityType="track"
-                  metric={detailMetric}
-                  profileSlug={selectedSlug}
-                  rangePreset={preset}
-                />
-              </div>
-            </section>
-          {:else}
-            <div class="empty-detail">
-              <h2>Artist detail</h2>
-              <p class="muted">No plays for this artist in the selected range.</p>
-            </div>
           {/if}
-        </aside>
-      {/if}
+
+          {#if entityType !== 'track'}
+            <section class="detail-section">
+              <h3>Top tracks</h3>
+              <RankingTable
+                rows={detailTracks}
+                entityType="track"
+                metric={detailMetric}
+                profileSlug={selectedSlug}
+                rangePreset={preset}
+              />
+            </section>
+          {/if}
+        {:else}
+          <div class="empty-detail">
+            <h2>{entityLabel(entityType)} detail</h2>
+            <p class="muted">No plays for this {entityType} in the selected range.</p>
+          </div>
+        {/if}
+      </aside>
     </section>
   {/if}
 </section>
@@ -595,16 +715,20 @@
   }
 
   .section-heading h2,
-  .detail-section h3,
-  .detail-grid h3 {
+  .detail-section h3 {
     margin: 0;
   }
 
   .explorer-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
-    gap: 48px;
+    grid-template-columns: minmax(280px, 0.55fr) minmax(0, 1.45fr);
+    gap: var(--space-8);
     align-items: start;
+  }
+
+  .ranking-col,
+  .detail-panel {
+    min-width: 0;
   }
 
   .detail-panel {
@@ -615,7 +739,51 @@
   .empty-detail {
     display: grid;
     align-content: center;
+    gap: var(--space-1);
     min-height: 220px;
+  }
+
+  .entity-heading {
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .entity-heading.has-art {
+    display: grid;
+    grid-template-columns: minmax(112px, 148px) minmax(0, 1fr);
+    align-items: end;
+    gap: var(--space-4);
+  }
+
+  .entity-heading-copy {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .entity-heading-copy h2 {
+    overflow-wrap: anywhere;
+    font-size: var(--text-lg);
+  }
+
+  .entity-art {
+    display: grid;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    place-items: center;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+
+  .entity-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .entity-art span {
+    color: var(--muted);
+    font-size: 2rem;
   }
 
   .summary-strip {
@@ -648,25 +816,21 @@
     gap: var(--space-3);
   }
 
-  .ranking-scroll.is-artist-ranking {
+  .detail-section :global(.cover-wall) {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  }
+
+  .ranking-scroll {
     max-height: 876px;
     overflow: auto;
     scrollbar-gutter: stable;
   }
 
-  .ranking-scroll.is-artist-ranking :global(.table-wrap) {
-    overflow: visible;
-  }
-
-  .ranking-scroll.is-artist-ranking :global(th) {
+  .ranking-scroll :global(th) {
     position: sticky;
     top: 0;
     z-index: 1;
     background: var(--bg);
-  }
-
-  .ranking-scroll.is-artist-ranking :global(td:nth-child(2)) {
-    white-space: nowrap;
   }
 
   .detail-subheading {
@@ -676,63 +840,24 @@
     gap: 12px;
   }
 
-  .histogram {
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-    min-height: 118px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 4px 0 24px;
-    border-bottom: 1px solid var(--line);
-    scrollbar-gutter: stable;
-  }
-
-  .histogram-column {
-    position: relative;
-    display: flex;
-    flex: 0 0 10px;
-    align-items: flex-end;
-    height: 86px;
-  }
-
-  .histogram.is-daily .histogram-column {
-    flex-basis: 4px;
-    gap: 1px;
-  }
-
-  .histogram-bar {
-    width: 100%;
-    min-height: 1px;
-    background: var(--accent);
-  }
-
-  .histogram-bar.is-empty {
-    min-height: 0;
-    background: transparent;
-  }
-
-  .histogram-label {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    color: var(--muted);
-    font-size: var(--text-2xs);
-    line-height: 1;
-    white-space: nowrap;
-  }
-
-  .detail-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-  }
-
   @media (max-width: 900px) {
     .explorer-layout,
-    .detail-grid,
     .summary-strip {
       grid-template-columns: 1fr;
+    }
+
+    .explorer-layout.has-detail .detail-panel {
+      order: -1;
+    }
+
+    .ranking-scroll {
+      max-height: none;
+    }
+  }
+
+  @media (max-width: 500px) {
+    .entity-heading.has-art {
+      grid-template-columns: 84px minmax(0, 1fr);
     }
   }
 </style>

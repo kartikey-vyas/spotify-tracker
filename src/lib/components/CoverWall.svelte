@@ -21,6 +21,7 @@
   // When true, render skeleton tiles instead of items (same grid + row trim).
   export let loading = false;
   export let placeholderCount = 36;
+  export let trimIncompleteRows = true;
 
   let failed: Record<string, boolean> = {};
   let grid: HTMLUListElement | undefined;
@@ -58,8 +59,10 @@
     return Math.floor(itemCount / columnCount) * columnCount || itemCount;
   }
 
-  $: visible = items.slice(0, completeRowCount(items.length, columns));
-  $: skeletonCount = completeRowCount(placeholderCount, columns);
+  $: visible = trimIncompleteRows ? items.slice(0, completeRowCount(items.length, columns)) : items;
+  $: skeletonCount = trimIncompleteRows
+    ? completeRowCount(placeholderCount, columns)
+    : placeholderCount;
 
   function markFailed(id: string): void {
     failed = { ...failed, [id]: true };

@@ -218,6 +218,35 @@ export async function getProfileArtistDetail(params: {
   };
 }
 
+export async function getProfileAlbumTopTracks(params: {
+  slug: string;
+  albumId: string;
+  start: string;
+  end: string;
+  metric: Metric;
+  limit?: number;
+}): Promise<RankingRow[]> {
+  if (!supabase) return [];
+
+  const numericAlbumId = Number(params.albumId);
+  if (!Number.isInteger(numericAlbumId) || numericAlbumId <= 0) return [];
+
+  const { data, error } = await supabase
+    .rpc('public_profile_album_top_tracks', {
+      p_slug: params.slug,
+      p_album_id: numericAlbumId,
+      p_start_date: params.start,
+      p_end_date: params.end,
+      p_sort_metric: params.metric,
+      p_limit: params.limit ?? 12
+    })
+    .returns<RpcRankingRow[]>();
+
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as unknown as RpcRankingRow[]).map(mapRpcRankingRow);
+}
+
 export async function getEntityTimeline(params: {
   entityType: EntityType;
   entityId: string;
@@ -252,13 +281,26 @@ export async function getProfileEntityTimeline(params: {
   start: string;
   end: string;
 }): Promise<CalendarDay[]> {
-  if (!supabase) return [];
+  return (await getProfileEntityHistory(params)).timeline;
+}
 
-  const data: Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>> = [];
+export async function getProfileEntityHistory(params: {
+  slug: string;
+  entityType: EntityType;
+  entityId: string;
+  start: string;
+  end: string;
+}): Promise<{ summary: RankingRow | null; timeline: CalendarDay[] }> {
+  const empty = { summary: null, timeline: [] };
+  if (!supabase) return empty;
+
+  const data: RollupRow[] = [];
   for (let from = 0; ; from += ROLLUP_PAGE_SIZE) {
     const { data: page, error } = await supabase
       .from('public_profile_rollup_daily_entity_stats')
-      .select('local_date,minutes_exact,minutes_inferred,plays')
+      .select(
+        'local_date,entity_id,entity_name,minutes_exact,minutes_inferred,plays,qualified_plays,unique_tracks,skipped_count,known_skip_count,unknown_duration_plays'
+      )
       .eq('slug', params.slug)
       .eq('entity_type', params.entityType)
       .eq('entity_id', params.entityId)
@@ -266,18 +308,23 @@ export async function getProfileEntityTimeline(params: {
       .lte('local_date', params.end)
       .order('local_date', { ascending: true })
       .range(from, from + ROLLUP_PAGE_SIZE - 1)
-      .returns<Array<Pick<RollupRow, 'local_date' | 'minutes_exact' | 'minutes_inferred' | 'plays'>>>();
+      .returns<RollupRow[]>();
 
     if (error) throw new Error(error.message);
     data.push(...(page ?? []));
     if (!page || page.length < ROLLUP_PAGE_SIZE) break;
   }
 
-  return data.map((row) => ({
-    local_date: row.local_date,
-    minutes: numberValue(row.minutes_exact) + numberValue(row.minutes_inferred),
-    plays: row.plays
-  }));
+  if (data.length === 0) return empty;
+
+  return {
+    summary: aggregateRows(data)[0] ?? null,
+    timeline: data.map((row) => ({
+      local_date: row.local_date,
+      minutes: numberValue(row.minutes_exact) + numberValue(row.minutes_inferred),
+      plays: row.plays
+    }))
+  };
 }
 
 export async function getCalendar(start: string, end: string): Promise<CalendarDay[]> {

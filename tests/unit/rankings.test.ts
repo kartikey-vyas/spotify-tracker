@@ -389,6 +389,123 @@ describe('getRankings', () => {
     expect(rpcCalls[1].args).toEqual(expect.objectContaining({ p_sort_metric: 'plays', p_limit: 12 }));
   });
 
+  it('loads an album\'s top tracks from the profile-scoped aggregate RPC', async () => {
+    const { getProfileAlbumTopTracks } = await import('../../src/lib/queries/rankings.js');
+    rpcRowsByName.set('public_profile_album_top_tracks', [
+      {
+        entity_id: '30',
+        entity_name: 'Reckoner',
+        minutes: '27.5',
+        plays: 9,
+        qualified_plays: 8,
+        unique_tracks: 1,
+        skipped_count: 1,
+        known_skip_count: 9,
+        unknown_duration_plays: 1
+      }
+    ]);
+
+    await expect(
+      getProfileAlbumTopTracks({
+        slug: 'kartikey',
+        albumId: '20',
+        start: '2026-06-01',
+        end: '2026-06-30',
+        metric: 'minutes',
+        limit: 20
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({ entity_id: '30', entity_name: 'Reckoner', minutes: 27.5, plays: 9 })
+    ]);
+
+    expect(rpcCalls).toEqual([
+      {
+        name: 'public_profile_album_top_tracks',
+        args: {
+          p_slug: 'kartikey',
+          p_album_id: 20,
+          p_start_date: '2026-06-01',
+          p_end_date: '2026-06-30',
+          p_sort_metric: 'minutes',
+          p_limit: 20
+        }
+      }
+    ]);
+  });
+
+  it('does not query album detail for an invalid internal id', async () => {
+    const { getProfileAlbumTopTracks } = await import('../../src/lib/queries/rankings.js');
+
+    await expect(
+      getProfileAlbumTopTracks({
+        slug: 'kartikey',
+        albumId: 'spotify:album:not-an-internal-id',
+        start: '2026-06-01',
+        end: '2026-06-30',
+        metric: 'plays'
+      })
+    ).resolves.toEqual([]);
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it('loads one profile entity history query into both its summary and timeline', async () => {
+    const { getProfileEntityHistory } = await import('../../src/lib/queries/rankings.js');
+    rowsByTable.set('public_profile_rollup_daily_entity_stats', [
+      {
+        slug: 'kartikey',
+        local_date: '2026-06-01',
+        entity_type: 'album',
+        entity_id: '20',
+        entity_name: 'In Rainbows',
+        minutes_exact: 2,
+        minutes_inferred: 3,
+        plays: 4,
+        qualified_plays: 3,
+        unique_tracks: 2,
+        skipped_count: 1,
+        known_skip_count: 4,
+        unknown_duration_plays: 1
+      },
+      {
+        slug: 'kartikey',
+        local_date: '2026-06-02',
+        entity_type: 'album',
+        entity_id: '20',
+        entity_name: 'In Rainbows',
+        minutes_exact: 7,
+        minutes_inferred: 0,
+        plays: 2,
+        qualified_plays: 2,
+        unique_tracks: 1,
+        skipped_count: 0,
+        known_skip_count: 2,
+        unknown_duration_plays: 0
+      }
+    ]);
+
+    await expect(
+      getProfileEntityHistory({
+        slug: 'kartikey',
+        entityType: 'album',
+        entityId: '20',
+        start: '2026-06-01',
+        end: '2026-06-30'
+      })
+    ).resolves.toEqual({
+      summary: expect.objectContaining({
+        entity_id: '20',
+        entity_name: 'In Rainbows',
+        minutes: 12,
+        plays: 6,
+        qualified_plays: 5
+      }),
+      timeline: [
+        { local_date: '2026-06-01', minutes: 5, plays: 4 },
+        { local_date: '2026-06-02', minutes: 7, plays: 2 }
+      ]
+    });
+  });
+
   it('loads a profile-scoped entity timeline from public profile rollups', async () => {
     const { getProfileEntityTimeline } = await import('../../src/lib/queries/rankings.js');
     rowsByTable.set('public_profile_rollup_daily_entity_stats', [

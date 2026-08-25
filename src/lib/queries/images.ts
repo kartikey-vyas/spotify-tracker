@@ -6,6 +6,18 @@ export type AlbumImage = {
   spotify_url: string | null;
 };
 
+export type TrackAlbumImage = AlbumImage & {
+  album_id: number;
+};
+
+function numericIds(ids: Array<number | null | undefined>): number[] {
+  return [
+    ...new Set(
+      ids.filter((id): id is number => typeof id === 'number' && Number.isInteger(id) && id > 0)
+    )
+  ];
+}
+
 /**
  * Resolve album cover art (and metadata) for a set of album ids.
  * Album art lives in `albums.image_url`, which is publicly readable by the anon client.
@@ -15,7 +27,7 @@ export async function fetchAlbumImages(albumIds: Array<number | null | undefined
   const result = new Map<number, AlbumImage>();
   if (!supabase) return result;
 
-  const ids = [...new Set(albumIds.filter((id): id is number => typeof id === 'number'))];
+  const ids = numericIds(albumIds);
   if (ids.length === 0) return result;
 
   const { data, error } = await supabase
@@ -33,6 +45,35 @@ export async function fetchAlbumImages(albumIds: Array<number | null | undefined
   return result;
 }
 
+/** Resolve the album artwork associated with each track id. */
+export async function fetchTrackAlbumImages(
+  trackIds: Array<number | null | undefined>
+): Promise<Map<number, TrackAlbumImage>> {
+  const result = new Map<number, TrackAlbumImage>();
+  if (!supabase) return result;
+
+  const ids = numericIds(trackIds);
+  if (ids.length === 0) return result;
+
+  const { data, error } = await supabase
+    .from('tracks')
+    .select('id,album_id')
+    .in('id', ids)
+    .returns<Array<{ id: number; album_id: number | null }>>();
+
+  if (error) throw new Error(error.message);
+
+  const albumIds = (data ?? []).map((row) => row.album_id);
+  const albums = await fetchAlbumImages(albumIds);
+  for (const row of data ?? []) {
+    if (row.album_id == null) continue;
+    const album = albums.get(row.album_id);
+    if (album) result.set(row.id, { ...album, album_id: row.album_id });
+  }
+
+  return result;
+}
+
 /**
  * Resolve each album's artist for a set of album ids. Albums don't store an
  * artist, so derive it from the album's tracks: for every stored track take its
@@ -44,7 +85,7 @@ export async function fetchAlbumArtists(albumIds: Array<number | null | undefine
   const result = new Map<number, string>();
   if (!supabase) return result;
 
-  const ids = [...new Set(albumIds.filter((id): id is number => typeof id === 'number'))];
+  const ids = numericIds(albumIds);
   if (ids.length === 0) return result;
 
   const { data, error } = await supabase

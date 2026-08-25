@@ -9,8 +9,10 @@
   export let showLinks = true;
   export let profileSlug: string | null = null;
   export let rangePreset: string | null = null;
+  export let compact = false;
+  export let selectedEntityId: string | null = null;
 
-  $: showPlaysColumn = metric !== 'plays';
+  $: showPlaysColumn = !compact && metric !== 'plays';
   $: columnCount = showPlaysColumn ? 4 : 3;
 
   function entityHref(row: RankingRow): string {
@@ -24,7 +26,7 @@
   }
 </script>
 
-<div class="table-wrap">
+<div class="table-wrap" class:compact>
   <table>
     <thead>
       <tr>
@@ -38,11 +40,16 @@
     </thead>
     <tbody>
       {#each rows as row, index}
-        <tr class:top-row={index === 0}>
+        <tr class:top-row={index === 0} class:selected-row={row.entity_id === selectedEntityId}>
           <td>{index + 1}</td>
           <td>
             {#if showLinks}
-              <a class="entity-link" href={entityHref(row)}>
+              <a
+                class="entity-link"
+                href={entityHref(row)}
+                aria-current={row.entity_id === selectedEntityId ? 'page' : undefined}
+                title={compact ? row.entity_name : undefined}
+              >
                 {row.entity_name}
               </a>
             {:else}
@@ -69,12 +76,52 @@
     font-weight: 400;
   }
 
+  .compact table {
+    table-layout: fixed;
+  }
+
+  .compact th:first-child,
+  .compact td:first-child {
+    width: 2.25rem;
+  }
+
+  .compact th:last-child,
+  .compact td:last-child {
+    width: 5.75rem;
+    text-align: right;
+  }
+
+  .compact th:nth-child(2),
+  .compact td:nth-child(2) {
+    overflow: hidden;
+  }
+
+  .compact .entity-link {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* Rank #1: soft accent tint across the row, accent marker on the rank cell. */
   .top-row td {
     background: var(--accent-soft);
   }
 
   .top-row td:first-child {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .selected-row td {
+    background: var(--accent-soft);
+  }
+
+  .selected-row td:first-child {
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .selected-row .entity-link {
     color: var(--accent);
     font-weight: 700;
   }
