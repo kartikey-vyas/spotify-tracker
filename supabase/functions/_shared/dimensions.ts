@@ -49,18 +49,12 @@ export async function upsertArtistFromSpotify(
   );
 
   if ('genres' in artist && artist.genres) {
-    const { error: deleteError } = await supabase.from('artist_genres').delete().eq('artist_id', artistId);
-    if (deleteError) throw new Error(`Deleting artist genres: ${deleteError.message}`);
-
-    if (artist.genres.length > 0) {
-      const { error: insertError } = await supabase.from('artist_genres').insert(
-        artist.genres.map((genre) => ({
-          artist_id: artistId,
-          genre
-        }))
-      );
-      if (insertError) throw new Error(`Inserting artist genres: ${insertError.message}`);
-    }
+    const { error } = await supabase.rpc('replace_artist_genre_source', {
+      p_artist_id: artistId,
+      p_source: 'spotify',
+      p_genres: artist.genres
+    });
+    if (error) throw new Error(`Replacing Spotify artist genres: ${error.message}`);
   }
 
   return artistId;
@@ -142,4 +136,3 @@ export async function upsertTrackFromSpotify(
     albumId
   };
 }
-
