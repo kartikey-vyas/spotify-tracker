@@ -269,9 +269,6 @@ max_frequency = "5s"
 [functions.complete-onboarding]
 verify_jwt = true
 
-[functions.accept-invite]
-verify_jwt = false
-
 [functions.spotify-connect]
 verify_jwt = true
 
