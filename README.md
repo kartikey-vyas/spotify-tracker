@@ -125,10 +125,22 @@ Invites are the only way accounts get created — there is no public signup. If 
 
 ## Deploying the site
 
-`.github/workflows/deploy.yml` builds and deploys to GitHub Pages on every push to `main`. Configure the repo on GitHub:
+`.github/workflows/deploy.yml` releases production on every push to `main` in
+this order: build the static site, apply pending Supabase migrations, deploy all
+Edge Functions, then publish GitHub Pages. Configure the repo on GitHub:
 
-- **Repository variables**: `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_PUBLISHABLE_KEY` (optional fallback `PUBLIC_SUPABASE_ANON_KEY`), and optionally `PUBLIC_BASE_PATH` — the base path defaults to `/<repo-name>`; set it to `/` when serving from a custom domain root.
-- **Actions secrets**: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`.
+- **Repository variables**: `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_PUBLISHABLE_KEY` (optional fallback `PUBLIC_SUPABASE_ANON_KEY`), `SUPABASE_PROJECT_ID`, and optionally `PUBLIC_BASE_PATH` — the base path defaults to `/<repo-name>`; set it to `/` when serving from a custom domain root.
+- **Actions secrets used by operational scripts**: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`.
+- **Actions secrets used by production deployment**:
+  - `SUPABASE_ACCESS_TOKEN` — a Supabase personal access token.
+  - `SUPABASE_DB_PASSWORD` — the production project's database password.
+
+`SUPABASE_PROJECT_ID` is the non-sensitive project reference from the dashboard
+URL and is stored as a repository variable rather than a secret.
+
+Migration deployment uses `supabase db push`, without seed data. Function JWT
+verification settings come from `supabase/config.toml`; the workflow never runs
+`supabase config push`, so hosted Auth/provider settings remain dashboard-owned.
 
 ## Importing your full history
 

@@ -1,4 +1,4 @@
-name: Deploy static site
+name: Deploy production
 
 on:
   push:
@@ -11,8 +11,10 @@ permissions:
   id-token: write
 
 concurrency:
-  group: github-pages
-  cancel-in-progress: true
+  group: production-deploy
+  # Never interrupt a database migration or function deployment midway. A
+  # newer main push waits for the current production release to finish.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -40,10 +42,51 @@ jobs:
         with:
           path: build
 
+  supabase:
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pin the CLI used to validate migrations and function configuration.
+          version: 2.75.0
+
+      - name: Check deployment credentials
+        shell: bash
+        run: |
+          if [[ -z "$SUPABASE_ACCESS_TOKEN" || -z "$SUPABASE_DB_PASSWORD" || -z "$SUPABASE_PROJECT_ID" ]]; then
+            echo "::error::Configure SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD as Actions secrets, and SUPABASE_PROJECT_ID as a repository variable."
+            exit 1
+          fi
+
+      - name: Link production project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Preview database migrations
+        run: supabase db push --dry-run
+
+      - name: Apply database migrations
+        run: supabase db push
+
+      - name: Verify migration history
+        run: supabase migration list
+
+      - name: Deploy Edge Functions
+        # Per-function JWT verification is declared in supabase/config.toml.
+        # --use-api avoids requiring a Docker daemon on the Actions runner.
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID" --use-api
+
   deploy:
     environment:
       name: github-pages
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, supabase]
     steps:
       - uses: actions/deploy-pages@v4
