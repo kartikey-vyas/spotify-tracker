@@ -94,18 +94,12 @@ async function replaceArtistGenres(
 ): Promise<void> {
   if (!genres) return;
 
-  const { error: deleteError } = await supabase.from('artist_genres').delete().eq('artist_id', artistId);
-  throwIfSupabaseError(deleteError, 'Deleting old artist genres failed');
-
-  if (genres.length === 0) return;
-
-  const { error: insertError } = await supabase.from('artist_genres').insert(
-    genres.map((genre) => ({
-      artist_id: artistId,
-      genre
-    }))
-  );
-  throwIfSupabaseError(insertError, 'Inserting artist genres failed');
+  const { error } = await supabase.rpc('replace_artist_genre_source', {
+    p_artist_id: artistId,
+    p_source: 'spotify',
+    p_genres: genres
+  });
+  throwIfSupabaseError(error, 'Replacing Spotify artist genres failed');
 }
 
 export async function upsertAlbumFromSpotify(

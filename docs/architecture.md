@@ -108,7 +108,10 @@ The recently-played sync runs from inside the database, not GitHub Actions: a Su
 
 ## GitHub workflows
 
-- `deploy.yml`: builds and deploys the static site to GitHub Pages on `main` pushes.
+- `deploy.yml`: production release pipeline on `main` pushes. It builds first,
+  applies pending Supabase migrations, deploys all Edge Functions, and only then
+  publishes the static site to GitHub Pages. Database deployments are serialized
+  and never cancelled midway by a newer push.
 - `enrich-metadata.yml`: manual-only metadata enrichment (artist images/genres + backfill for imported history). Spotify removed the batch catalog endpoints (`/v1/{artists,albums,tracks}?ids=`) in Feb 2026, so the fetchers in `scripts/lib/spotify.ts` call the single-item endpoints (`/v1/artists/{id}`, …) one id at a time.
 
 ## Legacy single-user Spotify auth
