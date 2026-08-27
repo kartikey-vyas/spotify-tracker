@@ -102,6 +102,10 @@ Also: `safe_not_equal` treats an unchanged primitive as clean, so `x = x` does n
 
 - **Per-user rows** are keyed by `user_id`: `profiles`, `spotify_connections`, `listening_events`, `rollup_daily_entity_stats`, `sync_state`, `overview_cache`, `public_activity_recent`.
 - **Shared Spotify metadata** is global (no `user_id`): `artists`, `albums`, `tracks`, `track_artists`, `artist_genres`.
+- **External music evidence** is global and service-only: MusicBrainz matches,
+  Last.fm metadata/stats/tags/similarities, plus the resumable
+  `external_music_enrichment_queue` and run telemetry. Only the curated
+  `artist_genres` projection is public.
 - Event uniqueness is `(user_id, source_event_key)` so two users can play the same track at the same instant without colliding.
 - Legacy single-user data lives as `user_id = null` rows, now **archived** (`archived_at` set) and hidden from the public read path — recoverable, not deleted.
 
@@ -134,6 +138,16 @@ Sync scheduling has **moved from GitHub Actions into the database** (pg_cron + p
 
 The split exists because rollup refresh is far more expensive than enrichment: one batch's affected dates blew the statement timeout, failing the job *after* the tracks were enriched. The edge function now only queues dates into `rollup_refresh_queue`; the drain job works through them 50 at a time.
 
+MusicBrainz + Last.fm enrichment is also database-scheduled. Migration
+`20260827073746_external_metadata_enrichment_worker.sql` seeds a track/artist/
+album queue, enqueues new ISRC-backed metadata with triggers, and invokes
+`enrich-external-metadata` every ten minutes. The worker claims at most 10
+entities under a singleton lease, serializes provider calls, persists completed
+endpoint state across retries, and records each invocation in
+`external_music_enrichment_runs`. `pnpm external:status` prints queue progress
+and the latest runs. Production requires the `LASTFM_API_KEY` Edge secret;
+`MUSICBRAINZ_USER_AGENT` is optional.
+
 Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. `/admin` renders progress plus the last 50 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
 
 ## Extended history backfill
@@ -155,6 +169,7 @@ supabase db push
 supabase functions deploy spotify-callback --no-verify-jwt
 supabase functions deploy sync-due-users --no-verify-jwt
 supabase functions deploy enrich-backfill --no-verify-jwt
+supabase functions deploy enrich-external-metadata --no-verify-jwt
 supabase functions deploy spotify-connect          # requires JWT
 supabase functions deploy complete-onboarding
 ```
