@@ -82,15 +82,32 @@ Pointing `.env.local` at the hosted project is the normal day-to-day setup — y
      SPOTIFY_CLIENT_ID=... \
      SPOTIFY_CLIENT_SECRET=... \
      SPOTIFY_TOKEN_ENCRYPTION_KEY=... \
+     LASTFM_API_KEY=... \
+     MUSICBRAINZ_USER_AGENT='musik/0.1.0 (https://github.com/your-name/spotify-tracker)' \
      SITE_URL=https://kartikey-vyas.github.io/spotify-tracker/app/
 
    supabase functions deploy complete-onboarding
    supabase functions deploy spotify-connect
    supabase functions deploy spotify-callback --no-verify-jwt
    supabase functions deploy sync-due-users --no-verify-jwt
+   supabase functions deploy enrich-backfill --no-verify-jwt
+   supabase functions deploy enrich-external-metadata --no-verify-jwt
    ```
 
    `SPOTIFY_TOKEN_ENCRYPTION_KEY` can be any long random string (`openssl rand -base64 32`); it encrypts Spotify refresh tokens before they are stored. The `--no-verify-jwt` functions enforce their own credential checks — `spotify-callback` is public because Spotify redirects to it, and `sync-due-users` verifies the service key itself.
+
+   `LASTFM_API_KEY` comes from a read-only Last.fm API application. The
+   MusicBrainz User-Agent is optional, but should identify your deployment and
+   include a working contact URL or email.
+
+Once the migrations and functions are deployed, `pg_cron` automatically drains
+the external metadata queue in small batches. New ISRC-backed tracks and their
+artists/albums are enqueued by database triggers. Check progress and recent
+attempts with:
+
+```bash
+pnpm external:status
+```
 
 ## Setting up the Spotify app
 

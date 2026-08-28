@@ -1,5 +1,9 @@
 # MusicBrainz + Last.fm enrichment spike
 
+> The spike commands remain useful for provider exploration and manual report
+> capture. Production coverage is now handled by the scheduled worker described
+> below; it does not require repeatedly running this script.
+
 The capture command is an evidence-gathering pass. It reads the most-played
 current tracks from Supabase, resolves each Spotify ISRC to MusicBrainz
 recording candidates, and writes the raw responses under the gitignored
@@ -109,3 +113,46 @@ provenance prevents a Last.fm refresh from deleting Spotify genres.
 `summary_html` is provider-authored HTML and is intentionally private. Any
 future UI must sanitize it and preserve Last.fm's attribution/licence link; do
 not render it with an unguarded HTML directive.
+
+## Scheduled production enrichment
+
+Migration `20260827073746_external_metadata_enrichment_worker.sql` adds a
+service-only queue for tracks, artists and albums, a singleton worker lease,
+retry state, run telemetry, enqueue triggers and a ten-minute `pg_cron` job.
+It seeds every current track with a valid ISRC plus the related artists and
+albums. Existing imported Last.fm entities start complete; the rest are
+processed from highest aggregate play count downward.
+
+The `enrich-external-metadata` Edge Function claims at most 10 mixed entities
+per invocation. It serializes MusicBrainz lookups at 1.1 seconds apart and
+Last.fm calls at 500ms apart, writes successful endpoint results immediately,
+and preserves that endpoint state when another endpoint needs a retry. A
+singleton database lease prevents scheduled and manual invocations from
+overlapping. Items retry with exponential backoff and become `dead` after eight
+failed attempts so a permanent provider/configuration issue cannot loop forever.
+
+The production worker deliberately requests only the fields retained by the
+schema:
+
+- track: MusicBrainz ISRC candidates plus Last.fm info, top tags and similar
+  tracks;
+- artist: Last.fm info and top tags;
+- album: Last.fm info and top tags.
+
+The worker queries Last.fm by the selected recording MBID first when possible,
+then falls back to artist/title if Last.fm has not indexed that MBID. Genre
+projection and historic rollup refreshes reuse the same reviewed importer/RPC
+path as manual reports.
+
+Required Edge Function secret:
+
+```bash
+supabase secrets set LASTFM_API_KEY=...
+```
+
+`MUSICBRAINZ_USER_AGENT` is optional; the repository/contact default is used
+when it is absent. Inspect progress and the last ten invocations with:
+
+```bash
+pnpm external:status
+```
