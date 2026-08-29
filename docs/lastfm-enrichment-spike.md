@@ -139,10 +139,14 @@ schema:
 - artist: Last.fm info and top tags;
 - album: Last.fm info and top tags.
 
-The worker queries Last.fm by the selected recording MBID first when possible,
-then falls back to artist/title if Last.fm has not indexed that MBID. Genre
-projection and historic rollup refreshes reuse the same reviewed importer/RPC
-path as manual reports.
+The worker queries track info and similarities by the selected recording MBID
+first, then falls back to artist/title if Last.fm rejects that MBID. Track tags
+use artist/title directly because Last.fm returns an empty HTTP 400 for some
+valid recording MBIDs on `track.getTopTags`. Request-specific 4xx responses do
+not open the batch-wide provider circuit. Genre projection and historic rollup
+refreshes reuse the same reviewed importer/RPC path as manual reports. The
+rollup drain keeps its production-proven 150-date batch and runs every five
+minutes; larger batches can exceed the database statement timeout.
 
 Required Edge Function secret:
 
