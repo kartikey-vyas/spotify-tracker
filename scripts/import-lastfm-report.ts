@@ -93,19 +93,18 @@ export async function importLastFmBatch(supabase: AdminClient, batch: LastFmImpo
   }
   await insertChunks(supabase, 'external_track_similarities', batch.similarities);
 
-  const { data: genresProjected, error: genreError } = await supabase.rpc('refresh_lastfm_artist_genres', {
+  const { data: genreRefresh, error: genreError } = await supabase.rpc('refresh_lastfm_artist_genres_and_queue', {
     p_artist_ids: batch.genreArtistIds
   });
-  throwIfSupabaseError(genreError, 'Refreshing Last.fm artist genres failed');
-
-  const { data: rollupDatesQueued, error: queueError } = await supabase.rpc('queue_rollup_refresh_for_artists', {
-    p_artist_ids: batch.genreArtistIds
-  });
-  throwIfSupabaseError(queueError, 'Queueing affected rollup dates failed');
+  throwIfSupabaseError(genreError, 'Refreshing Last.fm artist genres and queueing affected rollups failed');
+  const counts = (genreRefresh ?? {}) as {
+    genres_projected?: number | string;
+    rollup_dates_queued?: number | string;
+  };
 
   return {
-    genresProjected: Number(genresProjected ?? 0),
-    rollupDatesQueued: Number(rollupDatesQueued ?? 0)
+    genresProjected: Number(counts.genres_projected ?? 0),
+    rollupDatesQueued: Number(counts.rollup_dates_queued ?? 0)
   };
 }
 

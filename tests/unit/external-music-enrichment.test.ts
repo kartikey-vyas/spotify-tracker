@@ -175,6 +175,12 @@ describe('external music persistence', () => {
       },
       rpc(name: string, params: unknown) {
         operations.push({ action: 'rpc', name, params });
+        if (name === 'refresh_lastfm_artist_genres_and_queue') {
+          return Promise.resolve({
+            data: { genres_projected: 3, rollup_dates_queued: 12, artists_changed: 1 },
+            error: null
+          });
+        }
         return Promise.resolve({ data: 1, error: null });
       }
     };
@@ -204,7 +210,7 @@ describe('external music persistence', () => {
       error: null
     });
 
-    await persistExternalMusicWrites(fakeSupabase as never, item, {
+    const persistence = await persistExternalMusicWrites(fakeSupabase as never, item, {
       musicbrainz: {
         fetchedAt: '2026-08-27T00:00:00.000Z',
         candidates: scoreEdgeRecordings(
@@ -265,8 +271,13 @@ describe('external music persistence', () => {
     }));
     expect(operations).toContainEqual({
       action: 'rpc',
-      name: 'refresh_lastfm_artist_genres',
+      name: 'refresh_lastfm_artist_genres_and_queue',
       params: { p_artist_ids: [33] }
     });
+    expect(operations).not.toContainEqual(expect.objectContaining({
+      action: 'rpc',
+      name: 'queue_rollup_refresh_for_artists'
+    }));
+    expect(persistence).toEqual({ genresProjected: 3, rollupDatesQueued: 12 });
   });
 });
