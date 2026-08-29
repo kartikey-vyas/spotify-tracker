@@ -4,6 +4,9 @@ import {
   classifyMusicBrainzError,
   endpointDone,
   previousResult,
+  shouldFallbackLastFmMbid,
+  shouldOpenLastFmCircuit,
+  shouldUseLastFmMbid,
   withEndpoint
 } from '../../supabase/functions/_shared/external-music-enrichment.ts';
 import type { LastFmCapture } from '../../supabase/functions/_shared/lastfm.ts';
@@ -59,6 +62,32 @@ describe('external music enrichment retry decisions', () => {
       terminal: false,
       retryAfterSeconds: 300
     });
+  });
+
+  it('uses artist/title for track tags while retaining MBID-first matching elsewhere', () => {
+    const mbid = '11111111-1111-4111-8111-111111111111';
+    expect(shouldUseLastFmMbid('track', 'tags', mbid)).toBe(false);
+    expect(shouldUseLastFmMbid('track', 'info', mbid)).toBe(true);
+    expect(shouldUseLastFmMbid('track', 'similar', mbid)).toBe(true);
+    expect(shouldUseLastFmMbid('artist', 'tags', mbid)).toBe(false);
+  });
+
+  it('falls back from rejected MBIDs without opening the batch circuit', () => {
+    const emptyHttp400 = lastFmFailure(null, 400);
+    expect(classifyLastFmCapture(emptyHttp400)).toMatchObject({
+      terminal: false,
+      retryAfterSeconds: 3_600
+    });
+    expect(shouldFallbackLastFmMbid(emptyHttp400)).toBe(true);
+    expect(shouldOpenLastFmCircuit(emptyHttp400)).toBe(false);
+  });
+
+  it('opens the batch circuit only for provider-wide failures', () => {
+    expect(shouldOpenLastFmCircuit(lastFmFailure(29, 429))).toBe(true);
+    expect(shouldOpenLastFmCircuit(lastFmFailure(8, 200))).toBe(true);
+    expect(shouldOpenLastFmCircuit(lastFmFailure(null, 503))).toBe(true);
+    expect(shouldOpenLastFmCircuit(lastFmFailure(null, null))).toBe(true);
+    expect(shouldOpenLastFmCircuit(lastFmFailure(6, 400))).toBe(false);
   });
 
   it('distinguishes missing MusicBrainz matches from transient provider failures', () => {
