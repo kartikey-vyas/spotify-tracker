@@ -17,10 +17,12 @@ import {
   previousResult,
   shouldFallbackLastFmMbid,
   shouldOpenLastFmCircuit,
+  shouldConsumeExternalRetryAttempt,
   shouldUseLastFmMbid,
   withEndpoint,
   type EnrichmentResult,
-  type ProviderDecision
+  type ProviderDecision,
+  type ProviderFailureOrigin
 } from '../_shared/external-music-enrichment.ts';
 import {
   persistExternalMusicWrites,
@@ -39,6 +41,7 @@ type ItemOutcome = {
   succeeded: boolean;
   error: string | null;
   retryAfterSeconds: number | null;
+  consumeAttempt: boolean;
   warnings: number;
 };
 
@@ -123,18 +126,24 @@ async function processItem(
   let result = originalResult;
   const writes: ProviderWrites = { lastfm: {} };
   const failures: string[] = [];
+  const failureOrigins: ProviderFailureOrigin[] = [];
   let retryAfterSeconds: number | null = null;
   let warnings = 0;
 
-  const addFailure = (endpoint: string, decision: ProviderDecision) => {
+  const addFailure = (
+    endpoint: string,
+    decision: ProviderDecision,
+    origin: ProviderFailureOrigin
+  ) => {
     failures.push(`${endpoint}: ${decision.message ?? 'provider request failed'}`);
+    failureOrigins.push(origin);
     retryAfterSeconds = Math.max(retryAfterSeconds ?? 0, decision.retryAfterSeconds ?? 60);
   };
 
   if (item.entity_type === 'track' && !endpointDone(result, 'musicbrainz')) {
     const fetchedAt = new Date().toISOString();
     if (circuit.musicbrainz) {
-      addFailure('musicbrainz', circuit.musicbrainz);
+      addFailure('musicbrainz', circuit.musicbrainz, 'circuit');
     } else {
       try {
         await musicBrainzPacer.wait();
@@ -161,7 +170,7 @@ async function processItem(
           writes.musicbrainz = { fetchedAt, candidates: [], selected: null };
           result = recordDecision(result, 'musicbrainz', decision, fetchedAt, null);
         } else {
-          addFailure('musicbrainz', decision);
+          addFailure('musicbrainz', decision, 'request');
           circuit.musicbrainz = decision;
         }
       }
@@ -185,7 +194,7 @@ async function processItem(
       continue;
     }
     if (circuit.lastfm) {
-      addFailure(endpoint, circuit.lastfm);
+      addFailure(endpoint, circuit.lastfm, 'circuit');
       continue;
     }
 
@@ -209,7 +218,7 @@ async function processItem(
       result = recordDecision(result, endpoint, decision, capture.fetched_at);
       if (decision.status === 'ok') writes.lastfm[endpoint] = capture;
     } else {
-      addFailure(endpoint, decision);
+      addFailure(endpoint, decision, 'request');
       if (shouldOpenLastFmCircuit(capture)) circuit.lastfm = decision;
     }
   }
@@ -222,6 +231,7 @@ async function processItem(
       succeeded: false,
       error: `database persistence: ${error instanceof Error ? error.message : String(error)}`,
       retryAfterSeconds: 300,
+      consumeAttempt: true,
       warnings: warnings + 1
     };
   }
@@ -232,6 +242,8 @@ async function processItem(
     succeeded,
     error: succeeded ? null : failures.join('; ') || 'One or more endpoints remain incomplete',
     retryAfterSeconds: succeeded ? null : retryAfterSeconds,
+    consumeAttempt:
+      succeeded || failureOrigins.length === 0 || shouldConsumeExternalRetryAttempt(failureOrigins),
     warnings
   };
 }
@@ -296,6 +308,7 @@ Deno.serve(async (req: Request) => {
           succeeded: false,
           error: error instanceof Error ? error.message : String(error),
           retryAfterSeconds: 300,
+          consumeAttempt: true,
           warnings: 1
         };
       }
@@ -308,7 +321,8 @@ Deno.serve(async (req: Request) => {
           p_succeeded: outcome.succeeded,
           p_error: outcome.error,
           p_retry_after_seconds: outcome.retryAfterSeconds,
-          p_result: outcome.result
+          p_result: outcome.result,
+          p_consume_attempt: outcome.consumeAttempt
         }
       );
       if (finishError) {

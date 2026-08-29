@@ -14,6 +14,16 @@ export type ProviderDecision = {
   retryAfterSeconds?: number;
   message?: string;
 };
+export type ProviderFailureOrigin = 'request' | 'circuit';
+
+/**
+ * Retry limits protect us from repeatedly making a failing provider request.
+ * An item deferred behind a circuit never made that request, so it must not
+ * consume the same finite budget.
+ */
+export function shouldConsumeExternalRetryAttempt(origins: readonly ProviderFailureOrigin[]): boolean {
+  return origins.includes('request');
+}
 
 export function previousResult(value: unknown): EnrichmentResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { endpoints: {} };
