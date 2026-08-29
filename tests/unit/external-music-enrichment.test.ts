@@ -6,6 +6,7 @@ import {
   previousResult,
   shouldFallbackLastFmMbid,
   shouldOpenLastFmCircuit,
+  shouldConsumeExternalRetryAttempt,
   shouldUseLastFmMbid,
   withEndpoint
 } from '../../supabase/functions/_shared/external-music-enrichment.ts';
@@ -99,6 +100,13 @@ describe('external music enrichment retry decisions', () => {
       terminal: false,
       retryAfterSeconds: 300
     });
+  });
+
+  it('does not spend retry budget on work deferred behind a provider circuit', () => {
+    expect(shouldConsumeExternalRetryAttempt(['circuit'])).toBe(false);
+    expect(shouldConsumeExternalRetryAttempt(['circuit', 'circuit'])).toBe(false);
+    expect(shouldConsumeExternalRetryAttempt(['request'])).toBe(true);
+    expect(shouldConsumeExternalRetryAttempt(['circuit', 'request'])).toBe(true);
   });
 
   it('preserves completed endpoints across retries', () => {
