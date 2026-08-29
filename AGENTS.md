@@ -134,9 +134,9 @@ Sync scheduling has **moved from GitHub Actions into the database** (pg_cron + p
 **Metadata enrichment now runs the same way**, for the same reason: its scheduled Action fired barely two thirds of the times it was asked to, drifting by hours. `20260727130000_schedule_enrich_backfill_cron.sql` adds two jobs reusing the same Vault secrets:
 
 - `enrich-backfill` every 15 min POSTs the `enrich-backfill` edge function (default 30 tracks).
-- `drain-rollup-refresh-queue` every 5 min calls `drain_rollup_refresh_queue(150)` directly — no HTTP hop, the work is in-database.
+- `drain-rollup-refresh-queue` every 3 min calls `drain_rollup_refresh_queue(150)` directly — no HTTP hop, the work is in-database.
 
-The split exists because rollup refresh is far more expensive than enrichment: one batch's affected dates blew the statement timeout, failing the job *after* the tracks were enriched. The edge functions now only queue dates into `rollup_refresh_queue`; the drain job works through them 150 at a time. External genre enrichment can enqueue thousands of historic dates, so migration `20260829135424_tune_external_genre_rollup_drain.sql` increases the drain cadence while deliberately retaining the production-proven 150-date batch; a 300-date benchmark hit the statement timeout.
+The split exists because rollup refresh is far more expensive than enrichment: one batch's affected dates blew the statement timeout, failing the job *after* the tracks were enriched. The edge functions now only queue dates into `rollup_refresh_queue`; the drain job works through them 150 at a time. External genre enrichment can enqueue thousands of historic dates, so migrations `20260829135424_tune_external_genre_rollup_drain.sql` and `20260829141741_increase_rollup_drain_cadence.sql` increase the drain cadence while deliberately retaining the production-proven 150-date batch; a 300-date benchmark hit the statement timeout. The final three-minute cadence was selected after production runs showed the 150-date transaction completing in 7–11 seconds and a heavy ten-entity artist batch enqueueing 326 dates.
 
 MusicBrainz + Last.fm enrichment is also database-scheduled. Migration
 `20260827073746_external_metadata_enrichment_worker.sql` seeds a track/artist/

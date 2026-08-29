@@ -145,8 +145,10 @@ use artist/title directly because Last.fm returns an empty HTTP 400 for some
 valid recording MBIDs on `track.getTopTags`. Request-specific 4xx responses do
 not open the batch-wide provider circuit. Genre projection and historic rollup
 refreshes reuse the same reviewed importer/RPC path as manual reports. The
-rollup drain keeps its production-proven 150-date batch and runs every five
-minutes; larger batches can exceed the database statement timeout.
+rollup drain keeps its production-proven 150-date batch and runs every three
+minutes; larger batches can exceed the database statement timeout. Production
+timings put the 150-date transaction at 7–11 seconds, while the heaviest
+observed ten-entity artist batch queued 326 unique user/date refreshes.
 
 Required Edge Function secret:
 
