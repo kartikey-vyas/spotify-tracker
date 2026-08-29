@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { orderUnenrichedByRecency } from '../../scripts/enrich-backfill.js';
-import { remainingSpotifyCooldownSeconds } from '../../supabase/functions/_shared/spotify-enrichment-cooldown.ts';
+import {
+  buildSpotifyCooldownRunRecord,
+  remainingSpotifyCooldownSeconds
+} from '../../supabase/functions/_shared/spotify-enrichment-cooldown.ts';
 
 describe('orderUnenrichedByRecency', () => {
   const unenriched = new Map([
@@ -66,5 +69,24 @@ describe('remainingSpotifyCooldownSeconds', () => {
       started_at: 'not-a-date',
       abort_retry_after_seconds: 60
     })).toBe(0);
+  });
+});
+
+describe('buildSpotifyCooldownRunRecord', () => {
+  it('uses one timestamp so cross-runtime clock skew cannot make duration negative', () => {
+    const recordedAt = '2026-08-29T16:15:03.310068Z';
+    expect(buildSpotifyCooldownRunRecord(30, 3, 40_518, recordedAt)).toEqual({
+      trigger: 'cron',
+      requested_limit: 30,
+      concurrency: 3,
+      worklist_size: 0,
+      enriched: 0,
+      missing: 0,
+      failed: 0,
+      aborted: true,
+      abort_retry_after_seconds: 40_518,
+      started_at: recordedAt,
+      finished_at: recordedAt
+    });
   });
 });
