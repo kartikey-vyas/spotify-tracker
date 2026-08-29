@@ -23,6 +23,7 @@ import {
 } from '../_shared/spotify.ts';
 import { upsertAlbumFromSpotify, upsertArtistFromSpotify } from '../_shared/dimensions.ts';
 import {
+  buildSpotifyCooldownRunRecord,
   remainingSpotifyCooldownSeconds,
   type SpotifyRateCapRun
 } from '../_shared/spotify-enrichment-cooldown.ts';
@@ -96,19 +97,10 @@ Deno.serve(async (req: Request) => {
 
     const cooldownRemaining = remainingSpotifyCooldownSeconds(latestRateCap as SpotifyRateCapRun | null);
     if (cooldownRemaining > 0) {
-      const finishedAt = new Date().toISOString();
-      const { error: runError } = await supabase.from('enrichment_runs').insert({
-        trigger: 'cron',
-        requested_limit: batchSize,
-        concurrency,
-        worklist_size: 0,
-        enriched: 0,
-        missing: 0,
-        failed: 0,
-        aborted: true,
-        abort_retry_after_seconds: cooldownRemaining,
-        finished_at: finishedAt
-      });
+      const recordedAt = new Date().toISOString();
+      const { error: runError } = await supabase.from('enrichment_runs').insert(
+        buildSpotifyCooldownRunRecord(batchSize, concurrency, cooldownRemaining, recordedAt)
+      );
       if (runError) throw new Error(`Recording Spotify enrichment cooldown failed: ${runError.message}`);
 
       return json({
