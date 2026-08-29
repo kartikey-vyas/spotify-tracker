@@ -51,6 +51,40 @@ export function classifyLastFmCapture(capture: LastFmCapture): ProviderDecision 
   return { terminal: false, retryAfterSeconds: 3_600, message };
 }
 
+/**
+ * Last.fm documents MBID support for track endpoints, but getTopTags returns
+ * an empty HTTP 400 for some valid recording MBIDs. Use the stable
+ * artist/title identity for tags and retain MBID-first matching for the other
+ * track endpoints.
+ */
+export function shouldUseLastFmMbid(
+  entityType: 'track' | 'artist' | 'album',
+  endpointSuffix: 'info' | 'tags' | 'similar',
+  selectedMbid: string | null | undefined
+): boolean {
+  return entityType === 'track' && endpointSuffix !== 'tags' && Boolean(selectedMbid);
+}
+
+/** A rejected MBID identifies a bad lookup, not a provider outage. */
+export function shouldFallbackLastFmMbid(capture: LastFmCapture): boolean {
+  if (capture.ok) return false;
+  return capture.http_status === 400 || capture.error?.code === 6 || capture.error?.code === 7;
+}
+
+/**
+ * Only failures that can affect every request should stop further Last.fm
+ * calls in the current batch. Request-specific 4xx failures must remain local
+ * to their queue item.
+ */
+export function shouldOpenLastFmCircuit(capture: LastFmCapture): boolean {
+  if (capture.ok) return false;
+  if (capture.http_status === null || capture.http_status === 429 || (capture.http_status ?? 0) >= 500) {
+    return true;
+  }
+
+  return [2, 3, 4, 5, 8, 10, 11, 13, 16, 26, 27, 29].includes(capture.error?.code ?? -1);
+}
+
 export function classifyMusicBrainzError(error: unknown): ProviderDecision {
   if (error instanceof MusicBrainzHttpError) {
     if (error.status === 400 || error.status === 404) {

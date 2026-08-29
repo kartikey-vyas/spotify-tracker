@@ -15,6 +15,9 @@ import {
   classifyMusicBrainzError,
   endpointDone,
   previousResult,
+  shouldFallbackLastFmMbid,
+  shouldOpenLastFmCircuit,
+  shouldUseLastFmMbid,
   withEndpoint,
   type EnrichmentResult,
   type ProviderDecision
@@ -187,14 +190,16 @@ async function processItem(
     }
 
     const selectedMbid = result.endpoints.musicbrainz?.selected_mbid;
-    const mbidParams = item.entity_type === 'track' && selectedMbid ? { mbid: selectedMbid } : null;
+    const mbidParams = shouldUseLastFmMbid(item.entity_type, suffix, selectedMbid)
+      ? { mbid: selectedMbid! }
+      : null;
     await lastFmPacer.wait();
     let capture = await captureLastFm(lastFmApiKey, method, mbidParams ?? nameParams);
     let decision = classifyLastFmCapture(capture);
 
     // Last.fm does not always index a valid MusicBrainz recording MBID. Keep
     // the MBID-first path, then fall back to the Spotify artist/title identity.
-    if (mbidParams && decision.terminal && decision.status === 'not_found') {
+    if (mbidParams && shouldFallbackLastFmMbid(capture)) {
       await lastFmPacer.wait();
       capture = await captureLastFm(lastFmApiKey, method, nameParams);
       decision = classifyLastFmCapture(capture);
@@ -205,7 +210,7 @@ async function processItem(
       if (decision.status === 'ok') writes.lastfm[endpoint] = capture;
     } else {
       addFailure(endpoint, decision);
-      circuit.lastfm = decision;
+      if (shouldOpenLastFmCircuit(capture)) circuit.lastfm = decision;
     }
   }
 
