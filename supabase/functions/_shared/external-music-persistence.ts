@@ -302,16 +302,16 @@ export async function persistExternalMusicWrites(
     : [];
   if (genreArtistIds.length === 0) return { genresProjected: 0, rollupDatesQueued: 0 };
 
-  const { data: genresProjected, error: genreError } = await supabase.rpc('refresh_lastfm_artist_genres', {
+  const { data: genreRefresh, error: genreError } = await supabase.rpc('refresh_lastfm_artist_genres_and_queue', {
     p_artist_ids: genreArtistIds
   });
-  throwIfError(genreError, 'Refreshing Last.fm artist genres failed');
-  const { data: rollupDatesQueued, error: queueError } = await supabase.rpc('queue_rollup_refresh_for_artists', {
-    p_artist_ids: genreArtistIds
-  });
-  throwIfError(queueError, 'Queueing affected rollup dates failed');
+  throwIfError(genreError, 'Refreshing Last.fm artist genres and queueing affected rollups failed');
+  const counts = (genreRefresh ?? {}) as {
+    genres_projected?: number | string;
+    rollup_dates_queued?: number | string;
+  };
   return {
-    genresProjected: Number(genresProjected ?? 0),
-    rollupDatesQueued: Number(rollupDatesQueued ?? 0)
+    genresProjected: Number(counts.genres_projected ?? 0),
+    rollupDatesQueued: Number(counts.rollup_dates_queued ?? 0)
   };
 }

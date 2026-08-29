@@ -148,7 +148,11 @@ refreshes reuse the same reviewed importer/RPC path as manual reports. The
 rollup drain keeps its production-proven 150-date batch and runs every three
 minutes; larger batches can exceed the database statement timeout. Production
 timings put the 150-date transaction at 7–11 seconds, while the heaviest
-observed ten-entity artist batch queued 326 unique user/date refreshes.
+observed ten-entity artist batch queued 326 unique user/date refreshes. Genre
+refresh and rollup queueing are atomic, and historic dates are queued only when
+the artist's effective public genre set actually changes. Per-user public-stat
+refreshes take a transaction advisory lock so scheduled sync and rollup drains
+cannot race the delete-then-insert activity projection.
 
 Required Edge Function secret:
 
