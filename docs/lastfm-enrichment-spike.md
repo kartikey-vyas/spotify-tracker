@@ -154,6 +154,11 @@ the artist's effective public genre set actually changes. Per-user public-stat
 refreshes take a transaction advisory lock so scheduled sync and rollup drains
 cannot race the delete-then-insert activity projection.
 
+The separate Spotify metadata backfill persists long app-wide `Retry-After`
+deadlines in `enrichment_runs`. While that cooldown is active, its scheduled
+Edge invocation records a zero-failure skip without requesting a token or
+calling Spotify; MusicBrainz and Last.fm enrichment continue independently.
+
 Required Edge Function secret:
 
 ```bash
