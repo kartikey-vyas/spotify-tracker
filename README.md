@@ -100,14 +100,25 @@ Pointing `.env.local` at the hosted project is the normal day-to-day setup — y
    MusicBrainz User-Agent is optional, but should identify your deployment and
    include a working contact URL or email.
 
-Once the migrations and functions are deployed, `pg_cron` automatically drains
-the external metadata queue in small batches. New ISRC-backed tracks and their
-artists/albums are enqueued by database triggers. Check progress and recent
-attempts with:
+New ISRC-backed tracks and their artists/albums are enqueued by database
+triggers. The hosted external-enrichment cron is currently paused so a laptop
+can drain the production queue without consuming Edge Function invocations.
+The runner uses the same database leases, retries, provider matching, and
+persistence logic as the Edge Function, and globally limits outbound provider
+requests to one every 1.1 seconds:
 
 ```bash
+pnpm external:drain-local --duration-hours=12
 pnpm external:status
 ```
+
+On macOS, prefix the drain with `caffeinate -i` to prevent system sleep. A
+SIGINT/SIGTERM finishes the currently claimed batch before exiting. The runner
+also stops claiming work while 500 or more rollup refreshes are pending, letting
+the database drain catch up before enrichment continues. Spotify sync and the
+database rollup-drain cron continue running while this command is active. Resume
+hosted external enrichment only through a new migration that calls
+`cron.schedule`; do not run both intentionally.
 
 ## Setting up the Spotify app
 

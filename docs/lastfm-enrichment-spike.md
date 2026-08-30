@@ -114,22 +114,36 @@ provenance prevents a Last.fm refresh from deleting Spotify genres.
 future UI must sanitize it and preserve Last.fm's attribution/licence link; do
 not render it with an unguarded HTML directive.
 
-## Scheduled production enrichment
+## Production queue and enrichment runners
 
 Migration `20260827073746_external_metadata_enrichment_worker.sql` adds a
 service-only queue for tracks, artists and albums, a singleton worker lease,
-retry state, run telemetry, enqueue triggers and a ten-minute `pg_cron` job.
+retry state, run telemetry, enqueue triggers and an original ten-minute
+`pg_cron` job. Migration
+`20260830111346_pause_external_enrichment_cron_for_local_drain.sql` pauses only
+that external-enrichment job while the production queue is drained locally.
 It seeds every current track with a valid ISRC plus the related artists and
 albums. Existing imported Last.fm entities start complete; the rest are
 processed from highest aggregate play count downward.
 
-The `enrich-external-metadata` Edge Function claims at most 10 mixed entities
+The `enrich-external-metadata` Edge Function claims at most 20 mixed entities
 per invocation. It serializes MusicBrainz lookups at 1.1 seconds apart and
 Last.fm calls at 500ms apart, writes successful endpoint results immediately,
 and preserves that endpoint state when another endpoint needs a retry. A
 singleton database lease prevents scheduled and manual invocations from
 overlapping. Items retry with exponential backoff and become `dead` after eight
 failed attempts so a permanent provider/configuration issue cannot loop forever.
+
+`pnpm external:drain-local --duration-hours=12` uses the same shared item
+processor but claims batches continuously from a Node process. It passes one
+shared 1.1-second pacer to both providers, limiting all outbound provider calls
+globally to less than one per second. The database singleton lease makes an
+accidental hosted invocation harmless, although the cron should remain paused
+to avoid wasting Edge Function invocations. SIGINT/SIGTERM stops after the
+current claimed batch; database failures retry with bounded exponential
+backoff. The runner stops claiming work at 500 pending rollup refreshes, so
+external genre discovery cannot outrun the database drain indefinitely. On
+macOS, run it under `caffeinate -i` to prevent system sleep.
 
 The production worker deliberately requests only the fields retained by the
 schema:
@@ -166,7 +180,7 @@ supabase secrets set LASTFM_API_KEY=...
 ```
 
 `MUSICBRAINZ_USER_AGENT` is optional; the repository/contact default is used
-when it is absent. Inspect progress and the last ten invocations with:
+when it is absent. Inspect progress and the last ten batches with:
 
 ```bash
 pnpm external:status
