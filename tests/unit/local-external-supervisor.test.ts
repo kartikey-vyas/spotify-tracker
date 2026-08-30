@@ -15,6 +15,7 @@ describe('local external enrichment supervisor', () => {
       restartDelaySeconds: 5,
       workerGraceSeconds: 300,
       logDirectory: 'analysis/logs',
+      providerStateFile: 'analysis/logs/external-provider-cooldowns.json',
       batchSize: 20,
       leaseSeconds: 600,
       requestIntervalMs: 1_100,
@@ -38,7 +39,8 @@ describe('local external enrichment supervisor', () => {
       '--idle-seconds=15',
       '--max-rollup-backlog=500',
       '--max-rss-mb=512',
-      '--memory-sample-seconds=60'
+      '--memory-sample-seconds=60',
+      '--provider-state-file=analysis/logs/external-provider-cooldowns.json'
     ]);
   });
 

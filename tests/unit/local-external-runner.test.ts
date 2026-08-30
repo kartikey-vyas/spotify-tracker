@@ -4,6 +4,8 @@ import {
   expireProviderCircuits,
   memorySnapshot,
   parseRunnerOptions,
+  restoreProviderCircuitState,
+  serializeProviderCircuitState,
   shouldApplyRollupBackpressure,
   shouldRecycleForMemory
 } from '../../scripts/drain-external-metadata-local.js';
@@ -20,6 +22,7 @@ describe('local external enrichment runner options', () => {
       maxRollupBacklog: 500,
       maxRssMb: 512,
       memorySampleSeconds: 60,
+      providerStateFile: null,
       maxBatches: Number.POSITIVE_INFINITY
     });
   });
@@ -34,7 +37,8 @@ describe('local external enrichment runner options', () => {
       '--idle-seconds=3',
       '--max-rollup-backlog=750',
       '--max-rss-mb=640',
-      '--memory-sample-seconds=30'
+      '--memory-sample-seconds=30',
+      '--provider-state-file=analysis/test-provider-state.json'
     ])).toEqual({
       durationHours: 0.25,
       batchSize: 7,
@@ -44,6 +48,7 @@ describe('local external enrichment runner options', () => {
       maxRollupBacklog: 750,
       maxRssMb: 640,
       memorySampleSeconds: 30,
+      providerStateFile: 'analysis/test-provider-state.json',
       maxBatches: 1
     });
   });
@@ -100,6 +105,19 @@ describe('local external enrichment runner options', () => {
     ]);
     expect(expireProviderCircuits(circuit, expiresAt, 300_999)).toEqual([]);
     expect(circuit.musicbrainz).not.toBeNull();
+
+    const serialized = serializeProviderCircuitState(circuit, expiresAt);
+    expect(serialized).toEqual({
+      musicbrainz: { retryAt: 301_000, message: 'service unavailable' }
+    });
+    const restored = restoreProviderCircuitState(serialized, 200_000);
+    expect(restored.expiresAt.musicbrainz).toBe(301_000);
+    expect(restored.circuit.musicbrainz).toEqual({
+      terminal: false,
+      retryAfterSeconds: 101,
+      message: 'service unavailable'
+    });
+
     expect(expireProviderCircuits(circuit, expiresAt, 301_000)).toEqual(['musicbrainz']);
     expect(circuit.musicbrainz).toBeNull();
     expect(expiresAt.musicbrainz).toBeNull();

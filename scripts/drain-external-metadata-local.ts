@@ -1,3 +1,5 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createServiceClient, throwIfSupabaseError, type AdminClient } from './lib/supabase-admin.js';
@@ -30,6 +32,7 @@ type RunnerOptions = {
   maxRollupBacklog: number;
   maxRssMb: number;
   memorySampleSeconds: number;
+  providerStateFile: string | null;
   maxBatches: number;
 };
 
@@ -43,6 +46,10 @@ export type MemorySnapshot = {
 
 type ProviderName = keyof ExternalMusicProviderCircuit;
 export type ProviderCircuitExpiries = Record<ProviderName, number | null>;
+type SerializedProviderCircuitState = Partial<Record<ProviderName, {
+  retryAt: number;
+  message: string | null;
+}>>;
 
 type BatchCounts = {
   claimed: number;
@@ -66,6 +73,14 @@ function numericFlag(argv: string[], name: string): number | undefined {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) throw new Error(`--${name} must be a number`);
   return parsed;
+}
+
+function optionalStringFlag(argv: string[], name: string): string | null {
+  const prefix = `--${name}=`;
+  const raw = argv.find((value) => value.startsWith(prefix))?.slice(prefix.length);
+  if (raw === undefined) return null;
+  if (raw.trim() === '') throw new Error(`--${name} cannot be empty`);
+  return raw;
 }
 
 function boundedNumber(value: number | undefined, fallback: number, minimum: number, maximum: number, name: string) {
@@ -141,6 +156,43 @@ export function captureProviderCircuitCooldowns(
   return opened;
 }
 
+export function serializeProviderCircuitState(
+  circuit: ExternalMusicProviderCircuit,
+  expiresAt: ProviderCircuitExpiries
+): SerializedProviderCircuitState {
+  const serialized: SerializedProviderCircuitState = {};
+  for (const provider of ['musicbrainz', 'lastfm'] as const) {
+    if (!circuit[provider] || expiresAt[provider] === null) continue;
+    serialized[provider] = {
+      retryAt: expiresAt[provider]!,
+      message: circuit[provider]?.message ?? null
+    };
+  }
+  return serialized;
+}
+
+export function restoreProviderCircuitState(
+  value: unknown,
+  now = Date.now()
+): { circuit: ExternalMusicProviderCircuit; expiresAt: ProviderCircuitExpiries } {
+  const circuit: ExternalMusicProviderCircuit = { musicbrainz: null, lastfm: null };
+  const expiresAt: ProviderCircuitExpiries = { musicbrainz: null, lastfm: null };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { circuit, expiresAt };
+
+  for (const provider of ['musicbrainz', 'lastfm'] as const) {
+    const saved = (value as SerializedProviderCircuitState)[provider];
+    if (!saved || !Number.isFinite(saved.retryAt) || saved.retryAt <= now) continue;
+    const retryAfterSeconds = Math.max(1, Math.ceil((saved.retryAt - now) / 1_000));
+    circuit[provider] = {
+      terminal: false,
+      retryAfterSeconds,
+      message: typeof saved.message === 'string' ? saved.message : undefined
+    };
+    expiresAt[provider] = saved.retryAt;
+  }
+  return { circuit, expiresAt };
+}
+
 export function parseRunnerOptions(argv: string[]): RunnerOptions {
   const once = argv.includes('--once');
   const unknown = argv.filter((value) =>
@@ -154,6 +206,7 @@ export function parseRunnerOptions(argv: string[]): RunnerOptions {
       'max-rollup-backlog',
       'max-rss-mb',
       'memory-sample-seconds',
+      'provider-state-file',
       'max-batches'
     ].some((name) => value.startsWith(`--${name}=`))
   );
@@ -217,6 +270,7 @@ export function parseRunnerOptions(argv: string[]): RunnerOptions {
     3_600,
     'memory-sample-seconds'
   ));
+  const providerStateFile = optionalStringFlag(argv, 'provider-state-file');
   const configuredMaxBatches = numericFlag(argv, 'max-batches');
   const maxBatches = once
     ? 1
@@ -233,6 +287,7 @@ export function parseRunnerOptions(argv: string[]): RunnerOptions {
     maxRollupBacklog,
     maxRssMb,
     memorySampleSeconds,
+    providerStateFile,
     maxBatches
   };
 }
@@ -246,6 +301,44 @@ async function interruptibleSleep(milliseconds: number, signal: AbortSignal): Pr
     await sleep(milliseconds, undefined, { signal });
   } catch (error) {
     if (!(error instanceof Error && error.name === 'AbortError')) throw error;
+  }
+}
+
+function loadProviderCircuitState(
+  filePath: string | null
+): { circuit: ExternalMusicProviderCircuit; expiresAt: ProviderCircuitExpiries } {
+  if (!filePath) return restoreProviderCircuitState(null);
+  try {
+    return restoreProviderCircuitState(JSON.parse(readFileSync(filePath, 'utf8')));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      log('provider-state-load-warning', {
+        filePath,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    return restoreProviderCircuitState(null);
+  }
+}
+
+function persistProviderCircuitState(
+  filePath: string | null,
+  circuit: ExternalMusicProviderCircuit,
+  expiresAt: ProviderCircuitExpiries
+): void {
+  if (!filePath) return;
+  try {
+    mkdirSync(dirname(filePath), { recursive: true });
+    const temporaryPath = `${filePath}.${process.pid}.tmp`;
+    writeFileSync(temporaryPath, `${JSON.stringify(serializeProviderCircuitState(circuit, expiresAt))}\n`, {
+      mode: 0o600
+    });
+    renameSync(temporaryPath, filePath);
+  } catch (error) {
+    log('provider-state-persist-warning', {
+      filePath,
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
 }
 
@@ -413,8 +506,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const musicBrainzUserAgent = optionalEnv('MUSICBRAINZ_USER_AGENT') ?? DEFAULT_MUSICBRAINZ_USER_AGENT;
   const deadline = Date.now() + options.durationHours * 60 * 60 * 1_000;
   const providerPacer = new ProviderPacer(options.requestIntervalMs);
-  const providerCircuit: ExternalMusicProviderCircuit = { musicbrainz: null, lastfm: null };
-  const providerCircuitExpiresAt: ProviderCircuitExpiries = { musicbrainz: null, lastfm: null };
+  const restoredProviderState = loadProviderCircuitState(options.providerStateFile);
+  const providerCircuit = restoredProviderState.circuit;
+  const providerCircuitExpiresAt = restoredProviderState.expiresAt;
   let stopping = false;
   let memoryLimitReached = false;
   let memoryLimitLogged = false;
@@ -447,8 +541,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     maxRollupBacklog: options.maxRollupBacklog,
     maxRssMb: options.maxRssMb,
     memorySampleSeconds: options.memorySampleSeconds,
+    providerStateFile: options.providerStateFile,
     maxBatches: Number.isFinite(options.maxBatches) ? options.maxBatches : null
   });
+  for (const provider of ['musicbrainz', 'lastfm'] as const) {
+    if (!providerCircuit[provider] || providerCircuitExpiresAt[provider] === null) continue;
+    log('provider-circuit-restored', {
+      provider,
+      retryAt: new Date(providerCircuitExpiresAt[provider]!).toISOString(),
+      message: providerCircuit[provider]?.message ?? null
+    });
+  }
 
   const sampleMemory = (phase: 'startup' | 'interval' | 'after-batch') => {
     const snapshot = memorySnapshot();
@@ -483,8 +586,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       batches < options.maxBatches
     ) {
       try {
-        for (const provider of expireProviderCircuits(providerCircuit, providerCircuitExpiresAt)) {
+        const expiredProviders = expireProviderCircuits(providerCircuit, providerCircuitExpiresAt);
+        for (const provider of expiredProviders) {
           log('provider-circuit-half-open', { provider, message: 'Allowing one provider probe' });
+        }
+        if (expiredProviders.length > 0) {
+          persistProviderCircuitState(options.providerStateFile, providerCircuit, providerCircuitExpiresAt);
         }
         if (providerCircuit.musicbrainz && providerCircuit.lastfm) {
           const retryAt = Math.min(
@@ -517,16 +624,20 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
           musicBrainzUserAgent,
           providerCircuit
         );
-        for (const opened of captureProviderCircuitCooldowns(
+        const openedCircuits = captureProviderCircuitCooldowns(
           providerCircuit,
           providerCircuitExpiresAt
-        )) {
+        );
+        for (const opened of openedCircuits) {
           log('provider-circuit-opened', {
             provider: opened.provider,
             retryAfterSeconds: opened.retryAfterSeconds,
             retryAt: new Date(opened.retryAt).toISOString(),
             message: opened.message
           });
+        }
+        if (openedCircuits.length > 0) {
+          persistProviderCircuitState(options.providerStateFile, providerCircuit, providerCircuitExpiresAt);
         }
         consecutiveErrors = 0;
         if (result.busyOrEmpty) {
@@ -543,6 +654,17 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
           progress: result.progress
         });
         sampleMemory('after-batch');
+        if (
+          result.counts.succeeded === 0 &&
+          (providerCircuit.musicbrainz !== null || providerCircuit.lastfm !== null)
+        ) {
+          const pauseMilliseconds = options.idleSeconds * 1_000;
+          log('provider-circuit-db-backoff', {
+            pauseMilliseconds,
+            message: 'No completions while a provider circuit is open'
+          });
+          await interruptibleSleep(pauseMilliseconds, exitController.signal);
+        }
       } catch (error) {
         consecutiveErrors += 1;
         const backoffSeconds = Math.min(300, 5 * 2 ** Math.min(consecutiveErrors - 1, 6));
