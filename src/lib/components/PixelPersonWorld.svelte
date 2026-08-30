@@ -122,6 +122,9 @@
   let doorwayCloseHoldUntil = 0;
   /** Held at 1 once they are through, so the door does not spring open again. */
   let doorwayShut = 0;
+  // Courtesy pause: active scrolling is the moment the reader is trying to
+  // follow the page, so ambient motion settles instead of competing with it.
+  let userQuietUntil = 0;
   const simulationEvents: PixelWorldEvent[] = [];
 
   afterNavigate(() => {
@@ -157,7 +160,18 @@
       // Attribute-only changes (class/style flips) reflow content without
       // touching the node structure; geometry must rescan for those too.
       attributes: true,
-      attributeFilter: ['class', 'style', 'hidden', 'open', 'aria-hidden']
+      attributeFilter: [
+        'class',
+        'style',
+        'hidden',
+        'open',
+        'aria-hidden',
+        'data-pixel-promenade',
+        'data-pixel-station',
+        'data-pixel-record',
+        'data-pixel-artist',
+        'data-pixel-artist-rank'
+      ]
     });
 
     const resizeObserver = root
@@ -173,13 +187,16 @@
       sizeCanvas(canvas);
     };
     const onScroll = () => {
+      const now = performance.now();
+      userQuietUntil = now + 1_800;
+      settleAmbientPeople(now);
       const activePerson = findActivePerson();
       if (activePointerId !== null && activePerson && lastPointerClient) {
         rebaseDraggedPixelPerson(
           activePerson,
           activePointerId,
           clientToDocument(lastPointerClient),
-          performance.now()
+          now
         );
       }
       if (
@@ -430,6 +447,27 @@
         );
     people = people.slice(0, desiredPopulation).map((person, index) => {
       if (person.activity === 'drag') return person;
+      const support = geometry.colliders.find(
+        (candidate) => candidate.id === person.body.supportId
+      );
+      const feetY = person.body.y + person.body.height;
+      const standingSupportMoved =
+        person.body.grounded &&
+        person.body.supportId !== null &&
+        (!support || Math.abs(support.y - feetY) > 4);
+      // Rails are scanned near the viewport, so an ambient resident left on a
+      // previous section eventually loses its support as the reader scrolls.
+      // Re-enter it on a visible rail only once the old position is offscreen;
+      // the relocation is therefore never seen as a teleport. Pinned artist
+      // summons keep their document position and wait for the reader to return.
+      if (
+        standingSupportMoved &&
+        !person.pinnedCharacter &&
+        !intersects(person.body, geometry.viewportBounds)
+      ) {
+        placeRecord(dropCarriedRecord(person), now);
+        return recreatePerson(person, now, index);
+      }
       // Scrolling away is not a reason to rebuild anyone. Someone outside the
       // scanned window is frozen by the frame loop, keeps their spot on the
       // page and their character, and carries on when the reader returns.
@@ -466,6 +504,30 @@
       }
     }
     forceRespawn = false;
+  }
+
+  /** Stops only aimless motion; errands, listening, dragging and exits finish. */
+  function settleAmbientPeople(now: number): void {
+    for (const person of people) {
+      if (
+        (person.activity !== 'idle' && person.activity !== 'wander') ||
+        person.carrying ||
+        person.recordErrand ||
+        person.exit ||
+        person.drag
+      ) {
+        continue;
+      }
+      person.body.vx = 0;
+      person.goalX = person.body.x;
+      person.routine = null;
+      person.activity = 'idle';
+      person.activityUntil = Math.max(person.activityUntil, userQuietUntil + 3_000);
+      if (person.animation !== 'idle') {
+        person.animation = 'idle';
+        person.animationStartedAt = now;
+      }
+    }
   }
 
   /**

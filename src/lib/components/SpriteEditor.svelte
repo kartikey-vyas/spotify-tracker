@@ -1,17 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { artistRegistry } from '$lib/pixel-person/artists';
-  import { characterRegistry, tinyPerson } from '$lib/pixel-person/characters';
+  import { characterRegistry, promenadePerson } from '$lib/pixel-person/characters';
   import { rasterizeFrame, themeOutline } from '$lib/pixel-person/render';
   import { applyTheme, themes, type Theme } from '$lib/theme';
   import type { AnimationName, CharacterDefinition, SpriteFrame } from '$lib/pixel-person/types';
 
-  const WIDTH = 24;
-  const HEIGHT = 32;
-  const CELL_PX = 14;
-
   // Big enough to count individual pixels while authoring.
-  const paletteKeys = ['o', 'g', 'h', 'f', 's', 't', 'p', 'b', 'n'] as const;
+  const paletteKeys = ['o', 'g', 'h', 'f', 's', 't', 'p', 'b', 'n', 'a'] as const;
 
   // Artist characters live outside characterRegistry so they never spawn
   // unprompted, but authoring their palette preview needs the same list.
@@ -20,7 +16,7 @@
     ...artistRegistry.map((entry) => entry.character)
   ];
 
-  const animationNames = Object.keys(tinyPerson.animations) as AnimationName[];
+  const animationNames = Object.keys(promenadePerson.animations) as AnimationName[];
 
   /**
    * Reverse of a character's frame map: source identifier -> every `anim:index`
@@ -43,7 +39,7 @@
   let mounted = false;
   let outline = '#111';
 
-  let characterId = tinyPerson.id;
+  let characterId = promenadePerson.id;
   let animationName: AnimationName = 'idle';
   let frameIndex = 0;
   let selectedKey: string = 's';
@@ -61,7 +57,15 @@
     outline = themeOutline();
   }
 
-  $: character = characters.find((entry) => entry.id === characterId) ?? tinyPerson;
+  $: character = characters.find((entry) => entry.id === characterId) ?? promenadePerson;
+  $: frameWidth = character.pixelWidth;
+  $: frameHeight = character.pixelHeight;
+  // Keep the high-density sources on one reasonably-sized authoring canvas.
+  $: cellPx = Math.max(
+    6,
+    Math.min(14, Math.floor(480 / frameWidth), Math.floor(640 / frameHeight))
+  );
+  $: sourceEditable = character.frameSource.editable !== false;
   // Read the frames off the SELECTED character, not the base rig. Characters
   // that fork their frames (artists) have entirely different pixels here.
   $: frames = framesFor(character, animationName);
@@ -161,6 +165,7 @@
   }
 
   function paintCell(row: number, col: number): void {
+    if (!sourceEditable) return;
     if (grid[row]?.[col] === undefined || grid[row][col] === selectedKey) return;
     grid[row][col] = selectedKey;
     grid = grid;
@@ -181,6 +186,10 @@
   }
 
   async function save(): Promise<void> {
+    if (!sourceEditable) {
+      saveMessage = { kind: 'error', text: 'This character is preview-only.' };
+      return;
+    }
     if (!sourceName) {
       saveMessage = { kind: 'error', text: `No source frame mapped for ${frameKey}.` };
       return;
@@ -274,9 +283,9 @@
     <span class="eyebrow">Dev</span>
     <h1>Sprite editor</h1>
     <p class="lede">
-      Paint 24×32 pixel-person frames by hand instead of hand-typing row strings.
-      Saves splice straight into the file that owns the selected character's frames;
-      Vite HMR reloads the change live.
+      Paint pixel-person frames by hand instead of hand-typing row strings.
+      The first save turns a generated frame into a 48×64 literal override in its source file;
+      later saves update that override and Vite HMR reloads it live.
     </p>
   </div>
 
@@ -301,7 +310,9 @@
           {/each}
         </select>
         <p class="muted small">
-          {#if sharedWith.length > 0}
+          {#if !sourceEditable}
+            This character is preview-only.
+          {:else if sharedWith.length > 0}
             Heads up: <code>{sourceName}</code> also backs
             {sharedWith.join(', ')} — editing it changes those too.
           {:else}
@@ -338,10 +349,11 @@
       </div>
 
       <p class="muted small">
-        Editing source frame <code>{sourceName ?? '(none)'}</code> in <code>{sourceFile}</code>.
+        {sourceEditable ? 'Editing' : 'Previewing'} source frame
+        <code>{sourceName ?? '(none)'}</code> in <code>{sourceFile}</code>.
       </p>
 
-      {#if sharedWith.length > 0}
+      {#if sourceEditable && sharedWith.length > 0}
         <p class="warning">
           Warning: <code>{sourceName}</code> is also used by
           {#each sharedWith as key, i (key)}{i > 0 ? ', ' : ' '}<code>{key}</code>{/each}
@@ -364,19 +376,19 @@
 
         <div
           class="grid-stage"
-          style:width="{WIDTH * CELL_PX}px"
-          style:height="{HEIGHT * CELL_PX}px"
+          style:width="{frameWidth * cellPx}px"
+          style:height="{frameHeight * cellPx}px"
         >
           {#if onionFrame}
             <div
               class="onion"
-              use:drawCanvas={{ frame: onionFrame, palette: character.palette, outline, step: CELL_PX }}
+              use:drawCanvas={{ frame: onionFrame, palette: character.palette, outline, step: cellPx }}
             ></div>
           {/if}
           <div
             class="paint-grid"
-            style:grid-template-columns="repeat({WIDTH}, {CELL_PX}px)"
-            style:grid-template-rows="repeat({HEIGHT}, {CELL_PX}px)"
+            style:grid-template-columns="repeat({frameWidth}, {cellPx}px)"
+            style:grid-template-rows="repeat({frameHeight}, {cellPx}px)"
           >
             {#each grid as row, r (r)}
               {#each row as cell, c (c)}
@@ -394,7 +406,7 @@
 
         <div class="actions">
           <button type="button" on:click={revert} disabled={!isDirty}>Revert</button>
-          <button type="button" on:click={save} disabled={saving || !sourceName}>
+          <button type="button" on:click={save} disabled={saving || !sourceName || !sourceEditable}>
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>

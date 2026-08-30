@@ -40,29 +40,14 @@ const BRIDGE_MAX_GAP_RATIO = 0.4;
 // the historical 0.62 band.
 const SPAWN_BAND_FACTORS = [0.62, 0.42, 0.75, 0.5, 0.68, 0.35];
 const SPAWN_BAND_JITTER = 0.05;
-const SOLID_SELECTOR = [
-  'button',
-  'input',
-  'select',
-  'textarea',
-  'img',
-  'canvas',
-  'svg',
-  '[data-pixel-collision="solid"]'
-].join(',');
-const OCCLUDER_SELECTOR = [
-  '.panel',
-  '.card',
-  '.toolbar',
-  'button',
-  'input',
-  'select',
-  'textarea',
-  'img',
-  'canvas',
-  'svg',
-  '[data-pixel-collision="occluder"]'
-].join(',');
+// The promenade is authored, not inferred. Before this contract the scanner
+// turned buttons, images, SVGs, borders and even individual words into level
+// geometry. That made an ordinary dashboard behave like a restless platform
+// game. Content may still opt into a semantic role (record/artist/occluder),
+// but only these explicit attributes create physical terrain.
+const SOLID_SELECTOR = '[data-pixel-collision="solid"]';
+const OCCLUDER_SELECTOR = '[data-pixel-collision="occluder"]';
+const PROMENADE_SELECTOR = '[data-pixel-promenade="rail"]';
 
 let nextGeometryId = 1;
 const elementIds = new WeakMap<Element, string>();
@@ -79,6 +64,20 @@ function stableId(target: Element | Node, prefix: 'element' | 'text'): string {
 
 export function clientToDocument(point: Point): Point {
   return { x: point.x + window.scrollX, y: point.y + window.scrollY };
+}
+
+/** Builds the physical walking plane from an authored clear-air rail band. */
+export function promenadeCollider(rect: Rect, id: string, groupId?: string): Collider {
+  return {
+    x: rect.x,
+    y: rect.y + rect.height - MIN_BORDER_THICKNESS,
+    width: rect.width,
+    height: MIN_BORDER_THICKNESS,
+    id,
+    groupId,
+    edge: 'top',
+    kind: 'platform'
+  };
 }
 
 function currentViewportBounds(): Rect {
@@ -108,13 +107,21 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
     const rect = fromClientRect(element.getBoundingClientRect());
     if (!usableRect(rect) || !intersects(rect, scanBounds)) continue;
     const style = getComputedStyle(element);
-    if (isIgnored(element) || !isVisible(element, style)) continue;
+    const isPromenade = element.matches(PROMENADE_SELECTOR);
+    // Promenade bands are decorative and correctly aria-hidden, but they are
+    // still deliberately authored geometry. All ordinary aria-hidden content
+    // remains excluded from semantic and collision scans.
+    if (isIgnored(element) || !isVisible(element, style, isPromenade)) continue;
 
     const override = element.getAttribute('data-pixel-collision');
     const groupId = stableId(element, 'element');
-    const isSolid = override === 'solid' || (override !== 'platform' && element.matches(SOLID_SELECTOR));
+    const isSolid = override === 'solid' || element.matches(SOLID_SELECTOR);
 
-    if (isSolid) {
+    if (isPromenade) {
+      // The rail component owns a band of clear air; its bottom edge is the
+      // visible hairline and therefore the plane the person's feet meet.
+      colliders.push(promenadeCollider(rect, `${groupId}:promenade`, groupId));
+    } else if (isSolid) {
       colliders.push({ ...rect, id: `${groupId}:solid`, groupId, kind: 'solid' });
     } else if (override === 'ladder') {
       colliders.push({ ...rect, id: `${groupId}:ladder`, groupId, kind: 'ladder' });
@@ -129,8 +136,6 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
         edge: 'top',
         kind: 'platform'
       });
-    } else {
-      addBorderColliders(style, rect, groupId, colliders);
     }
 
     if (override === 'occluder' || element.matches(OCCLUDER_SELECTOR)) {
@@ -157,7 +162,6 @@ export function collectWorldGeometry(root: HTMLElement): WorldGeometry {
     }
   }
 
-  addTextColliders(root, scanBounds, colliders);
   colliders.push(...bridgeWalkableTops(colliders));
 
   const floorY = viewportFloorY(viewportBounds);
@@ -365,7 +369,15 @@ function spawnScore(
   idealY: number,
   viewportCenterX: number
 ): number {
-  const kindPenalty = support.kind === 'border' ? 0 : support.kind === 'text' ? 18 : 30;
+  const kindPenalty = support.id.endsWith(':promenade')
+    ? -20
+    : support.kind === 'platform'
+      ? 0
+      : support.kind === 'border'
+        ? 12
+        : support.kind === 'text'
+          ? 24
+          : 36;
   const widthBonus = Math.min(support.width, 260) * 0.12;
   const centerPenalty = Math.abs(x + support.width / 2 - viewportCenterX) * 0.02;
   return Math.abs(support.y - idealY) + kindPenalty + centerPenalty - widthBonus;
@@ -391,103 +403,22 @@ function itemSourceBonus(
   return 0;
 }
 
-function addBorderColliders(
-  style: CSSStyleDeclaration,
-  rect: Rect,
-  groupId: string,
-  colliders: Collider[]
-): void {
-  const edges = [
-    { edge: 'top' as const, width: rect.width, height: borderSize(style.borderTopWidth, style.borderTopStyle), x: rect.x, y: rect.y },
-    { edge: 'right' as const, width: borderSize(style.borderRightWidth, style.borderRightStyle), height: rect.height, x: rect.x + rect.width, y: rect.y },
-    { edge: 'bottom' as const, width: rect.width, height: borderSize(style.borderBottomWidth, style.borderBottomStyle), x: rect.x, y: rect.y + rect.height },
-    { edge: 'left' as const, width: borderSize(style.borderLeftWidth, style.borderLeftStyle), height: rect.height, x: rect.x, y: rect.y }
-  ];
-
-  for (const edge of edges) {
-    if (edge.width <= 0 || edge.height <= 0) continue;
-    const x = edge.edge === 'right' ? edge.x - edge.width : edge.x;
-    const y = edge.edge === 'bottom' ? edge.y - edge.height : edge.y;
-    colliders.push({
-      x,
-      y,
-      width: edge.width,
-      height: edge.height,
-      id: `${groupId}:border-${edge.edge}`,
-      groupId,
-      edge: edge.edge,
-      kind: 'border'
-    });
-  }
-}
-
-function addTextColliders(root: HTMLElement, scanBounds: Rect, colliders: Collider[]): void {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const range = document.createRange();
-  const parentEligibility = new Map<Element, boolean>();
-  const isEligibleParent = (parent: Element): boolean => {
-    let eligible = parentEligibility.get(parent);
-    if (eligible === undefined) {
-      eligible =
-        !isIgnored(parent) &&
-        isVisible(parent) &&
-        !parent.closest(SOLID_SELECTOR) &&
-        !parent.closest('[aria-hidden="true"]');
-      parentEligibility.set(parent, eligible);
-    }
-    return eligible;
-  };
-  let current = walker.nextNode();
-
-  while (current) {
-    const parent = current.parentElement;
-    const value = current.nodeValue ?? '';
-    if (
-      parent &&
-      intersects(fromClientRect(parent.getBoundingClientRect()), scanBounds) &&
-      isEligibleParent(parent)
-    ) {
-      const id = stableId(current, 'text');
-      for (const match of value.matchAll(/\S+/g)) {
-        const start = match.index ?? 0;
-        range.setStart(current, start);
-        range.setEnd(current, start + match[0].length);
-        let rectIndex = 0;
-        for (const clientRect of range.getClientRects()) {
-          const rect = fromClientRect(clientRect);
-          if (usableRect(rect) && intersects(rect, scanBounds)) {
-            colliders.push({
-              ...rect,
-              id: `${id}:word-${start}-${rectIndex++}`,
-              kind: 'text'
-            });
-          }
-        }
-      }
-    }
-    current = walker.nextNode();
-  }
-
-  range.detach();
-}
-
-function borderSize(width: string, style: string): number {
-  if (style === 'none' || style === 'hidden') return 0;
-  const numeric = Number.parseFloat(width);
-  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
-  return Math.max(MIN_BORDER_THICKNESS, numeric);
-}
-
 function isIgnored(element: Element): boolean {
   return Boolean(element.closest('[data-pixel-collision="ignore"], [data-pixel-world]'));
 }
 
 function isVisible(
   element: Element,
-  style = getComputedStyle(element)
+  style = getComputedStyle(element),
+  allowAriaHidden = false
 ): element is HTMLElement {
   if (!(element instanceof HTMLElement) && !(element instanceof SVGElement)) return false;
-  if (element.hasAttribute('hidden') || element.getAttribute('aria-hidden') === 'true') return false;
+  if (
+    element.hasAttribute('hidden') ||
+    (!allowAriaHidden && element.getAttribute('aria-hidden') === 'true')
+  ) {
+    return false;
+  }
   const closedDetails = element.closest('details:not([open])');
   if (closedDetails && closedDetails !== element) return false;
   // Opacity does not inherit, so an element inside an `opacity: 0` ancestor

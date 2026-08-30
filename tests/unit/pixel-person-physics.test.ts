@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   characterRegistry,
+  frameOfSize,
+  promenadePerson,
   tinyPerson,
   withPalette
 } from '../../src/lib/pixel-person/characters';
@@ -42,14 +44,14 @@ function collider(overrides: Partial<Collider> = {}): Collider {
 }
 
 describe('pixel person character registry', () => {
-  it('contains a complete, consistently-sized tiny person', () => {
+  it('routes the compatibility character through the high-density default', () => {
     expect(characterRegistry[tinyPerson.id]).toBe(tinyPerson);
-    expect(tinyPerson.pixelWidth).toBe(24);
-    expect(tinyPerson.pixelHeight).toBe(32);
-    expect(tinyPerson.scale).toBe(1);
-    // Footprint is held at the pre-existing 24 CSS px wide so world tuning
-    // still applies; the body box below is unchanged at 14x31.
+    expect(tinyPerson).toBe(promenadePerson);
+    expect(tinyPerson.pixelWidth).toBe(48);
+    expect(tinyPerson.pixelHeight).toBe(64);
+    expect(tinyPerson.scale).toBe(0.5);
     expect(tinyPerson.pixelWidth * tinyPerson.scale).toBe(24);
+    expect(tinyPerson.pixelHeight * tinyPerson.scale).toBe(32);
     expect(tinyPerson.body.width).toBe(14);
     expect(tinyPerson.body.height).toBe(31);
   });
@@ -89,6 +91,42 @@ describe('pixel person character registry', () => {
         }
       }
     }
+  });
+
+  it('registers genuinely authored 48x64 promenade art at the established CSS footprint', () => {
+    expect(characterRegistry[promenadePerson.id]).toBe(promenadePerson);
+    expect(promenadePerson.pixelWidth).toBe(48);
+    expect(promenadePerson.pixelHeight).toBe(64);
+    expect(promenadePerson.scale).toBe(0.5);
+    expect(promenadePerson.pixelWidth * promenadePerson.scale).toBe(24);
+    expect(promenadePerson.pixelHeight * promenadePerson.scale).toBe(32);
+    expect(promenadePerson.dragGrip.x * promenadePerson.scale).toBe(2);
+    expect(promenadePerson.dragGrip.y * promenadePerson.scale).toBe(1);
+    expect(promenadePerson.animations.walk.frames).toHaveLength(6);
+    expect(promenadePerson.animations.listen.frames).toHaveLength(6);
+
+    // A mechanically doubled 24x32 image has one value in every aligned 2x2
+    // cell. Odd-width details in the new face and clothes must break that rule.
+    const frame = promenadePerson.animations.idle.frames[0];
+    const hasRawPixelDetail = frame.rows.some((row, y) => {
+      if (y % 2 !== 0) return false;
+      return [...row].some((_key, x) => {
+        if (x % 2 !== 0) return false;
+        return new Set([
+          frame.rows[y][x],
+          frame.rows[y][x + 1],
+          frame.rows[y + 1][x],
+          frame.rows[y + 1][x + 1]
+        ]).size > 1;
+      });
+    });
+    expect(hasRawPixelDetail).toBe(true);
+  });
+
+  it('validates frames against their explicitly requested dimensions', () => {
+    expect(frameOfSize(3, 2, ['...', '...']).rows).toEqual(['...', '...']);
+    expect(() => frameOfSize(3, 2, ['...'])).toThrow(/3x2/);
+    expect(() => frameOfSize(3, 2, ['...', '..'])).toThrow(/3x2/);
   });
 
   it('withPalette derives recolored variants that share frames', () => {
