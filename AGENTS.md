@@ -140,15 +140,20 @@ Spotify sometimes returns an app-wide `Retry-After` lasting many hours. `enrich-
 
 The split exists because rollup refresh is far more expensive than enrichment: one batch's affected dates blew the statement timeout, failing the job *after* the tracks were enriched. The edge functions queue dates into `rollup_refresh_queue` only when an artist's effective public genre set changes; the drain job works through them 150 at a time. External genre enrichment can enqueue thousands of historic dates, so migrations `20260829135424_tune_external_genre_rollup_drain.sql` and `20260829141741_increase_rollup_drain_cadence.sql` increase the drain cadence while deliberately retaining the production-proven 150-date batch; a 300-date benchmark hit the statement timeout. The final three-minute cadence was selected after production runs showed the 150-date transaction completing in 7–11 seconds and a heavy ten-entity artist batch enqueueing 326 dates. Migration `20260829142729_queue_rollups_only_for_changed_genres.sql` prevents repeated track and album reports from re-queueing those dates when the curated genre projection is unchanged. Migration `20260829143056_serialize_user_public_stats_refresh.sql` serializes the complete refresh per user so sync and drain jobs cannot race their delete-then-insert projections.
 
-MusicBrainz + Last.fm enrichment is also database-scheduled. Migration
-`20260827073746_external_metadata_enrichment_worker.sql` seeds a track/artist/
-album queue, enqueues new ISRC-backed metadata with triggers, and invokes
-`enrich-external-metadata` every ten minutes. The worker claims at most 10
-entities under a singleton lease, serializes provider calls, persists completed
-endpoint state across retries, and records each invocation in
-`external_music_enrichment_runs`. `pnpm external:status` prints queue progress
-and the latest runs. Production requires the `LASTFM_API_KEY` Edge secret;
-`MUSICBRAINZ_USER_AGENT` is optional.
+MusicBrainz + Last.fm enrichment uses a database-owned track/artist/album queue
+created by `20260827073746_external_metadata_enrichment_worker.sql`. The hosted
+`enrich-external-metadata` cron is temporarily paused by
+`20260830111346_pause_external_enrichment_cron_for_local_drain.sql`; the queue
+is drained from a laptop with `pnpm external:drain-local --duration-hours=12`.
+That Node runner and the Edge Function share the runtime-neutral processor in
+`supabase/functions/_shared/external-music-worker.ts`, while database claiming,
+singleton leases, retries, completed endpoint state, and run telemetry remain
+authoritative. The laptop runner globally paces provider calls at one per 1.1s.
+It applies backpressure at 500 pending rollup refreshes so the database drain
+can catch up. `pnpm external:status` prints queue progress and recent runs. Keep
+`LASTFM_API_KEY` and `MUSICBRAINZ_USER_AGENT` in `.env.local`; use `caffeinate
+-i` on macOS. Resume hosted processing only with a new migration using
+`cron.schedule`, never by editing `cron.job` directly.
 
 Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. `/admin` renders progress plus the last 50 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
 
