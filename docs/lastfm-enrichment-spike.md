@@ -145,9 +145,11 @@ recycles workers after 25 batches or 30 minutes, starts them with a 384 MiB V8
 heap ceiling, samples worker and supervisor memory every minute, and requests an
 early recycle at 512 MiB RSS. Output is mirrored to a timestamped JSONL file in
 `analysis/logs/`; non-zero exits restart with bounded exponential backoff.
-Provider circuit state persists across batches and half-opens with one request
-after the provider-specific cooldown. If both providers are unavailable, the
-worker waits for the first cooldown instead of cycling database queue items.
+Provider circuit state persists across batches and worker processes in
+`analysis/logs/external-provider-cooldowns.json`, then half-opens with one
+request after the provider-specific cooldown. A circuited batch with no
+completions applies a short database backoff. If both providers are unavailable,
+the worker waits for the first cooldown instead of cycling queue items.
 
 The database singleton lease makes an accidental hosted invocation harmless,
 although the cron should remain paused to avoid wasting Edge Function

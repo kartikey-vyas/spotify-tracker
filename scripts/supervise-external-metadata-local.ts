@@ -13,6 +13,7 @@ const DEFAULT_MEMORY_SAMPLE_SECONDS = 60;
 const DEFAULT_RESTART_DELAY_SECONDS = 5;
 const DEFAULT_WORKER_GRACE_SECONDS = 300;
 const DEFAULT_LOG_DIRECTORY = 'analysis/logs';
+const DEFAULT_PROVIDER_STATE_FILE = 'analysis/logs/external-provider-cooldowns.json';
 
 export type SupervisorOptions = {
   durationHours: number;
@@ -23,6 +24,7 @@ export type SupervisorOptions = {
   restartDelaySeconds: number;
   workerGraceSeconds: number;
   logDirectory: string;
+  providerStateFile: string;
   batchSize: number;
   leaseSeconds: number;
   requestIntervalMs: number;
@@ -72,6 +74,7 @@ export function parseSupervisorOptions(argv: string[]): SupervisorOptions {
     'restart-delay-seconds',
     'worker-grace-seconds',
     'log-directory',
+    'provider-state-file',
     'batch-size',
     'lease-seconds',
     'request-interval-ms',
@@ -132,6 +135,7 @@ export function parseSupervisorOptions(argv: string[]): SupervisorOptions {
       'worker-grace-seconds'
     )),
     logDirectory: stringFlag(argv, 'log-directory', DEFAULT_LOG_DIRECTORY),
+    providerStateFile: stringFlag(argv, 'provider-state-file', DEFAULT_PROVIDER_STATE_FILE),
     batchSize: Math.trunc(boundedNumber(numericFlag(argv, 'batch-size'), 20, 1, 20, 'batch-size')),
     leaseSeconds: Math.trunc(boundedNumber(
       numericFlag(argv, 'lease-seconds'),
@@ -177,7 +181,8 @@ export function workerNodeArguments(
     `--idle-seconds=${options.idleSeconds}`,
     `--max-rollup-backlog=${options.maxRollupBacklog}`,
     `--max-rss-mb=${options.maxRssMb}`,
-    `--memory-sample-seconds=${options.memorySampleSeconds}`
+    `--memory-sample-seconds=${options.memorySampleSeconds}`,
+    `--provider-state-file=${options.providerStateFile}`
   ];
 }
 
@@ -270,7 +275,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     memorySampleSeconds: options.memorySampleSeconds,
     batchSize: options.batchSize,
     requestIntervalMs: options.requestIntervalMs,
-    maxRollupBacklog: options.maxRollupBacklog
+    maxRollupBacklog: options.maxRollupBacklog,
+    providerStateFile: resolve(options.providerStateFile)
   });
 
   const supervisorMemoryTimer = setInterval(() => {
