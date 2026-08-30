@@ -103,22 +103,31 @@ Pointing `.env.local` at the hosted project is the normal day-to-day setup — y
 New ISRC-backed tracks and their artists/albums are enqueued by database
 triggers. The hosted external-enrichment cron is currently paused so a laptop
 can drain the production queue without consuming Edge Function invocations.
-The runner uses the same database leases, retries, provider matching, and
-persistence logic as the Edge Function, and globally limits outbound provider
-requests to one every 1.1 seconds:
+The supervised runner uses the same database leases, retries, provider matching,
+and persistence logic as the Edge Function, and globally limits outbound
+provider requests to one every 1.1 seconds:
 
 ```bash
-pnpm external:drain-local --duration-hours=12
+caffeinate -i node --max-old-space-size=128 --import tsx \
+  scripts/supervise-external-metadata-local.ts --duration-hours=12
 pnpm external:status
 ```
 
-On macOS, prefix the drain with `caffeinate -i` to prevent system sleep. A
-SIGINT/SIGTERM finishes the currently claimed batch before exiting. The runner
-also stops claiming work while 500 or more rollup refreshes are pending, letting
-the database drain catch up before enrichment continues. Spotify sync and the
-database rollup-drain cron continue running while this command is active. Resume
-hosted external enrichment only through a new migration that calls
-`cron.schedule`; do not run both intentionally.
+`caffeinate -i` prevents macOS system sleep. Run the Node command directly:
+package-manager wrappers can intercept terminal signals before the supervisor
+finishes its database lease cleanup. The supervisor writes JSONL logs under
+`analysis/logs/`, reports worker and
+supervisor memory every minute, and starts workers with a 384 MiB V8 heap cap.
+It recycles workers after 25 batches or 30 minutes, whichever comes first, and
+also recycles early at 512 MiB RSS. SIGINT/SIGTERM finishes the currently
+claimed batch before exiting. The runner stops claiming work while 500 or more
+rollup refreshes are pending, letting the database drain catch up before
+enrichment continues.
+
+Only the external MusicBrainz/Last.fm schedule is paused. Spotify sync, Spotify
+metadata enrichment (which supplies new ISRCs), and the database rollup drain
+continue running. Resume hosted external enrichment only through a new
+migration that calls `cron.schedule`; do not run both intentionally.
 
 ## Setting up the Spotify app
 

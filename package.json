@@ -21,7 +21,6 @@
     "enrich:metadata": "tsx scripts/enrich-metadata.ts",
     "enrich:backfill": "tsx scripts/enrich-backfill.ts",
     "external:status": "tsx scripts/external-metadata-status.ts",
-    "external:drain-local": "tsx scripts/drain-external-metadata-local.ts",
     "explore:lastfm": "tsx scripts/explore-lastfm.ts",
     "import:lastfm-report": "tsx scripts/import-lastfm-report.ts",
     "invite": "tsx scripts/invite-user.ts",
