@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  captureProviderCircuitCooldowns,
+  expireProviderCircuits,
   memorySnapshot,
   parseRunnerOptions,
   shouldApplyRollupBackpressure,
   shouldRecycleForMemory
 } from '../../scripts/drain-external-metadata-local.js';
+import type { ExternalMusicProviderCircuit } from '../../supabase/functions/_shared/external-music-worker.js';
 
 describe('local external enrichment runner options', () => {
   it('defaults to a twelve-hour, globally paced, maximum-size drain', () => {
@@ -78,5 +81,27 @@ describe('local external enrichment runner options', () => {
     });
     expect(shouldRecycleForMemory({ ...snapshot, rssMb: 511.9 }, 512)).toBe(false);
     expect(shouldRecycleForMemory(snapshot, 512)).toBe(true);
+  });
+
+  it('carries a provider circuit across batches until its cooldown expires', () => {
+    const circuit: ExternalMusicProviderCircuit = {
+      musicbrainz: { terminal: false, retryAfterSeconds: 300, message: 'service unavailable' },
+      lastfm: null
+    };
+    const expiresAt = { musicbrainz: null, lastfm: null };
+
+    expect(captureProviderCircuitCooldowns(circuit, expiresAt, 1_000)).toEqual([
+      {
+        provider: 'musicbrainz',
+        retryAfterSeconds: 300,
+        retryAt: 301_000,
+        message: 'service unavailable'
+      }
+    ]);
+    expect(expireProviderCircuits(circuit, expiresAt, 300_999)).toEqual([]);
+    expect(circuit.musicbrainz).not.toBeNull();
+    expect(expireProviderCircuits(circuit, expiresAt, 301_000)).toEqual(['musicbrainz']);
+    expect(circuit.musicbrainz).toBeNull();
+    expect(expiresAt.musicbrainz).toBeNull();
   });
 });

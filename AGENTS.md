@@ -156,6 +156,9 @@ It applies backpressure at 500 pending rollup refreshes so the database drain
 can catch up. A supervisor recycles the Node worker after 25 batches or 30
 minutes, enforces a 384 MiB V8 heap cap plus a 512 MiB RSS recycle threshold,
 emits one-minute memory telemetry, and mirrors JSONL output to `analysis/logs/`.
+Provider circuits persist across batches and half-open with one probe after
+their cooldown; when both providers are unavailable the worker waits instead of
+churning the database queue.
 `pnpm external:status` prints queue progress and recent runs. Keep
 `LASTFM_API_KEY` and `MUSICBRAINZ_USER_AGENT` in `.env.local`; use `caffeinate
 -i` on macOS. Only `enrich-external-metadata` is paused: Spotify sync, Spotify
