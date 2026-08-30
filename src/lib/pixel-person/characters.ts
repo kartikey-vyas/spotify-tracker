@@ -426,7 +426,6 @@ export const promenadePerson: CharacterDefinition = {
   animations: promenadeAnimations,
   frameSource: {
     file: 'src/lib/pixel-person/characters.ts',
-    editable: false,
     names: {
       'idle:0': 'pilotIdleA',
       'idle:1': 'pilotIdleBlink',

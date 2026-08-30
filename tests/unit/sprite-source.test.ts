@@ -16,19 +16,19 @@ import {
 const validRows = Array.from({ length: FRAME_HEIGHT }, () => '.'.repeat(FRAME_WIDTH));
 
 function sourceWith(name: string, rows: string[]): string {
-  return `const before = 1;\n\nconst ${name} = frame([\n${rows
+  return `const before = 1;\n\nconst ${name} = frameOfSize(${FRAME_WIDTH}, ${FRAME_HEIGHT}, [\n${rows
     .map((r) => `  '${r}'`)
     .join(',\n')}\n]);\n\nconst after = 2;\n`;
 }
 
 describe('frame constants', () => {
-  it('keeps the literal-splicer fixture contract stable', () => {
-    expect(FRAME_WIDTH).toBe(24);
-    expect(FRAME_HEIGHT).toBe(32);
+  it('matches the high-density authored frame size', () => {
+    expect(FRAME_WIDTH).toBe(48);
+    expect(FRAME_HEIGHT).toBe(64);
   });
 
-  it('covers every key accepted by legacy literal fixtures', () => {
-    expect(PALETTE_KEYS).toBe('oghfstpbn');
+  it('covers every key used by the high-density palettes', () => {
+    expect(PALETTE_KEYS).toBe('oghfstpbna');
   });
 });
 
@@ -42,13 +42,13 @@ describe('validateFrameRows', () => {
   });
 
   it('rejects the wrong row count', () => {
-    expect(validateFrameRows(validRows.slice(0, 10))).toMatch(/expected 32 rows/);
+    expect(validateFrameRows(validRows.slice(0, 10))).toMatch(/expected 64 rows/);
   });
 
   it('rejects a row of the wrong width', () => {
     const rows = [...validRows];
     rows[3] = '.'.repeat(FRAME_WIDTH - 1);
-    expect(validateFrameRows(rows)).toMatch(/row 3 is 23 characters/);
+    expect(validateFrameRows(rows)).toMatch(/row 3 is 47 characters/);
   });
 
   it('rejects a character outside the palette', () => {
@@ -96,6 +96,23 @@ describe('isEditableSource', () => {
 });
 
 describe('spliceFrame', () => {
+  it('turns a generated frame into a literal override', () => {
+    const source =
+      'const before = 1;\n' +
+      'const idleA = makePilotStandingFrame({ bob: 1, leftHand: [9, 43] });\n' +
+      'const after = 2;\n';
+    const rows = [...validRows];
+    rows[4] = 'a'.repeat(FRAME_WIDTH);
+
+    const out = spliceFrame(source, 'idleA', rows);
+
+    expect(out).toContain(`const idleA = frameOfSize(48, 64, [`);
+    expect(out).toContain(`  '${'a'.repeat(FRAME_WIDTH)}'`);
+    expect(out).not.toContain('makePilotStandingFrame');
+    expect(out).toContain('const before = 1;');
+    expect(out).toContain('const after = 2;');
+  });
+
   it('replaces only the target frame body', () => {
     const rows = [...validRows];
     rows[0] = 'o'.repeat(FRAME_WIDTH);
@@ -114,7 +131,7 @@ describe('spliceFrame', () => {
     // Exactly one frame gained the new row.
     expect(out.split(`  '${'h'.repeat(FRAME_WIDTH)}'`).length - 1).toBe(1);
     // And both literals still parse as separate frames.
-    expect(out.split('= frame([').length - 1).toBe(2);
+    expect(out.split('= frameOfSize(').length - 1).toBe(2);
   });
 
   it('round-trips: splicing a frame with its own rows is a no-op', () => {
@@ -129,18 +146,18 @@ describe('spliceFrame', () => {
   });
 
   it('throws on an unterminated literal rather than writing anything', () => {
-    const truncated = 'const idleA = frame([\n  \'....\'';
+    const truncated = 'const idleA = frameOfSize(48, 64, [\n  \'....\'';
     expect(() => spliceFrame(truncated, 'idleA', validRows)).toThrow(/unterminated/);
   });
 
-  it('throws rather than swallowing a following frame', () => {
-    const malformed = "const idleA = frame([\n  '..'\nconst idleB = frame([\n]);\n";
+  it('throws on an unbalanced initializer rather than swallowing following code', () => {
+    const malformed = 'const idleA = makePilotStandingFrame({}));\nconst after = 2;\n';
     expect(() => spliceFrame(malformed, 'idleA', validRows)).toThrow(/malformed/);
   });
 
   it('rejects an invalid grid before touching the source', () => {
     expect(() => spliceFrame(sourceWith('idleA', validRows), 'idleA', ['too short'])).toThrow(
-      /expected 32 rows/
+      /expected 64 rows/
     );
   });
 });
@@ -167,12 +184,16 @@ describe('frameSource maps', () => {
     for (const character of everyCharacter) {
       const source = await readFile(character.frameSource.file, 'utf8');
       for (const identifier of Object.values(character.frameSource.names)) {
-        if (character.frameSource.editable === false) {
-          expect(source).toContain(`const ${identifier} =`);
-        } else {
-          expect(source).toContain(`const ${identifier} = frame([`);
-        }
+        expect(source).toContain(`const ${identifier} =`);
       }
+    }
+  });
+
+  it('keeps every shipped high-density character paint-editable', () => {
+    for (const character of everyCharacter) {
+      expect(character.frameSource.editable).not.toBe(false);
+      expect(character.pixelWidth).toBe(FRAME_WIDTH);
+      expect(character.pixelHeight).toBe(FRAME_HEIGHT);
     }
   });
 

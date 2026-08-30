@@ -18,7 +18,7 @@ import {
  *
  * It writes to source files on a request from a browser, so every input is
  * checked before anything is opened: the file must be one of two known paths,
- * the frame name a bare identifier, and the grid exactly 32x24 of palette keys.
+ * the frame name a bare identifier, and the grid exactly 48x64 of palette keys.
  */
 function spriteEditorApi(): Plugin {
   return {

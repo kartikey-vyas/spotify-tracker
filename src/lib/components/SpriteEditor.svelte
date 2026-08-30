@@ -284,8 +284,8 @@
     <h1>Sprite editor</h1>
     <p class="lede">
       Paint pixel-person frames by hand instead of hand-typing row strings.
-      Saves splice straight into the file that owns the selected character's frames;
-      Vite HMR reloads the change live.
+      The first save turns a generated frame into a 48×64 literal override in its source file;
+      later saves update that override and Vite HMR reloads it live.
     </p>
   </div>
 
@@ -311,7 +311,7 @@
         </select>
         <p class="muted small">
           {#if !sourceEditable}
-            This high-density pilot is generated from drawing primitives and is preview-only.
+            This character is preview-only.
           {:else if sharedWith.length > 0}
             Heads up: <code>{sourceName}</code> also backs
             {sharedWith.join(', ')} — editing it changes those too.

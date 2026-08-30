@@ -426,7 +426,6 @@ const frankOcean: CharacterDefinition = {
   animations: hiFrankAnimations,
   frameSource: {
     file: 'src/lib/pixel-person/artists.ts',
-    editable: false,
     names: {
       'idle:0': 'hiFrankIdleA',
       'idle:1': 'hiFrankIdleBlink',
