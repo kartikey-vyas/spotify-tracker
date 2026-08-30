@@ -122,7 +122,9 @@ It recycles workers after 25 batches or 30 minutes, whichever comes first, and
 also recycles early at 512 MiB RSS. SIGINT/SIGTERM finishes the currently
 claimed batch before exiting. The runner stops claiming work while 500 or more
 rollup refreshes are pending, letting the database drain catch up before
-enrichment continues.
+enrichment continues. Provider circuits persist across batches and half-open
+with one probe after their cooldown, so a MusicBrainz or Last.fm outage cannot
+turn the continuous drain into repeated failing requests.
 
 Only the external MusicBrainz/Last.fm schedule is paused. Spotify sync, Spotify
 metadata enrichment (which supplies new ISRCs), and the database rollup drain
