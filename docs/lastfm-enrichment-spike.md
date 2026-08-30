@@ -134,16 +134,24 @@ singleton database lease prevents scheduled and manual invocations from
 overlapping. Items retry with exponential backoff and become `dead` after eight
 failed attempts so a permanent provider/configuration issue cannot loop forever.
 
-`pnpm external:drain-local --duration-hours=12` uses the same shared item
-processor but claims batches continuously from a Node process. It passes one
-shared 1.1-second pacer to both providers, limiting all outbound provider calls
-globally to less than one per second. The database singleton lease makes an
-accidental hosted invocation harmless, although the cron should remain paused
-to avoid wasting Edge Function invocations. SIGINT/SIGTERM stops after the
-current claimed batch; database failures retry with bounded exponential
-backoff. The runner stops claiming work at 500 pending rollup refreshes, so
-external genre discovery cannot outrun the database drain indefinitely. On
-macOS, run it under `caffeinate -i` to prevent system sleep.
+`caffeinate -i node --max-old-space-size=128 --import tsx
+scripts/supervise-external-metadata-local.ts --duration-hours=12` runs a small
+supervisor around the shared Node worker. Use Node directly because package
+manager wrappers can intercept terminal signals before lease cleanup. Each
+worker gets one shared 1.1-second pacer for both
+providers, limiting all outbound provider calls globally to less than one per
+second, including a pacing pause across process boundaries. The supervisor
+recycles workers after 25 batches or 30 minutes, starts them with a 384 MiB V8
+heap ceiling, samples worker and supervisor memory every minute, and requests an
+early recycle at 512 MiB RSS. Output is mirrored to a timestamped JSONL file in
+`analysis/logs/`; non-zero exits restart with bounded exponential backoff.
+
+The database singleton lease makes an accidental hosted invocation harmless,
+although the cron should remain paused to avoid wasting Edge Function
+invocations. SIGINT/SIGTERM stops after the current claimed batch. The runner
+stops claiming work at 500 pending rollup refreshes, so external genre discovery
+cannot outrun the database drain indefinitely. On macOS, run it under
+`caffeinate -i` to prevent system sleep.
 
 The production worker deliberately requests only the fields retained by the
 schema:

@@ -18,6 +18,8 @@ const DEFAULT_LEASE_SECONDS = 600;
 const DEFAULT_REQUEST_INTERVAL_MS = 1_100;
 const DEFAULT_IDLE_SECONDS = 15;
 const DEFAULT_MAX_ROLLUP_BACKLOG = 500;
+const DEFAULT_MAX_RSS_MB = 512;
+const DEFAULT_MEMORY_SAMPLE_SECONDS = 60;
 
 type RunnerOptions = {
   durationHours: number;
@@ -26,7 +28,17 @@ type RunnerOptions = {
   requestIntervalMs: number;
   idleSeconds: number;
   maxRollupBacklog: number;
+  maxRssMb: number;
+  memorySampleSeconds: number;
   maxBatches: number;
+};
+
+export type MemorySnapshot = {
+  rssMb: number;
+  heapUsedMb: number;
+  heapTotalMb: number;
+  externalMb: number;
+  arrayBuffersMb: number;
 };
 
 type BatchCounts = {
@@ -65,6 +77,24 @@ export function shouldApplyRollupBackpressure(pendingRollups: number, maxRollupB
   return pendingRollups >= maxRollupBacklog;
 }
 
+function bytesToMb(bytes: number): number {
+  return Math.round(bytes / 1024 / 1024 * 10) / 10;
+}
+
+export function memorySnapshot(usage: NodeJS.MemoryUsage = process.memoryUsage()): MemorySnapshot {
+  return {
+    rssMb: bytesToMb(usage.rss),
+    heapUsedMb: bytesToMb(usage.heapUsed),
+    heapTotalMb: bytesToMb(usage.heapTotal),
+    externalMb: bytesToMb(usage.external),
+    arrayBuffersMb: bytesToMb(usage.arrayBuffers)
+  };
+}
+
+export function shouldRecycleForMemory(snapshot: MemorySnapshot, maxRssMb: number): boolean {
+  return snapshot.rssMb >= maxRssMb;
+}
+
 export function parseRunnerOptions(argv: string[]): RunnerOptions {
   const once = argv.includes('--once');
   const unknown = argv.filter((value) =>
@@ -76,6 +106,8 @@ export function parseRunnerOptions(argv: string[]): RunnerOptions {
       'request-interval-ms',
       'idle-seconds',
       'max-rollup-backlog',
+      'max-rss-mb',
+      'memory-sample-seconds',
       'max-batches'
     ].some((name) => value.startsWith(`--${name}=`))
   );
@@ -84,7 +116,7 @@ export function parseRunnerOptions(argv: string[]): RunnerOptions {
   const durationHours = boundedNumber(
     numericFlag(argv, 'duration-hours'),
     DEFAULT_DURATION_HOURS,
-    1 / 60,
+    1 / 3_600,
     168,
     'duration-hours'
   );
@@ -125,6 +157,20 @@ export function parseRunnerOptions(argv: string[]): RunnerOptions {
     100_000,
     'max-rollup-backlog'
   ));
+  const maxRssMb = Math.trunc(boundedNumber(
+    numericFlag(argv, 'max-rss-mb'),
+    DEFAULT_MAX_RSS_MB,
+    64,
+    16_384,
+    'max-rss-mb'
+  ));
+  const memorySampleSeconds = Math.trunc(boundedNumber(
+    numericFlag(argv, 'memory-sample-seconds'),
+    DEFAULT_MEMORY_SAMPLE_SECONDS,
+    10,
+    3_600,
+    'memory-sample-seconds'
+  ));
   const configuredMaxBatches = numericFlag(argv, 'max-batches');
   const maxBatches = once
     ? 1
@@ -139,12 +185,22 @@ export function parseRunnerOptions(argv: string[]): RunnerOptions {
     requestIntervalMs,
     idleSeconds,
     maxRollupBacklog,
+    maxRssMb,
+    memorySampleSeconds,
     maxBatches
   };
 }
 
 function log(event: string, details: Record<string, unknown> = {}): void {
   console.log(JSON.stringify({ at: new Date().toISOString(), event, ...details }));
+}
+
+async function interruptibleSleep(milliseconds: number, signal: AbortSignal): Promise<void> {
+  try {
+    await sleep(milliseconds, undefined, { signal });
+  } catch (error) {
+    if (!(error instanceof Error && error.name === 'AbortError')) throw error;
+  }
 }
 
 async function progress(supabase: AdminClient): Promise<unknown[]> {
@@ -159,6 +215,34 @@ async function rollupBacklog(supabase: AdminClient): Promise<number> {
     .select('user_id', { count: 'exact', head: true });
   throwIfSupabaseError(error, 'Loading rollup refresh backlog failed');
   return count ?? 0;
+}
+
+async function reconcileAbandonedRunTelemetry(
+  supabase: AdminClient,
+  leaseSeconds: number
+): Promise<number[]> {
+  const cutoff = new Date(Date.now() - (leaseSeconds + 60) * 1_000).toISOString();
+  const { data: staleRows, error: selectError } = await supabase
+    .from('external_music_enrichment_runs')
+    .select('id')
+    .is('finished_at', null)
+    .lt('started_at', cutoff)
+    .limit(100);
+  throwIfSupabaseError(selectError, 'Loading abandoned enrichment telemetry failed');
+  const ids = (staleRows ?? []).map((row) => (row as { id: number }).id);
+  if (ids.length === 0) return [];
+
+  const { error: updateError } = await supabase
+    .from('external_music_enrichment_runs')
+    .update({
+      finished_at: new Date().toISOString(),
+      warnings: 1,
+      error: 'Worker exited before telemetry finalization; queue lease recovery applies'
+    })
+    .in('id', ids)
+    .is('finished_at', null);
+  throwIfSupabaseError(updateError, 'Reconciling abandoned enrichment telemetry failed');
+  return ids;
 }
 
 async function runBatch(
@@ -284,16 +368,28 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const deadline = Date.now() + options.durationHours * 60 * 60 * 1_000;
   const providerPacer = new ProviderPacer(options.requestIntervalMs);
   let stopping = false;
+  let memoryLimitReached = false;
+  let memoryLimitLogged = false;
   let batches = 0;
   let consecutiveErrors = 0;
+  const exitController = new AbortController();
 
   const requestStop = (signal: NodeJS.Signals) => {
     if (stopping) return;
     stopping = true;
+    exitController.abort();
     log('stop-requested', { signal, message: 'Finishing the current claimed batch before exit' });
   };
-  process.once('SIGINT', requestStop);
-  process.once('SIGTERM', requestStop);
+  // A terminal signal can reach the worker directly and then be forwarded by
+  // the supervisor. Keep these listeners installed so the duplicate remains
+  // idempotent instead of falling through to Node's default immediate exit.
+  process.on('SIGINT', requestStop);
+  process.on('SIGTERM', requestStop);
+
+  const reconciledRunIds = await reconcileAbandonedRunTelemetry(supabase, options.leaseSeconds);
+  if (reconciledRunIds.length > 0) {
+    log('abandoned-run-telemetry-reconciled', { runIds: reconciledRunIds });
+  }
 
   log('runner-started', {
     deadline: new Date(deadline).toISOString(),
@@ -301,51 +397,101 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     leaseSeconds: options.leaseSeconds,
     requestIntervalMs: options.requestIntervalMs,
     maxRollupBacklog: options.maxRollupBacklog,
+    maxRssMb: options.maxRssMb,
+    memorySampleSeconds: options.memorySampleSeconds,
     maxBatches: Number.isFinite(options.maxBatches) ? options.maxBatches : null
   });
 
-  while (!stopping && Date.now() < deadline && batches < options.maxBatches) {
-    try {
-      const pendingRollups = await rollupBacklog(supabase);
-      if (shouldApplyRollupBackpressure(pendingRollups, options.maxRollupBacklog)) {
-        log('rollup-backpressure', {
-          pendingRollups,
-          maxRollupBacklog: options.maxRollupBacklog,
-          sleepSeconds: options.idleSeconds
-        });
-        await sleep(options.idleSeconds * 1_000);
-        continue;
-      }
-      const result = await runBatch(
-        supabase,
-        options,
-        providerPacer,
-        lastFmApiKey,
-        musicBrainzUserAgent
-      );
-      consecutiveErrors = 0;
-      if (result.busyOrEmpty) {
-        log('queue-busy-or-empty', { progress: result.progress });
-        await sleep(options.idleSeconds * 1_000);
-        continue;
-      }
-      batches += 1;
-      log('batch-finished', { runId: result.runId, batch: batches, ...result.counts, progress: result.progress });
-    } catch (error) {
-      consecutiveErrors += 1;
-      const backoffSeconds = Math.min(300, 5 * 2 ** Math.min(consecutiveErrors - 1, 6));
-      log('batch-error', {
-        consecutiveErrors,
-        backoffSeconds,
-        error: error instanceof Error ? error.message : String(error)
+  const sampleMemory = (phase: 'startup' | 'interval' | 'after-batch') => {
+    const snapshot = memorySnapshot();
+    log('memory-snapshot', {
+      phase,
+      pid: process.pid,
+      batch: batches,
+      uptimeSeconds: Math.round(process.uptime()),
+      ...snapshot
+    });
+    if (!memoryLimitLogged && shouldRecycleForMemory(snapshot, options.maxRssMb)) {
+      memoryLimitReached = true;
+      memoryLimitLogged = true;
+      exitController.abort();
+      log('memory-limit-recycle-requested', {
+        pid: process.pid,
+        rssMb: snapshot.rssMb,
+        maxRssMb: options.maxRssMb,
+        message: 'Finishing the current claimed batch before exit'
       });
-      await sleep(backoffSeconds * 1_000);
     }
+  };
+  sampleMemory('startup');
+  const memoryTimer = setInterval(() => sampleMemory('interval'), options.memorySampleSeconds * 1_000);
+  memoryTimer.unref();
+
+  try {
+    while (
+      !stopping &&
+      !memoryLimitReached &&
+      Date.now() < deadline &&
+      batches < options.maxBatches
+    ) {
+      try {
+        const pendingRollups = await rollupBacklog(supabase);
+        if (shouldApplyRollupBackpressure(pendingRollups, options.maxRollupBacklog)) {
+          log('rollup-backpressure', {
+            pendingRollups,
+            maxRollupBacklog: options.maxRollupBacklog,
+            sleepSeconds: options.idleSeconds
+          });
+          await interruptibleSleep(options.idleSeconds * 1_000, exitController.signal);
+          continue;
+        }
+        const result = await runBatch(
+          supabase,
+          options,
+          providerPacer,
+          lastFmApiKey,
+          musicBrainzUserAgent
+        );
+        consecutiveErrors = 0;
+        if (result.busyOrEmpty) {
+          log('queue-busy-or-empty', { rollupBacklog: pendingRollups, progress: result.progress });
+          await interruptibleSleep(options.idleSeconds * 1_000, exitController.signal);
+          continue;
+        }
+        batches += 1;
+        log('batch-finished', {
+          runId: result.runId,
+          batch: batches,
+          rollupBacklog: pendingRollups,
+          ...result.counts,
+          progress: result.progress
+        });
+        sampleMemory('after-batch');
+      } catch (error) {
+        consecutiveErrors += 1;
+        const backoffSeconds = Math.min(300, 5 * 2 ** Math.min(consecutiveErrors - 1, 6));
+        log('batch-error', {
+          consecutiveErrors,
+          backoffSeconds,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await interruptibleSleep(backoffSeconds * 1_000, exitController.signal);
+      }
+    }
+  } finally {
+    clearInterval(memoryTimer);
   }
 
   log('runner-finished', {
-    reason: stopping ? 'signal' : batches >= options.maxBatches ? 'max-batches' : 'deadline',
+    reason: stopping
+      ? 'signal'
+      : memoryLimitReached
+        ? 'memory-limit'
+        : batches >= options.maxBatches
+          ? 'max-batches'
+          : 'deadline',
     batches,
+    memory: memorySnapshot(),
     progress: await progress(supabase)
   });
 }

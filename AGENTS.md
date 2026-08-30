@@ -144,16 +144,24 @@ MusicBrainz + Last.fm enrichment uses a database-owned track/artist/album queue
 created by `20260827073746_external_metadata_enrichment_worker.sql`. The hosted
 `enrich-external-metadata` cron is temporarily paused by
 `20260830111346_pause_external_enrichment_cron_for_local_drain.sql`; the queue
-is drained from a laptop with `pnpm external:drain-local --duration-hours=12`.
+is drained from a laptop with `caffeinate -i node --max-old-space-size=128
+--import tsx scripts/supervise-external-metadata-local.ts
+--duration-hours=12`. Run Node directly: package-manager wrappers can intercept
+terminal signals before lease cleanup.
 That Node runner and the Edge Function share the runtime-neutral processor in
 `supabase/functions/_shared/external-music-worker.ts`, while database claiming,
 singleton leases, retries, completed endpoint state, and run telemetry remain
 authoritative. The laptop runner globally paces provider calls at one per 1.1s.
 It applies backpressure at 500 pending rollup refreshes so the database drain
-can catch up. `pnpm external:status` prints queue progress and recent runs. Keep
+can catch up. A supervisor recycles the Node worker after 25 batches or 30
+minutes, enforces a 384 MiB V8 heap cap plus a 512 MiB RSS recycle threshold,
+emits one-minute memory telemetry, and mirrors JSONL output to `analysis/logs/`.
+`pnpm external:status` prints queue progress and recent runs. Keep
 `LASTFM_API_KEY` and `MUSICBRAINZ_USER_AGENT` in `.env.local`; use `caffeinate
--i` on macOS. Resume hosted processing only with a new migration using
-`cron.schedule`, never by editing `cron.job` directly.
+-i` on macOS. Only `enrich-external-metadata` is paused: Spotify sync, Spotify
+metadata enrichment, and the database rollup drain remain hosted. Resume hosted
+processing only with a new migration using `cron.schedule`, never by editing
+`cron.job` directly.
 
 Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. `/admin` renders progress plus the last 50 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
 
