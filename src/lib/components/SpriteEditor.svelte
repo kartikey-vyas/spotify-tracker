@@ -187,7 +187,7 @@
 
   async function save(): Promise<void> {
     if (!sourceEditable) {
-      saveMessage = { kind: 'error', text: 'This generated pilot frame is preview-only.' };
+      saveMessage = { kind: 'error', text: 'This character is preview-only.' };
       return;
     }
     if (!sourceName) {

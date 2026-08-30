@@ -9,6 +9,8 @@ import {
   validateFrameRows
 } from './scripts/lib/sprite-source.js';
 
+const MAX_SPRITE_SAVE_BODY_BYTES = 16 * 1024;
+
 /**
  * Save endpoint for the dev-only sprite editor at /sprites/edit/.
  *
@@ -29,13 +31,28 @@ function spriteEditorApi(): Plugin {
         if (request.method !== 'POST') return next();
 
         const chunks: Buffer[] = [];
-        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        let bodyBytes = 0;
+        let responseSent = false;
+        const send = (status: number, body: Record<string, unknown>): void => {
+          if (responseSent) return;
+          responseSent = true;
+          response.statusCode = status;
+          response.setHeader('content-type', 'application/json');
+          response.end(JSON.stringify(body));
+        };
+
+        request.on('data', (chunk: Buffer) => {
+          if (responseSent) return;
+          bodyBytes += chunk.length;
+          if (bodyBytes > MAX_SPRITE_SAVE_BODY_BYTES) {
+            send(413, { error: 'sprite save payload is too large' });
+            return;
+          }
+          chunks.push(chunk);
+        });
+        request.on('error', (error) => send(400, { error: error.message }));
         request.on('end', () => {
-          const send = (status: number, body: Record<string, unknown>): void => {
-            response.statusCode = status;
-            response.setHeader('content-type', 'application/json');
-            response.end(JSON.stringify(body));
-          };
+          if (responseSent) return;
 
           void (async () => {
             try {

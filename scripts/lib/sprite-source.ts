@@ -112,6 +112,22 @@ function declarationEnd(source: string, expressionStart: number, frameName: stri
     else if (character === '}') curly -= 1;
     else if (character === ';' && round === 0 && square === 0 && curly === 0) return index + 1;
 
+    // A missing semicolon must not make the splice consume the declaration
+    // after the frame. The authored sources use semicolons, so reaching a new
+    // top-level declaration first is always an error rather than ASI we should
+    // try to preserve.
+    if (
+      (character === '\n' || character === '\r') &&
+      round === 0 &&
+      square === 0 &&
+      curly === 0 &&
+      /^\s*(?:export\s+)?(?:const|let|var|function|class|interface|type|enum)\b/.test(
+        source.slice(index + 1)
+      )
+    ) {
+      throw new Error(`frame '${frameName}' initializer is malformed`);
+    }
+
     if (round < 0 || square < 0 || curly < 0) {
       throw new Error(`frame '${frameName}' initializer is malformed`);
     }
@@ -138,6 +154,10 @@ export function spliceFrame(source: string, frameName: string, rows: string[]): 
   }
 
   const end = declarationEnd(source, start + opener.length, frameName);
+  const initializer = source.slice(start + opener.length, end - 1).trim();
+  if (!/^(?:frameOfSize|make[A-Za-z][A-Za-z0-9_]*Frame)\s*\(/.test(initializer)) {
+    throw new Error(`'${frameName}' is not an editable frame declaration`);
+  }
   const literal =
     `const ${frameName} = frameOfSize(${FRAME_WIDTH}, ${FRAME_HEIGHT}, [\n` +
     rows.map((row) => `  '${row}'`).join(',\n') +

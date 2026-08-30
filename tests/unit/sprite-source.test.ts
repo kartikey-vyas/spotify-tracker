@@ -78,7 +78,7 @@ describe('isFrameName', () => {
 });
 
 describe('isEditableSource', () => {
-  it('accepts only the two files holding frame literals', () => {
+  it('accepts only the two files holding editable frame declarations', () => {
     for (const file of EDITABLE_SOURCES) expect(isEditableSource(file)).toBe(true);
   });
 
@@ -153,6 +153,18 @@ describe('spliceFrame', () => {
   it('throws on an unbalanced initializer rather than swallowing following code', () => {
     const malformed = 'const idleA = makePilotStandingFrame({}));\nconst after = 2;\n';
     expect(() => spliceFrame(malformed, 'idleA', validRows)).toThrow(/malformed/);
+  });
+
+  it('throws on a missing semicolon rather than swallowing the following declaration', () => {
+    const malformed = 'const idleA = makePilotStandingFrame({})\nconst after = 2;\n';
+    expect(() => spliceFrame(malformed, 'idleA', validRows)).toThrow(/malformed/);
+  });
+
+  it('refuses to replace a non-frame constant in an editable source', () => {
+    const source = `const PROMENADE_WIDTH = ${FRAME_WIDTH};\n`;
+    expect(() => spliceFrame(source, 'PROMENADE_WIDTH', validRows)).toThrow(
+      /not an editable frame declaration/
+    );
   });
 
   it('rejects an invalid grid before touching the source', () => {
