@@ -51,6 +51,26 @@ export type ResolvedIds = {
   artistIdByName: Map<string, number>;
   albumIdByName: Map<string, number>;
   trackIdByUri: Map<string, number>;
+  /** Existing Spotify-enriched tracks whose canonical artist links must win. */
+  canonicalTrackIds?: Set<number>;
+};
+
+type TrackPlanEntry = [string, { name: string; albumKey: string }];
+
+type ExistingTrackRow = {
+  id: number;
+  spotify_track_uri: string;
+  last_refreshed_at: string | null;
+};
+
+type ResolvedTracks = {
+  idByUri: Map<string, number>;
+  canonicalTrackIds: Set<number>;
+};
+
+type RepointedDate = {
+  affected_user_id: string;
+  affected_local_date: string;
 };
 
 type TrackArtistInsert = { track_id: number; artist_id: number; artist_order: number };
@@ -248,7 +268,7 @@ export function assembleEvents(
     const albumId = ids.albumIdByName.get(item.albumKey) ?? null;
 
     const trackArtistKey = `${trackId}:${artistId}`;
-    if (!trackArtistKeys.has(trackArtistKey)) {
+    if (!ids.canonicalTrackIds?.has(trackId) && !trackArtistKeys.has(trackArtistKey)) {
       trackArtistKeys.add(trackArtistKey);
       trackArtists.push({ track_id: trackId, artist_id: artistId, artist_order: 0 });
     }
@@ -328,28 +348,77 @@ async function resolveFallbackIds(
   return idByName;
 }
 
-/** Upsert tracks in bulk on spotify_track_uri and return uri -> id. */
+/** Keep only planned tracks that do not already exist in the shared catalog. */
+export function missingTrackEntries(
+  entries: TrackPlanEntry[],
+  existingRows: Array<Pick<ExistingTrackRow, 'spotify_track_uri'>>
+): TrackPlanEntry[] {
+  const existingUris = new Set(existingRows.map((row) => row.spotify_track_uri));
+  return entries.filter(([uri]) => !existingUris.has(uri));
+}
+
+/**
+ * Resolve tracks without overwriting existing Spotify dimensions with export
+ * name fallbacks. Only genuinely new tracks are inserted; a re-import reuses
+ * the current shared row and leaves its album, metadata and refresh stamp alone.
+ */
 async function resolveTrackIds(
   supabase: AdminClient,
   tracks: Map<string, { name: string; albumKey: string }>,
   albumIdByName: Map<string, number>
-): Promise<Map<string, number>> {
+): Promise<ResolvedTracks> {
   const idByUri = new Map<string, number>();
+  const canonicalTrackIds = new Set<number>();
   for (const batch of chunk([...tracks.entries()], 500)) {
-    const payload = batch.map(([uri, track]) => ({
+    const existingRows = await runQuery<ExistingTrackRow[]>('Loading existing export tracks', () =>
+      supabase
+        .from('tracks')
+        .select('id,spotify_track_uri,last_refreshed_at')
+        .in(
+          'spotify_track_uri',
+          batch.map(([uri]) => uri)
+        )
+    );
+    for (const row of existingRows ?? []) {
+      idByUri.set(row.spotify_track_uri, row.id);
+      if (row.last_refreshed_at) canonicalTrackIds.add(row.id);
+    }
+
+    const missing = missingTrackEntries(batch, existingRows ?? []);
+    if (missing.length === 0) continue;
+
+    const payload = missing.map(([uri, track]) => ({
       spotify_track_uri: uri,
       spotify_track_id: spotifyIdFromUri(uri),
       name: track.name,
       album_id: albumIdByName.get(track.albumKey) ?? null
     }));
-    const rows = await runQuery<Array<{ id: number; spotify_track_uri: string }>>('Upserting export tracks', () =>
-      supabase.from('tracks').upsert(payload, { onConflict: 'spotify_track_uri' }).select('id, spotify_track_uri')
+    const rows = await runQuery<Array<{ id: number; spotify_track_uri: string }>>('Inserting export tracks', () =>
+      supabase.from('tracks').insert(payload).select('id, spotify_track_uri')
     );
     for (const row of rows ?? []) {
       idByUri.set(row.spotify_track_uri, row.id);
     }
   }
-  return idByUri;
+  return { idByUri, canonicalTrackIds };
+}
+
+/** Align imported events to any Spotify dimensions the shared tracks have now. */
+export async function repointImportedEvents(
+  supabase: AdminClient,
+  targetUserId: string,
+  trackIds: number[],
+  affectedDates: Set<string>
+): Promise<void> {
+  for (const batch of chunk([...new Set(trackIds)], 500)) {
+    const repaired = await runQuery<RepointedDate[]>('Repointing imported event dimensions', () =>
+      supabase.rpc('repoint_listening_events_from_tracks', {
+        p_track_ids: batch,
+        p_user_id: targetUserId
+      })
+    );
+    for (const row of repaired ?? []) affectedDates.add(row.affected_local_date);
+  }
 }
 
 export async function main(args = process.argv.slice(2), supabase = createServiceClient()): Promise<void> {
@@ -369,12 +438,14 @@ export async function main(args = process.argv.slice(2), supabase = createServic
   // Albums before tracks (tracks reference album ids); artists independently.
   const albumIdByName = await resolveFallbackIds(supabase, 'albums', plan.albumNames);
   const artistIdByName = await resolveFallbackIds(supabase, 'artists', plan.artistNames);
-  const trackIdByUri = await resolveTrackIds(supabase, plan.tracks, albumIdByName);
+  const resolvedTracks = await resolveTrackIds(supabase, plan.tracks, albumIdByName);
+  const trackIdByUri = resolvedTracks.idByUri;
 
   const { events, trackArtists, affectedDates, latestExactMs } = assembleEvents(plan.pending, targetUserId, {
     artistIdByName,
     albumIdByName,
-    trackIdByUri
+    trackIdByUri,
+    canonicalTrackIds: resolvedTracks.canonicalTrackIds
   });
 
   for (const batch of chunk(trackArtists, 1000)) {
@@ -390,6 +461,8 @@ export async function main(args = process.argv.slice(2), supabase = createServic
         .upsert(batch, { onConflict: 'user_id,source_event_key', ignoreDuplicates: true })
     );
   }
+
+  await repointImportedEvents(supabase, targetUserId, [...trackIdByUri.values()], affectedDates);
 
   if (latestExactMs > 0) {
     const latestExactIso = new Date(latestExactMs).toISOString();

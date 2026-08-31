@@ -133,7 +133,7 @@ Sync scheduling has **moved from GitHub Actions into the database** (pg_cron + p
 
 **Metadata enrichment now runs the same way**, for the same reason: its scheduled Action fired barely two thirds of the times it was asked to, drifting by hours. `20260727130000_schedule_enrich_backfill_cron.sql` adds two jobs reusing the same Vault secrets:
 
-- `enrich-backfill` every 15 min POSTs the `enrich-backfill` edge function (default 30 tracks).
+- `enrich-backfill` every 2 hours POSTs the `enrich-backfill` edge function (default 30 tracks). Production telemetry showed an app-wide ceiling of roughly 600 tracks/day; twelve batches provide 360/day with headroom instead of spending the quota in five hours.
 - `drain-rollup-refresh-queue` every 3 min calls `drain_rollup_refresh_queue(150)` directly — no HTTP hop, the work is in-database.
 
 Spotify sometimes returns an app-wide `Retry-After` lasting many hours. `enrich-backfill` reconstructs that deadline from the latest `enrichment_runs` row before loading work or calling Spotify; scheduled invocations inside the window record an aborted cooldown run with zero failures and make no provider requests.
@@ -171,7 +171,7 @@ instead of churning the database queue.
 intentionally. Change scheduling only through a migration using
 `cron.schedule`/`cron.unschedule`, never by editing `cron.job` directly.
 
-Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. `/admin` renders progress plus the last 50 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
+Every attempt writes a row to `public.enrichment_runs` — counts, whether it aborted, and Spotify's `retry-after` on a rate cap. Cooldown-only rows have `worklist_size = 0` and render as deferred rather than failed. `/admin` renders progress plus the last 300 runs. `pnpm enrich:backfill` still works for manual runs and writes the same telemetry.
 
 ## Extended history backfill
 

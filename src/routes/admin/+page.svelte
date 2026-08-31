@@ -3,6 +3,7 @@
   import { dev } from '$app/environment';
   import { onMount } from 'svelte';
   import {
+    artworkCoverageLabel,
     catalogTotalsLabel,
     classifySystemHealth,
     classifyUserHealth,
@@ -236,8 +237,31 @@
           <dd>{formatCount(system.tracks_missing_duration)}</dd>
         </div>
         <div>
-          <dt>Albums missing image</dt>
-          <dd>{formatCount(system.albums_missing_image)}</dd>
+          <dt>Track-referenced album artwork</dt>
+          <dd>
+            {artworkCoverageLabel(
+              system.albums_referenced_by_tracks,
+              system.referenced_albums_missing_image
+            )}
+            <span class="cell-note">{formatCount(system.referenced_albums_missing_image)} missing</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Artwork across plays</dt>
+          <dd>
+            {artworkCoverageLabel(
+              system.active_listening_event_count,
+              system.active_events_missing_album_image
+            )}
+            <span class="cell-note">{formatCount(system.active_events_missing_album_image)} plays missing</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Catalog rows missing image</dt>
+          <dd>
+            {formatCount(system.albums_missing_image)}
+            <span class="cell-note">includes unreferenced fallbacks</span>
+          </dd>
         </div>
         <div>
           <dt>Stale/unrefreshed artists</dt>
@@ -378,7 +402,8 @@
     color: var(--red);
   }
 
-  .status.paused {
+  .status.paused,
+  .status.deferred {
     color: var(--muted);
   }
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  artworkCoverage,
+  artworkCoverageLabel,
   capResetAt,
   classifySystemHealth,
   classifyUserHealth,
@@ -40,6 +42,10 @@ function system(overrides: Partial<AdminSystemHealth> = {}): AdminSystemHealth {
     tracks_unenriched: 0,
     tracks_missing_duration: 0,
     albums_missing_image: 0,
+    albums_referenced_by_tracks: 20,
+    referenced_albums_missing_image: 0,
+    active_listening_event_count: 100,
+    active_events_missing_album_image: 0,
     artists_stale_or_unrefreshed: 0,
     metadata_last_success_at: isoMinutesAgo(10),
     metadata_last_error_at: null,
@@ -167,6 +173,23 @@ describe('enrichmentProgress', () => {
   });
 });
 
+describe('artworkCoverage', () => {
+  it('reports covered rows and a listening-weighted percentage', () => {
+    expect(artworkCoverage(108_554, 2_530)).toEqual({
+      covered: 106_024,
+      total: 108_554,
+      missing: 2_530,
+      percent: (106_024 / 108_554) * 100
+    });
+    expect(artworkCoverageLabel(108_554, 2_530)).toBe('106,024 / 108,554 (97.7%)');
+  });
+
+  it('clamps invalid missing counts and handles an empty population', () => {
+    expect(artworkCoverage(10, 20)).toEqual({ covered: 0, total: 10, missing: 10, percent: 0 });
+    expect(artworkCoverageLabel(0, 0)).toBe('no coverage data');
+  });
+});
+
 function run(overrides: Partial<AdminEnrichmentRun> = {}): AdminEnrichmentRun {
   return {
     id: 1,
@@ -210,6 +233,20 @@ describe('enrichment run telemetry', () => {
     expect(runOutcomeLabel(run({ aborted: true, enriched: 12, abort_retry_after_seconds: 82_800 }))).toBe(
       'rate capped after 12, retry-after 23h'
     );
+  });
+
+  it('renders a zero-work cooldown row as deferred rather than failed', () => {
+    const deferred = run({
+      worklist_size: 0,
+      enriched: 0,
+      missing: 0,
+      failed: 0,
+      aborted: true,
+      abort_retry_after_seconds: 66_604
+    });
+
+    expect(runOutcomeLabel(deferred)).toBe('deferred by Spotify cooldown, retry-after 18h 30m');
+    expect(runStatus(deferred)).toBe('deferred');
   });
 
   it('flags an unfinished run as critical and a capped run as warning', () => {
