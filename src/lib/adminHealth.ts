@@ -1,4 +1,4 @@
-export type HealthStatus = 'healthy' | 'warning' | 'critical' | 'paused';
+export type HealthStatus = 'healthy' | 'warning' | 'critical' | 'paused' | 'deferred';
 
 export type AdminSystemHealth = {
   total_profiles: number;
@@ -15,6 +15,10 @@ export type AdminSystemHealth = {
   tracks_unenriched: number;
   tracks_missing_duration: number;
   albums_missing_image: number;
+  albums_referenced_by_tracks: number;
+  referenced_albums_missing_image: number;
+  active_listening_event_count: number;
+  active_events_missing_album_image: number;
   artists_stale_or_unrefreshed: number;
   metadata_last_success_at: string | null;
   metadata_last_error_at: string | null;
@@ -249,6 +253,32 @@ export function enrichmentProgressLabel(
   return `${formatCount(enriched)} / ${formatCount(total)} (${percent.toFixed(1)}%)`;
 }
 
+export type ArtworkCoverage = {
+  covered: number;
+  total: number;
+  missing: number;
+  percent: number;
+};
+
+/** Coverage over a meaningful population such as referenced albums or plays. */
+export function artworkCoverage(totalValue: number, missingValue: number): ArtworkCoverage {
+  const total = Math.max(0, totalValue ?? 0);
+  const missing = Math.min(total, Math.max(0, missingValue ?? 0));
+  const covered = total - missing;
+  return {
+    covered,
+    total,
+    missing,
+    percent: total === 0 ? 0 : (covered / total) * 100
+  };
+}
+
+export function artworkCoverageLabel(total: number, missing: number): string {
+  const coverage = artworkCoverage(total, missing);
+  if (coverage.total === 0) return 'no coverage data';
+  return `${formatCount(coverage.covered)} / ${formatCount(coverage.total)} (${coverage.percent.toFixed(1)}%)`;
+}
+
 /** Tracks enriched across every run that started within the trailing window. */
 export function enrichedInWindow(runs: AdminEnrichmentRun[], hours: number, now = new Date()): number {
   const cutoff = now.getTime() - hours * 60 * minuteMs;
@@ -285,6 +315,11 @@ export function formatDuration(seconds: number | null): string {
 
 /** One-line outcome for a run row: what it achieved, or why it stopped. */
 export function runOutcomeLabel(run: AdminEnrichmentRun): string {
+  if (isDeferredRun(run)) {
+    const retry = run.abort_retry_after_seconds;
+    const wait = retry === null ? '' : `, retry-after ${formatDuration(retry)}`;
+    return `deferred by Spotify cooldown${wait}`;
+  }
   if (run.aborted) {
     const retry = run.abort_retry_after_seconds;
     const wait = retry === null ? '' : `, retry-after ${formatDuration(retry)}`;
@@ -297,7 +332,20 @@ export function runOutcomeLabel(run: AdminEnrichmentRun): string {
   return parts.join(', ');
 }
 
+/** A cooldown row records no attempted work and should not read as a failure. */
+export function isDeferredRun(run: AdminEnrichmentRun): boolean {
+  return (
+    run.aborted &&
+    run.worklist_size === 0 &&
+    run.enriched === 0 &&
+    run.missing === 0 &&
+    run.failed === 0 &&
+    run.abort_retry_after_seconds !== null
+  );
+}
+
 export function runStatus(run: AdminEnrichmentRun): HealthStatus {
+  if (isDeferredRun(run)) return 'deferred';
   if (run.aborted) return 'warning';
   if (run.finished_at === null) return 'critical';
   if (run.failed > 0) return 'warning';

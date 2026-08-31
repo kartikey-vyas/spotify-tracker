@@ -23,6 +23,11 @@ type SyncState = {
   recently_played_gap_risk: boolean;
 };
 
+type RepointedDate = {
+  affected_user_id: string;
+  affected_local_date: string;
+};
+
 async function sourceEventKey(playedAt: string, trackUri: string | null | undefined): Promise<string> {
   return sha256Hex(['recently_played_api', playedAt, trackUri ?? ''].join('\u001f'));
 }
@@ -86,12 +91,15 @@ async function syncUser(connection: Connection): Promise<Record<string, unknown>
 
   const response = await getRecentlyPlayed(token.access_token, effectiveAfter);
   const affectedDates = new Set<string>();
+  const repointedTrackIds = new Set<number>();
   const events = [];
   let maxCursor = state?.recently_played_cursor_ms ?? 0;
   let minInsertedMs: number | null = null;
 
   for (const item of response.items) {
     const dimensions = await upsertTrackFromSpotify(supabase, item.track);
+    repointedTrackIds.add(dimensions.trackId);
+
     const playedAtMs = unixMs(item.played_at);
     const localDate = localDateFor(item.played_at);
     const trackUri = item.track.uri ?? (item.track.id ? `spotify:track:${item.track.id}` : null);
@@ -115,6 +123,23 @@ async function syncUser(connection: Connection): Promise<Record<string, unknown>
       context_type: item.context?.type ?? null,
       source_event_key: await sourceEventKey(item.played_at, trackUri)
     });
+  }
+
+  // A track first seen in an export can leave historical events pointing at
+  // name-only fallback dimensions. Repair all tracks from this response in one
+  // call after Spotify has resolved their shared dimensions.
+  if (repointedTrackIds.size > 0) {
+    const { data: repairedDates, error: repairError } = await supabase.rpc(
+      'repoint_listening_events_from_tracks',
+      {
+        p_track_ids: [...repointedTrackIds],
+        p_user_id: connection.user_id
+      }
+    );
+    if (repairError) throw repairError;
+    for (const repaired of (repairedDates ?? []) as RepointedDate[]) {
+      affectedDates.add(repaired.affected_local_date);
+    }
   }
 
   if (events.length > 0) {

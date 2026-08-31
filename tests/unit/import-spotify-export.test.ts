@@ -2,20 +2,22 @@ import { describe, expect, it } from 'vitest';
 import {
   assembleEvents,
   buildImportPlan,
+  missingTrackEntries,
   parseImportArgs,
   refreshImportedDates,
+  repointImportedEvents,
   sourceEventKey
 } from '../../scripts/import-spotify-export.js';
 import { sha256 } from '../../scripts/lib/hash.js';
 import type { AdminClient } from '../../scripts/lib/supabase-admin.js';
 
-function fakeSupabase() {
+function fakeSupabase(rpcData: unknown[] = []) {
   const rpcCalls: Array<{ name: string; args: unknown }> = [];
   return {
     rpcCalls,
     rpc(name: string, args: unknown) {
       rpcCalls.push({ name, args });
-      return Promise.resolve({ error: null });
+      return Promise.resolve({ data: rpcData, error: null });
     }
   };
 }
@@ -162,6 +164,64 @@ describe('Spotify export importer', () => {
       ]);
       expect(() => assembleEvents(plan.pending, userId, ids)).toThrow(/Missing resolved id/);
     });
+
+    it('does not attach fallback artists to tracks already enriched by Spotify', () => {
+      const plan = buildImportPlan([
+        {
+          ts: '2020-01-01T00:00:00Z',
+          spotify_track_uri: 'spotify:track:a',
+          master_metadata_album_artist_name: 'Radiohead',
+          master_metadata_album_album_name: 'OK Computer',
+          master_metadata_track_name: 'Airbag'
+        }
+      ]);
+
+      const assembled = assembleEvents(plan.pending, userId, {
+        ...ids,
+        canonicalTrackIds: new Set([30])
+      });
+
+      expect(assembled.trackArtists).toEqual([]);
+    });
+  });
+
+  it('inserts only track plans that are absent from the shared catalog', () => {
+    const entries: Array<[string, { name: string; albumKey: string }]> = [
+      ['spotify:track:a', { name: 'Airbag', albumKey: 'ok computer' }],
+      ['spotify:track:b', { name: 'Paranoid Android', albumKey: 'ok computer' }]
+    ];
+
+    expect(missingTrackEntries(entries, [{ spotify_track_uri: 'spotify:track:a' }])).toEqual([
+      ['spotify:track:b', { name: 'Paranoid Android', albumKey: 'ok computer' }]
+    ]);
+  });
+
+  it('repoints imported events and includes repaired dates in the rollup refresh', async () => {
+    const sb = fakeSupabase([
+      {
+        affected_user_id: userId,
+        affected_local_date: '2019-12-31'
+      }
+    ]);
+    const affectedDates = new Set(['2020-01-01']);
+
+    await repointImportedEvents(
+      sb as unknown as AdminClient,
+      userId,
+      [30, 30, 31],
+      affectedDates
+    );
+
+    expect(sb.rpcCalls).toEqual([
+      {
+        name: 'repoint_listening_events_from_tracks',
+        args: {
+          p_track_ids: [30, 31],
+          p_user_id: userId
+        }
+      }
+    ]);
+    expect([...affectedDates].sort()).toEqual(['2019-12-31', '2020-01-01']);
   });
 
   it('keeps source event hash field order unchanged', () => {
@@ -189,4 +249,3 @@ describe('Spotify export importer', () => {
     );
   });
 });
-
