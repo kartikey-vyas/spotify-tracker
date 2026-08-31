@@ -101,11 +101,17 @@ Pointing `.env.local` at the hosted project is the normal day-to-day setup — y
    include a working contact URL or email.
 
 New ISRC-backed tracks and their artists/albums are enqueued by database
-triggers. The hosted external-enrichment cron is currently paused so a laptop
-can drain the production queue without consuming Edge Function invocations.
-The supervised runner uses the same database leases, retries, provider matching,
-and persistence logic as the Edge Function, and globally limits outbound
-provider requests to one every 1.1 seconds:
+triggers. Migration
+`20260831094058_resume_external_metadata_enrichment_cron.sql` runs the hosted
+external-enrichment Edge Function every five minutes with a bounded 20-entity
+batch. The singleton database lease prevents overlap, and queue ordering keeps
+Last.fm-actionable work ahead of tracks waiting only for MusicBrainz.
+Provider-wide outages defer work without consuming an entity's retry budget.
+
+The supervised laptop runner remains available for a deliberate manual drain.
+It uses the same database leases, retries, provider matching, and persistence
+logic as the Edge Function, and globally limits outbound provider requests to
+one every 1.1 seconds:
 
 ```bash
 caffeinate -i node --max-old-space-size=128 --import tsx \
@@ -127,10 +133,9 @@ workers in `analysis/logs/external-provider-cooldowns.json`, then half-open with
 one probe after their cooldown. A MusicBrainz or Last.fm outage therefore cannot
 turn the continuous drain into repeated failing requests.
 
-Only the external MusicBrainz/Last.fm schedule is paused. Spotify sync, Spotify
-metadata enrichment (which supplies new ISRCs), and the database rollup drain
-continue running. Resume hosted external enrichment only through a new
-migration that calls `cron.schedule`; do not run both intentionally.
+Do not run the laptop supervisor alongside the hosted cron intentionally. Pause
+or resume the named job through a migration, never by editing `cron.job`
+directly.
 
 ## Setting up the Spotify app
 

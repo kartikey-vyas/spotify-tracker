@@ -121,7 +121,9 @@ service-only queue for tracks, artists and albums, a singleton worker lease,
 retry state, run telemetry, enqueue triggers and an original ten-minute
 `pg_cron` job. Migration
 `20260830111346_pause_external_enrichment_cron_for_local_drain.sql` pauses only
-that external-enrichment job while the production queue is drained locally.
+that external-enrichment job for a supervised laptop drain. Migration
+`20260831094058_resume_external_metadata_enrichment_cron.sql` restores hosted
+processing every five minutes with a 20-entity batch.
 It seeds every current track with a valid ISRC plus the related artists and
 albums. Existing imported Last.fm entities start complete; the rest are
 processed from highest aggregate play count downward.
@@ -132,7 +134,10 @@ Last.fm calls at 500ms apart, writes successful endpoint results immediately,
 and preserves that endpoint state when another endpoint needs a retry. A
 singleton database lease prevents scheduled and manual invocations from
 overlapping. Items retry with exponential backoff and become `dead` after eight
-failed attempts so a permanent provider/configuration issue cannot loop forever.
+item-specific failures so a permanently bad entity cannot loop forever.
+Provider-wide failures do not consume that budget. Tracks whose Last.fm
+endpoints are complete but whose MusicBrainz endpoint is blocked are ranked
+behind work that can still advance.
 
 `caffeinate -i node --max-old-space-size=128 --import tsx
 scripts/supervise-external-metadata-local.ts --duration-hours=12` runs a small
@@ -151,9 +156,9 @@ request after the provider-specific cooldown. A circuited batch with no
 completions applies a short database backoff. If both providers are unavailable,
 the worker waits for the first cooldown instead of cycling queue items.
 
-The database singleton lease makes an accidental hosted invocation harmless,
-although the cron should remain paused to avoid wasting Edge Function
-invocations. SIGINT/SIGTERM stops after the current claimed batch. The runner
+The database singleton lease makes an accidental overlapping invocation
+harmless. Do not run the laptop supervisor intentionally while the hosted cron
+is active. SIGINT/SIGTERM stops after the current claimed batch. The runner
 stops claiming work at 500 pending rollup refreshes, so external genre discovery
 cannot outrun the database drain indefinitely. On macOS, run it under
 `caffeinate -i` to prevent system sleep.

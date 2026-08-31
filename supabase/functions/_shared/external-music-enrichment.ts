@@ -14,12 +14,12 @@ export type ProviderDecision = {
   retryAfterSeconds?: number;
   message?: string;
 };
-export type ProviderFailureOrigin = 'request' | 'circuit';
+export type ProviderFailureOrigin = 'request' | 'provider' | 'circuit';
 
 /**
- * Retry limits protect us from repeatedly making a failing provider request.
- * An item deferred behind a circuit never made that request, so it must not
- * consume the same finite budget.
+ * Retry limits protect us from repeatedly making an item-specific failing
+ * request. Provider-wide failures and items deferred behind their circuit do
+ * not say anything about the entity, so neither may consume its finite budget.
  */
 export function shouldConsumeExternalRetryAttempt(origins: readonly ProviderFailureOrigin[]): boolean {
   return origins.includes('request');
