@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   classifyLastFmCapture,
   classifyMusicBrainzError,
@@ -25,6 +25,10 @@ import {
   persistExternalMusicWrites,
   type ExternalMusicWorkItem
 } from '../../supabase/functions/_shared/external-music-persistence.ts';
+import {
+  ProviderPacer,
+  processExternalMusicItem
+} from '../../supabase/functions/_shared/external-music-worker.ts';
 
 function lastFmFailure(code: number | null, httpStatus: number | null): LastFmCapture {
   return {
@@ -102,11 +106,14 @@ describe('external music enrichment retry decisions', () => {
     });
   });
 
-  it('does not spend retry budget on work deferred behind a provider circuit', () => {
+  it('spends retry budget only on item-specific failures', () => {
     expect(shouldConsumeExternalRetryAttempt(['circuit'])).toBe(false);
     expect(shouldConsumeExternalRetryAttempt(['circuit', 'circuit'])).toBe(false);
+    expect(shouldConsumeExternalRetryAttempt(['provider'])).toBe(false);
+    expect(shouldConsumeExternalRetryAttempt(['provider', 'circuit'])).toBe(false);
     expect(shouldConsumeExternalRetryAttempt(['request'])).toBe(true);
     expect(shouldConsumeExternalRetryAttempt(['circuit', 'request'])).toBe(true);
+    expect(shouldConsumeExternalRetryAttempt(['provider', 'request'])).toBe(true);
   });
 
   it('preserves completed endpoints across retries', () => {
@@ -115,6 +122,103 @@ describe('external music enrichment retry decisions', () => {
     expect(endpointDone(next, 'musicbrainz')).toBe(true);
     expect(endpointDone(next, 'track.info')).toBe(true);
     expect(endpointDone(next, 'track.tags')).toBe(false);
+  });
+
+  it('does not charge an entity for a provider-wide MusicBrainz failure', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('temporarily unavailable', { status: 503 })
+    );
+    const circuit = { musicbrainz: null, lastfm: null };
+    const item: ExternalMusicWorkItem = {
+      queue_id: 1,
+      worker_token: '11111111-1111-4111-8111-111111111111',
+      attempt_count: 1,
+      entity_type: 'track',
+      entity_id: 11,
+      entity_name: 'Track',
+      last_result: {
+        endpoints: {
+          'track.info': { status: 'ok', fetched_at: '2026-08-27T00:00:00.000Z' },
+          'track.tags': { status: 'ok', fetched_at: '2026-08-27T00:00:00.000Z' },
+          'track.similar': { status: 'ok', fetched_at: '2026-08-27T00:00:00.000Z' }
+        }
+      },
+      context_track_id: 11,
+      context_track_name: 'Track',
+      context_duration_ms: 180_000,
+      context_isrc: 'GBAHT1600302',
+      context_album_id: 22,
+      context_album_name: 'Album',
+      context_artists: [{ id: 33, name: 'Artist', artist_order: 0 }]
+    };
+
+    try {
+      const outcome = await processExternalMusicItem(
+        {} as never,
+        item,
+        'unused-lastfm-key',
+        'musik-test/1.0',
+        new ProviderPacer(0),
+        new ProviderPacer(0),
+        circuit
+      );
+
+      expect(outcome.succeeded).toBe(false);
+      expect(outcome.consumeAttempt).toBe(false);
+      expect(outcome.error).toContain('musicbrainz: MusicBrainz returned HTTP 503');
+      expect(circuit.musicbrainz).toMatchObject({ terminal: false, retryAfterSeconds: 300 });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('does not charge an entity for a provider-wide Last.fm failure', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 29, message: 'Rate limit exceeded' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+    const circuit = { musicbrainz: null, lastfm: null };
+    const item: ExternalMusicWorkItem = {
+      queue_id: 2,
+      worker_token: '11111111-1111-4111-8111-111111111111',
+      attempt_count: 1,
+      entity_type: 'artist',
+      entity_id: 33,
+      entity_name: 'Artist',
+      last_result: {
+        endpoints: {
+          'artist.tags': { status: 'ok', fetched_at: '2026-08-27T00:00:00.000Z' }
+        }
+      },
+      context_track_id: 11,
+      context_track_name: 'Track',
+      context_duration_ms: 180_000,
+      context_isrc: 'GBAHT1600302',
+      context_album_id: 22,
+      context_album_name: 'Album',
+      context_artists: [{ id: 33, name: 'Artist', artist_order: 0 }]
+    };
+
+    try {
+      const outcome = await processExternalMusicItem(
+        {} as never,
+        item,
+        'unused-lastfm-key',
+        'musik-test/1.0',
+        new ProviderPacer(0),
+        new ProviderPacer(0),
+        circuit
+      );
+
+      expect(outcome.succeeded).toBe(false);
+      expect(outcome.consumeAttempt).toBe(false);
+      expect(outcome.error).toContain('artist.info: Rate limit exceeded');
+      expect(circuit.lastfm).toMatchObject({ terminal: false, retryAfterSeconds: 900 });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 

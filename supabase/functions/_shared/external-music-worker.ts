@@ -173,7 +173,7 @@ export async function processExternalMusicItem(
           writes.musicbrainz = { fetchedAt, candidates: [], selected: null };
           result = recordDecision(result, 'musicbrainz', decision, fetchedAt, null);
         } else {
-          addFailure('musicbrainz', decision, 'request');
+          addFailure('musicbrainz', decision, 'provider');
           circuit.musicbrainz = decision;
         }
       }
@@ -221,8 +221,9 @@ export async function processExternalMusicItem(
       result = recordDecision(result, endpoint, decision, capture.fetched_at);
       if (decision.status === 'ok') writes.lastfm[endpoint] = capture;
     } else {
-      addFailure(endpoint, decision, 'request');
-      if (shouldOpenLastFmCircuit(capture)) circuit.lastfm = decision;
+      const providerWideFailure = shouldOpenLastFmCircuit(capture);
+      addFailure(endpoint, decision, providerWideFailure ? 'provider' : 'request');
+      if (providerWideFailure) circuit.lastfm = decision;
     }
   }
 
