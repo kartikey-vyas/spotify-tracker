@@ -38,6 +38,7 @@
   const COVER_PREVIEW = 8;
   const COVER_FETCH = 16;
   const NOISE_TIMEOUT_MS = 1500;
+  const CLEAR_EFFECT_HOVER_KEY = 'clearEffect';
 
   let isAdmin = false;
   let loading = true;
@@ -108,6 +109,7 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
   let noiseTexture: HTMLImageElement | undefined;
 
   const initialOverlayKey = OVERLAY_KEYS[0] ?? 'godRays';
+  const hoverEffectKeys = [...OVERLAY_KEYS, CLEAR_EFFECT_HOVER_KEY];
   let hoverEnabled = false;
   let overlayKey = initialOverlayKey;
   let overlayParams: Record<string, number> = { ...HOVER_OVERLAYS[initialOverlayKey].defaults };
@@ -118,7 +120,7 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
 
   $: coverSnippet = formatCoverSnippet(effectKey, effectParams);
   $: selectedEffect = COVER_EFFECTS[effectKey] ?? COVER_EFFECTS[initialEffectKey];
-  $: selectedOverlay = HOVER_OVERLAYS[overlayKey] ?? HOVER_OVERLAYS[initialOverlayKey];
+  $: selectedOverlay = HOVER_OVERLAYS[overlayKey];
 
   function pickTheme(next: Theme): void {
     applyTheme(next);
@@ -350,6 +352,9 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
   function remountOverlay(key: string, params: Record<string, number>): void {
     disposeOverlay();
     if (pageDestroyed || !hoverEnabled || !overlayHost) return;
+    /* "Clear effect" reveals the original image already beneath each shader,
+       so it needs neither this shared overlay mount nor another WebGL context. */
+    if (key === CLEAR_EFFECT_HOVER_KEY) return;
     const overlay = HOVER_OVERLAYS[key];
     if (!overlay) return;
     try {
@@ -367,8 +372,14 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
   }
 
   function selectOverlay(key: string): void {
-    const params = { ...HOVER_OVERLAYS[key].defaults };
     overlayKey = key;
+    if (key === CLEAR_EFFECT_HOVER_KEY) {
+      disposeOverlay();
+      return;
+    }
+    const overlay = HOVER_OVERLAYS[key];
+    if (!overlay) return;
+    const params = { ...overlay.defaults };
     overlayParams = params;
     remountOverlay(key, params);
   }
@@ -399,7 +410,7 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
 
   function enterCover(index: number): void {
     hoveredIndex = index;
-    if (!hoverEnabled) return;
+    if (!hoverEnabled || overlayKey === CLEAR_EFFECT_HOVER_KEY) return;
     /* The base filter animates in place when its own shader reads u_time, which
        costs nothing — no extra context, just a speed change on a mount that
        already exists. The overlay is for the six that have no time term. */
@@ -647,7 +658,6 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
               >
                 <img
                   class="cover-layer"
-                  class:is-hidden={!coverShowOriginals}
                   src={img.src}
                   alt={coverTitles[index] ?? ''}
                   width="300"
@@ -656,6 +666,9 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
                 <div
                   class="cover-layer cover-shader"
                   class:is-hidden={coverShowOriginals}
+                  class:is-cleared={hoverEnabled &&
+                    overlayKey === CLEAR_EFFECT_HOVER_KEY &&
+                    hoveredIndex === index}
                   use:bindCoverHost={index}
                 ></div>
               </div>
@@ -666,7 +679,9 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
                  and only one can ever be visible anyway. -->
             <div
               class="cover-overlay"
-              class:is-hidden={!hoverEnabled || hoveredIndex < 0}
+              class:is-hidden={!hoverEnabled ||
+                hoveredIndex < 0 ||
+                overlayKey === CLEAR_EFFECT_HOVER_KEY}
               style="--hover-col: {hoveredIndex < 0 ? 0 : hoveredIndex % 4}; --hover-row: {hoveredIndex <
               0
                 ? 0
@@ -747,60 +762,70 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
                 checked={hoverEnabled}
                 on:change={(e) => toggleHover(e.currentTarget.checked)}
               />
-              hover animation
+              hover effect
             </label>
 
             {#if hoverEnabled}
               <div class="effect-pick">
-                <label for="hover-key">overlay</label>
+                <label for="hover-key">on hover</label>
                 <select
                   id="hover-key"
                   value={overlayKey}
                   on:change={(e) => selectOverlay(e.currentTarget.value)}
                 >
-                  {#each OVERLAY_KEYS as key}
-                    <option value={key}>{HOVER_OVERLAYS[key].label}</option>
+                  {#each hoverEffectKeys as key}
+                    <option value={key}>
+                      {key === CLEAR_EFFECT_HOVER_KEY
+                        ? 'clear effect'
+                        : HOVER_OVERLAYS[key].label}
+                    </option>
                   {/each}
                 </select>
-                <button type="button" on:click={() => resetOverlay(overlayKey)}>reset</button>
-              </div>
-
-              <div class="cover-fields">
-                {#each selectedOverlay.controls as control (control.key)}
-                  <div class="field">
-                    <label for="hv-{control.key}">
-                      {control.label} · {overlayParams[control.key] ?? 0}
-                    </label>
-                    <input
-                      id="hv-{control.key}"
-                      type="range"
-                      min={control.min}
-                      max={control.max}
-                      step={control.step}
-                      value={overlayParams[control.key] ?? 0}
-                      on:input={(e) => setOverlayParam(control.key, Number(e.currentTarget.value))}
-                    />
-                  </div>
-                {/each}
-
-                {#if selectedEffect.animates}
-                  <div class="field">
-                    <label for="hv-base">base filter speed · {baseSpeed}</label>
-                    <input
-                      id="hv-base"
-                      type="range"
-                      min="0"
-                      max="3"
-                      step="0.1"
-                      bind:value={baseSpeed}
-                    />
-                  </div>
-                {:else}
-                  <p class="muted">
-                    {selectedEffect.label} has no time term, so only the overlay moves.
-                  </p>
+                {#if selectedOverlay}
+                  <button type="button" on:click={() => resetOverlay(overlayKey)}>reset</button>
                 {/if}
               </div>
+
+              {#if selectedOverlay}
+                <div class="cover-fields">
+                  {#each selectedOverlay.controls as control (control.key)}
+                    <div class="field">
+                      <label for="hv-{control.key}">
+                        {control.label} · {overlayParams[control.key] ?? 0}
+                      </label>
+                      <input
+                        id="hv-{control.key}"
+                        type="range"
+                        min={control.min}
+                        max={control.max}
+                        step={control.step}
+                        value={overlayParams[control.key] ?? 0}
+                        on:input={(e) => setOverlayParam(control.key, Number(e.currentTarget.value))}
+                      />
+                    </div>
+                  {/each}
+
+                  {#if selectedEffect.animates}
+                    <div class="field">
+                      <label for="hv-base">base filter speed · {baseSpeed}</label>
+                      <input
+                        id="hv-base"
+                        type="range"
+                        min="0"
+                        max="3"
+                        step="0.1"
+                        bind:value={baseSpeed}
+                      />
+                    </div>
+                  {:else}
+                    <p class="muted">
+                      {selectedEffect.label} has no time term, so only the overlay moves.
+                    </p>
+                  {/if}
+                </div>
+              {:else}
+                <p class="muted">Reveals the unfiltered cover while it is hovered.</p>
+              {/if}
             {/if}
           </div>
 
@@ -998,6 +1023,21 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
     display: block;
     width: 100%;
     height: 100%;
+  }
+
+  .cover-shader {
+    opacity: 1;
+    transition: opacity 180ms ease-out;
+  }
+
+  .cover-shader.is-cleared {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cover-shader {
+      transition: none;
+    }
   }
 
   .cover-layer.is-hidden {
