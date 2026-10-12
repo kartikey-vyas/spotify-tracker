@@ -1,48 +1,74 @@
 import { describe, expect, it } from 'vitest';
 import {
-  isPixelPersonRoute,
-  normalizePixelPersonPath,
-  shouldEnablePixelPerson
+  AMBIENT_MIN_VIEWPORT_WIDTH,
+  desiredPopulation,
+  MAX_PIXEL_PEOPLE,
+  shouldRunPixelRoom
 } from '../../src/lib/pixel-person/availability';
+import { PixelPersonController } from '../../src/lib/pixel-person/controller';
 
-describe('pixel person availability', () => {
-  it.each(['/', '/explore/', '/activity/', '/about/'])(
-    'enables the public route %s on desktop',
-    (path) => {
-      expect(shouldEnablePixelPerson(path, 1280, false)).toBe(true);
-    }
-  );
+const WIDE = AMBIENT_MIN_VIEWPORT_WIDTH + 1;
+const NARROW = AMBIENT_MIN_VIEWPORT_WIDTH;
 
-  it.each(['/app/', '/admin/', '/profile/', '/loader/'])(
-    'does not run on the private or unsupported route %s',
-    (path) => {
-      expect(shouldEnablePixelPerson(path, 1280, false)).toBe(false);
-    }
-  );
-
-  it('turns off at the mobile breakpoint and for reduced motion', () => {
-    expect(shouldEnablePixelPerson('/', 800, false)).toBe(false);
-    expect(shouldEnablePixelPerson('/', 801, false)).toBe(true);
-    expect(shouldEnablePixelPerson('/', 1280, true)).toBe(false);
+describe('pixel room availability', () => {
+  it('runs on a wide viewport and not at the mobile breakpoint', () => {
+    expect(shouldRunPixelRoom(WIDE, false)).toBe(true);
+    expect(shouldRunPixelRoom(NARROW, false)).toBe(false);
   });
 
-  it('allows an explicit mobile summon without overriding route or motion safeguards', () => {
-    expect(shouldEnablePixelPerson('/', 390, false, '', true)).toBe(true);
-    expect(shouldEnablePixelPerson('/', 390, true, '', true)).toBe(false);
-    expect(shouldEnablePixelPerson('/app/', 390, false, '', true)).toBe(false);
+  it('lets an explicit summon wake a narrow room', () => {
+    expect(shouldRunPixelRoom(NARROW, false, true)).toBe(true);
   });
 
-  it('reports routes where the summon control is supported', () => {
-    expect(isPixelPersonRoute('/activity/')).toBe(true);
-    expect(isPixelPersonRoute('/app/')).toBe(false);
+  it('never runs under reduced motion, summoned or not', () => {
+    expect(shouldRunPixelRoom(WIDE, true)).toBe(false);
+    expect(shouldRunPixelRoom(NARROW, true, true)).toBe(false);
+  });
+});
+
+describe('room population', () => {
+  it('holds one ambient resident on a wide viewport and none on a narrow one', () => {
+    expect(desiredPopulation(WIDE, 0, false)).toBe(1);
+    expect(desiredPopulation(NARROW, 0, false)).toBe(0);
   });
 
-  it('normalizes production base paths and trailing slashes', () => {
-    expect(normalizePixelPersonPath('/spotify-tracker/explore', '/spotify-tracker')).toBe(
-      '/explore/'
-    );
-    expect(
-      shouldEnablePixelPerson('/spotify-tracker/explore', 1280, false, '/spotify-tracker')
-    ).toBe(true);
+  it('honours summons up to the cap', () => {
+    expect(desiredPopulation(NARROW, 3, false)).toBe(3);
+    expect(desiredPopulation(WIDE, MAX_PIXEL_PEOPLE + 4, false)).toBe(MAX_PIXEL_PEOPLE);
+  });
+
+  it('is empty after everyone was sent out on purpose', () => {
+    expect(desiredPopulation(WIDE, 3, true)).toBe(0);
+  });
+});
+
+describe('the command queue', () => {
+  it('queues commands in order and drains them once', () => {
+    const controller = new PixelPersonController();
+    controller.summon();
+    controller.spawn('artist-frank-ocean');
+    expect(controller.drain()).toEqual([
+      { type: 'summon' },
+      { type: 'spawn', characterId: 'artist-frank-ocean' }
+    ]);
+    expect(controller.drain()).toEqual([]);
+  });
+
+  it('tells every listener as soon as a command is queued', () => {
+    const controller = new PixelPersonController();
+    const seen: string[] = [];
+    controller.onCommand(() => seen.push('shell'));
+    const off = controller.onCommand(() => seen.push(`stage:${controller.drain().length}`));
+    controller.summon();
+    off();
+    controller.summon();
+    expect(seen).toEqual(['shell', 'stage:1', 'shell']);
+  });
+
+  it('keeps commands queued until something drains them', () => {
+    const controller = new PixelPersonController();
+    controller.summon();
+    controller.onCommand(() => undefined);
+    expect(controller.drain()).toEqual([{ type: 'summon' }]);
   });
 });

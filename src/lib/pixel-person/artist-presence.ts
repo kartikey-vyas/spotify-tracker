@@ -1,4 +1,4 @@
-import type { ArtistPresence, Rect } from './types';
+import type { ArtistPresence } from './types';
 
 /**
  * Turns `data-pixel-artist` / `data-pixel-artist-rank` attribute values into a
@@ -6,8 +6,6 @@ import type { ArtistPresence, Rect } from './types';
  * the node environment and no jsdom is installed.
  */
 export function parseArtistPresence(
-  rect: Rect,
-  id: string,
   nameAttribute: string | null,
   rankAttribute: string | null
 ): ArtistPresence | null {
@@ -15,5 +13,5 @@ export function parseArtistPresence(
   if (!name) return null;
   const parsed = Number(rankAttribute);
   const rank = Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-  return { ...rect, id, name, rank };
+  return { name, rank };
 }

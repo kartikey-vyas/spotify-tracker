@@ -1,243 +1,110 @@
-import type { CharacterDefinition } from './types';
-import { normalizeArtistName } from './artist-name';
+import { chooseActivity, MUSIC, returnRecordBeats } from './activities';
 import {
   createDangle,
-  releaseDangle,
   rebaseDangleAnchor,
-  resolveDroppedBody,
+  releaseDangle,
   sampleDanglePointer,
   stepDangle,
   type DangleState
 } from './drag';
+import { DOORWAY, doorstepX, doorwayEnterX } from './doorway';
+import { clamp, defaultPhysicsConfig, stepPhysics } from './physics';
+import { clampToWalk, slotStandX, type RoomLayout } from './room';
+import { releaseSeats, takeSeat, type SeatState } from './seats';
 import {
-  clamp,
-  defaultPhysicsConfig,
-  expandedRect,
-  hasBodyClearance,
-  intersects,
-  SpatialHash,
-  stepPhysics,
-  withinBounds
-} from './physics';
+  releaseShelf,
+  releaseShelfReservations,
+  returnToShelf,
+  slotHeldBy,
+  takeFromShelf,
+  type ShelfSlot
+} from './shelf';
 import type {
   AnimationName,
-  Collider,
-  DroppedRecord,
+  CharacterDefinition,
   Facing,
-  ItemSource,
-  Occluder,
   PhysicsBody,
   PhysicsConfig,
-  PixelWorldEvent,
   Point,
-  Rect,
-  WorldGeometry
+  RoomRecord
 } from './types';
 
-const CLIMB_SPEED = 31;
-const MAX_CLIMB_HEIGHT = 190;
-const MIN_MANTLE_DURATION_MS = 340;
-const MAX_MANTLE_HORIZONTAL_SPEED = 52;
-const EASE_IN_OUT_MAX_SLOPE = 1.5;
-const CLIMB_VIEWPORT_MARGIN = 2;
 /**
- * How far below a wall's foot a landing surface may sit and still count.
- * Looser than the ladder equivalent: the floor under a card is whatever the
- * page put there, not something authored to line up.
+ * Two walking gears. Strolling ambles; an errand walks with intent, so going
+ * to the shelf reads differently from drifting about. The softened stroll
+ * acceleration matters as much as the lower top speed.
  */
-const CLIMB_DOWN_LANDING_SLACK = 96;
-const CRAWL_HEIGHT = 12;
-/** Once stuckForMs reaches this, the world owner respawns the person. */
-export const STUCK_RECOVERY_MS = 1_400;
-/** A crawl that hasn't found a stand-up spot by then flags itself as stuck. */
-const CRAWL_BAILOUT_MS = 12_000;
-// Pocket detection: someone pacing a span this narrow for this long (e.g.
-// wedged between a tall panel edge and the viewport boundary, where nothing
-// is climbable) is confined and hands themselves to stuck recovery.
-const CONFINED_SPAN = 70;
-const CONFINED_BAILOUT_MS = 15_000;
-const CONFINED_TRACKING_GAP_MS = 400;
-const CONFINED_MIN_REVERSALS = 3;
-/** Keep chosen goals this far from the viewport edges — corners are traps. */
-const EDGE_COMFORT = 36;
-const DELIVERY_EDGE_COMFORT = 48;
-
-// Invisible ladder zones (kind 'ladder'): never block movement, climbable on
-// purpose when one is rooted at the current walking level and something
-// walkable exists at its top to land on.
-const LADDER_CLIMB = {
-  arrivalSlackX: 5,
-  topSlack: 8,
-  bottomSlack: 8
-} as const;
-const CRAWL_PHYSICS_CONFIG: PhysicsConfig = {
-  ...defaultPhysicsConfig,
-  walkSpeed: 24,
-  groundAcceleration: 190,
-  airAcceleration: 90,
-  groundFriction: 260,
-  jumpSpeed: 0
-};
-
-/**
- * Two walking gears. Aimless drifting ambles; an errand walks with intent, so
- * a delivery reads differently from a stroll. The softened stroll acceleration
- * matters as much as the lower top speed — snapping to full pace instantly is
- * most of what made the old single gear look twitchy.
- */
+// Acceleration and friction scale with speed, so reaching full pace and
+// stopping take the same time whatever the gear's speed.
 export const STROLL_PHYSICS_CONFIG: PhysicsConfig = {
   ...defaultPhysicsConfig,
-  walkSpeed: 22,
-  groundAcceleration: 110,
-  groundFriction: 180
+  walkSpeed: 26.4,
+  groundAcceleration: 132,
+  groundFriction: 216
 };
 export const PURPOSEFUL_PHYSICS_CONFIG: PhysicsConfig = {
   ...defaultPhysicsConfig,
-  walkSpeed: 32
+  walkSpeed: 38.4,
+  groundAcceleration: defaultPhysicsConfig.groundAcceleration * 1.2,
+  groundFriction: defaultPhysicsConfig.groundFriction * 1.2
 };
 
-export const RECORD_ERRAND = {
-  firstDelayMs: 30_000,
-  cooldownMs: 45_000,
-  cooldownJitterMs: 45_000,
-  retryMs: 18_000,
-  maxTravelDistance: 420,
-  travelTimeoutMs: 18_000,
-  /** Standing at the shelf looking at the record before stooping for it. */
-  browseMinMs: 1_200,
-  browseJitterMs: 1_400,
-  stoopMs: 800,
-  carryMinMs: 12_000,
-  carryJitterMs: 10_000,
-  deliverTimeoutMs: 26_000,
-  listenMinMs: 20_000,
-  listenJitterMs: 16_000,
-  returnDelayMs: 30_000,
-  returnJitterMs: 30_000,
-  wallExitMargin: 24,
-  arrivalSlackX: 5,
-  recentMemory: 6
-} as const;
+export type Pace = 'stroll' | 'purposeful';
+
+/** Slack on top of distance / speed before a walk is deemed hopeless. */
+const WALK_ALLOWANCE_MS = 2_600;
+/** Close enough to a walk's target to call it arrived. */
+const ARRIVAL_SLACK_X = 2;
+/** The pause after landing from a drop, before getting on with things. */
+const LANDING_PAUSE_MS = 700;
+/** Instant beats that can complete in one frame before the runner yields. */
+const MAX_BEATS_PER_FRAME = 8;
 
 /**
- * Routine pacing. Every duration that shapes how busy a person looks lives
- * here and in RECORD_ERRAND, so retuning the feel is a no-logic change.
+ * A single unit of intent. An activity is a queue of these, planned up front
+ * and run to completion, so nobody re-decides what they are doing mid-stride.
+ *
+ * Adding a new kind of thing to do is usually just a new activity built from
+ * these beats (see `activities.ts`). A new beat kind is only needed for a new
+ * kind of *effect* — moving a record, a new pose with a side effect.
  */
-export const ROUTINE = {
-  // Promenade people are residents, not notifications: a short change of
-  // position is followed by a long spell of resting or taking in the page.
-  restMinMs: 16_000,
-  restJitterMs: 14_000,
-  lookMinMs: 18_000,
-  lookJitterMs: 18_000,
-  travelMinDistance: 32,
-  travelJitterDistance: 72,
-  /** Slack on top of distance/speed before a travel beat is deemed hopeless. */
-  travelAllowanceMs: 2_600,
-  /** Chance a routine gets a second leg rather than ending after one. */
-  extraLegChance: 0.15,
-  /** Chance a second leg carries on the same way instead of doubling back. */
-  continueBias: 0.6,
-  /** Below this a leg is not worth walking; the beat is dropped. */
-  minTravelDistance: 8,
-  /** The beat of hesitation at a dead end, before turning around. */
-  reverseRestMs: 1_500
-} as const;
+export type Beat =
+  | { kind: 'walk'; toX: number; pace: Pace }
+  /** Stand still. `look` glances the other way halfway through. */
+  | { kind: 'pause'; ms: number; look?: boolean; face?: Facing }
+  /** Hold an animation in place, e.g. the crouch at the shelf. */
+  | { kind: 'pose'; animation: AnimationName; ms: number }
+  | { kind: 'take-from-shelf'; slot: number }
+  | { kind: 'return-to-shelf' }
+  /** The record rises out of a pocket over `MUSIC.pocketMs`. */
+  | { kind: 'take-from-pocket'; record: RoomRecord }
+  /** Whatever is in hand sinks back into a pocket over `MUSIC.pocketMs`. */
+  | { kind: 'stow' }
+  /** Flick the floor lamp to `on`; a no-op if someone already did. */
+  | { kind: 'set-lamp'; on: boolean }
+  | { kind: 'listen'; ms: number }
+  /** Sit in a lounge seat they are standing in front of (and reserved). */
+  | { kind: 'sit'; seat: number }
+  | { kind: 'stand' };
 
-/**
- * Hiding behind panels. Kept apart from ROUTINE because it is an interrupt
- * rather than a beat, but tuned by the same principle: it competes with record
- * errands for screen time, and errands are what the wall is for.
- */
-export const HIDE = {
-  cooldownMs: 45_000,
-  cooldownJitterMs: 30_000,
-  /** Re-check after failing to find anywhere worth hiding behind. */
-  retryMs: 12_000,
-  seekTimeoutMs: 6_000,
-  /** Slide-in, then the hold out of sight, then slide back out. */
-  enterMs: 360,
-  holdUntilMs: 4_000,
-  exitUntilMs: 4_450
-} as const;
-
-type Activity =
-  | 'idle'
-  | 'wander'
-  | 'seek-hide'
-  | 'hiding'
-  | 'seek-record'
-  | 'record-browse'
-  | 'record-stoop'
-  | 'listen'
-  | 'climb'
-  | 'mantle'
-  | 'drag'
-  | 'exit';
-
-/**
- * A single unit of intent. Routines are queues of these: the person commits to
- * the whole beat rather than re-deciding every few seconds, which is what stops
- * the aimless back-and-forth.
- */
-type Beat =
-  | { kind: 'travel'; goalX: number; budgetMs: number }
-  | { kind: 'rest'; durationMs: number }
-  | { kind: 'look'; durationMs: number };
-
-interface Routine {
+export interface Plan {
+  /** Which activity this came from, for debugging and recovery. */
+  activity: string;
   beats: Beat[];
   index: number;
+  started: boolean;
+  beatStartedAt: number;
+  beatUntil: number;
+  lookFlipAt: number;
 }
 
-interface ClimbMotion {
-  wall: Collider;
-  top: Collider;
-  side: 'left' | 'right';
-  direction: 'up' | 'down';
-  /** Ladder-ride dismount: descending feet reaching here ends the climb. */
-  dismountY?: number | null;
-}
-
-interface MantleMotion {
-  start: Point;
-  end: Point;
-  startedAt: number;
-  supportId?: string;
-  after?: ClimbMotion;
-}
-
-interface HideMotion {
-  occluder: Occluder;
-  original: Point;
-  target: Point;
-  startedAt: number;
-}
-
-interface PlannedClimb {
-  top: Collider;
-  wall: Collider;
-  side: 'left' | 'right';
-  goalX: number;
-}
-
-interface RecordErrand {
-  sourceId: string;
-  imageUrl: string;
-}
-
-interface RecordStoop {
-  action: 'pickup' | 'place';
-  startedAt: number;
-}
-
-interface ListenSession {
-  startedAt: number;
-  until: number;
-}
-
-interface RecordBrowse {
-  until: number;
+export interface CarriedRecord {
+  record: RoomRecord;
+  source: 'shelf' | 'pocket';
+  /** When it came into hand; drives the pocket reveal. */
+  takenAt: number;
+  /** When it started back into the pocket, or null while held. */
+  stowingAt: number | null;
 }
 
 /**
@@ -245,421 +112,525 @@ interface RecordBrowse {
  * step through while it shuts. Each beat has to finish before the next starts,
  * or the whole thing collapses into a dissolve on the spot.
  */
-type ExitPhase = 'landing' | 'walking' | 'entering';
-
 export interface DoorwayExit {
   doorX: number;
   startedAt: number;
-  phase: ExitPhase;
+  phase: 'landing' | 'walking' | 'entering';
   /** When they reached the threshold; drives the shut and the fade. */
   enteredAt: number | null;
 }
 
-interface CarriedRecord {
-  sourceId: string;
-  imageUrl: string;
-  putDownAt: number;
-  /** Where to march while still inside the record wall; set-down waits until outside. */
-  deliverGoalX: number;
+/**
+ * Coming in through the door, the mirror of leaving: the door fades in shut,
+ * swings open, they appear on the threshold, walk in, and it shuts behind
+ * them once they are clear of the frame.
+ */
+export interface DoorwayArrival {
+  /** When the door starts to appear. Later than creation when queued behind someone. */
+  startedAt: number;
+  /** When they were clear of the frame; the door shuts from here. */
+  clearedAt: number | null;
 }
+
+export const DOORWAY_ARRIVAL = {
+  /** The door fades in shut before it opens. */
+  openAtMs: DOORWAY.fadeMs,
+  openMs: 380,
+  /** Fading in on the threshold once the door is open. */
+  appearMs: 380,
+  /** Clear of the frame by this much before the door shuts. */
+  clearancePx: 4,
+  shutMs: 380,
+  /** A second arrival waits this long behind the first. */
+  queueMs: 1_400
+} as const;
+
+/** When they step off the threshold and start walking in. */
+const ARRIVAL_STEP_OUT_MS =
+  DOORWAY_ARRIVAL.openAtMs + DOORWAY_ARRIVAL.openMs + DOORWAY_ARRIVAL.appearMs;
+
+export const DOORWAY_EXIT = {
+  /** Long enough to read as walking off, short enough not to feel stuck. */
+  walkTimeoutMs: 6_000,
+  /** A drop that never finds the floor still has to get on with it. */
+  landingTimeoutMs: 1_600,
+  arrivalSlackX: 3,
+  /** Matches the door's shut so the two read as one motion. */
+  fadeMs: DOORWAY_ARRIVAL.shutMs
+} as const;
 
 export interface PixelPersonRuntime {
   id: string;
   definition: CharacterDefinition;
   /**
    * True when this character was asked for by name rather than rolled. The
-   * world re-rolls and re-spawns its ambient population freely; someone who
-   * clicked an artist to summon that artist must not have them swapped out.
+   * room re-rolls its ambient population freely; someone who clicked an
+   * artist to summon them must not have them swapped out.
    */
   pinnedCharacter: boolean;
   body: PhysicsBody;
   facing: Facing;
   animation: AnimationName;
   animationStartedAt: number;
-  activity: Activity;
-  activityUntil: number;
-  /** When this person appeared, for the entrance animation. */
+  /** When this person was created; recent arrivals may still be re-rolled. */
   spawnedAt: number;
-  /**
-   * The plan the next activity comes from. Null while a record errand or an
-   * explicit interaction owns the person; a fresh one is rolled when they run
-   * out of things to do.
-   */
-  routine: Routine | null;
-  /** When a 'look' beat glances the other way; 0 when not looking around. */
-  lookFlipAt: number;
-  goalX: number;
-  stuckForMs: number;
-  previousX: number;
-  lastClimbAt: number;
-  nextHideAt: number;
-  nextRecordAt: number;
-  /** Recently carried albums (newest last); avoided when choosing the next errand. */
-  recentRecordSourceIds: string[];
-  climb: ClimbMotion | null;
-  mantle: MantleMotion | null;
-  hide: HideMotion | null;
-  hiddenOccluderId: string | null;
-  plannedClimb: PlannedClimb | null;
-  /** direction defaults to 'up' when omitted. */
-  plannedLadder: { ladderId: string; goalX: number; direction?: 'up' | 'down' } | null;
-  recordErrand: RecordErrand | null;
-  recordBrowse: RecordBrowse | null;
-  /** Set once someone has been dropped on the doorway; ends in removal. */
-  exit: DoorwayExit | null;
-  recordStoop: RecordStoop | null;
-  listen: ListenSession | null;
+  plan: Plan | null;
+  /** Earliest time a music activity may be chosen again. */
+  nextMusicAt: number;
+  /** Image URLs played recently (newest last); avoided when choosing again. */
+  recentRecords: string[];
   carrying: CarriedRecord | null;
+  /**
+   * The lounge seat they are sitting in. The body stays on the floor: the
+   * `lounge` pose has their feet on the floor and hips in the cushion.
+   */
+  seated: { seat: number } | null;
   drag: DangleState | null;
-  crawling: boolean;
-  crawlingSince: number;
-  confinedSince: number;
-  confinedCheckedAt: number;
-  confinedMinX: number;
-  confinedMaxX: number;
-  confinedReversals: number;
+  exit: DoorwayExit | null;
+  /** Set while coming in through the door; cleared once it has shut behind them. */
+  arrival: DoorwayArrival | null;
+  /** Just arrived: their first plan is a record, the lamp and a seat. */
+  settlingIn: boolean;
+}
+
+/** Shared furniture state a person can claim and must give back. */
+export interface RoomFurnitureState {
+  shelf: ShelfSlot[];
+  seats: SeatState[];
+}
+
+/** The floor lamp. `changedAt` drives the glow fading in or out. */
+export interface LampState {
+  on: boolean;
+  changedAt: number;
+}
+
+/** Everything a person needs to know about the room they are in. */
+export interface RoomWorld extends RoomFurnitureState {
+  room: RoomLayout;
+  lamp: LampState;
+  people: readonly PixelPersonRuntime[];
+  /** Records seen this session, for pulling out of pockets. */
+  crate: readonly RoomRecord[];
+  random: () => number;
 }
 
 export function createPixelPerson(
   definition: CharacterDefinition,
-  body: PhysicsBody,
+  x: number,
+  room: RoomLayout,
   now: number,
-  id = 'pixel-person-1',
-  pinnedCharacter = false
+  id: string,
+  pinnedCharacter = false,
+  firstMusicDelayMs = 0
 ): PixelPersonRuntime {
   return {
     id,
     definition,
     pinnedCharacter,
-    body,
+    body: {
+      x: clampToWalk(room, x, definition.body.width),
+      y: room.floorY - definition.body.height,
+      width: definition.body.width,
+      height: definition.body.height,
+      vx: 0,
+      vy: 0,
+      grounded: true
+    },
     facing: 1,
     animation: 'idle',
     animationStartedAt: now,
-    activity: 'idle',
-    activityUntil: now + 900,
     spawnedAt: now,
-    routine: null,
-    lookFlipAt: 0,
-    goalX: body.x,
-    stuckForMs: 0,
-    previousX: body.x,
-    lastClimbAt: now - 12_000,
-    nextHideAt: now + 7_000,
-    nextRecordAt: now + RECORD_ERRAND.firstDelayMs,
-    recentRecordSourceIds: [],
-    climb: null,
-    mantle: null,
-    hide: null,
-    hiddenOccluderId: null,
-    plannedClimb: null,
-    plannedLadder: null,
-    recordErrand: null,
-    recordBrowse: null,
-    exit: null,
-    recordStoop: null,
-    listen: null,
+    plan: newPlan('arrive', [{ kind: 'pause', ms: 900 }]),
+    nextMusicAt: now + firstMusicDelayMs,
+    recentRecords: [],
     carrying: null,
+    seated: null,
     drag: null,
-    crawling: false,
-    crawlingSince: 0,
-    confinedSince: now,
-    confinedCheckedAt: now,
-    confinedMinX: body.x,
-    confinedMaxX: body.x,
-    confinedReversals: 0
+    exit: null,
+    arrival: null,
+    settlingIn: false
   };
 }
 
-export function stepPixelPerson(
+/**
+ * Brings a new person in through the door: standing in the opening, invisible
+ * until the door has opened. Their first plan is chosen as they step out, and
+ * it is always the settle-in: a record, the lamp, a seat.
+ */
+export function enterThroughDoor(
   person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  spatial: SpatialHash,
-  elapsedSeconds: number,
-  now: number,
-  events?: PixelWorldEvent[]
-): PixelPersonRuntime | null {
-  const dt = Math.max(0, Math.min(elapsedSeconds, 1 / 20));
-  if (person.activity === 'drag' && person.drag) {
-    const result = stepDangle(person.drag, person.body, dt);
-    person.drag = result.state;
-    person.body = result.body;
-    return person;
-  }
-  // Leaving takes precedence over everything except an active drag: once the
-  // reader has sent someone off, nothing should pull them back into the world.
-  if (person.activity === 'exit') {
-    return updateDoorwayExit(person, geometry, spatial, dt, now);
-  }
-  if (person.activity === 'mantle') {
-    updateMantle(person, geometry, now);
-    return person;
-  }
-  if (person.activity === 'climb') {
-    updateClimb(person, geometry, dt, now);
-    return person;
-  }
-  if (person.activity === 'hiding') {
-    updateHiding(person, geometry, now);
-    return person;
-  }
-  if (person.activity === 'record-browse') {
-    updateRecordBrowse(person, geometry, now);
-    return person;
-  }
-  if (person.activity === 'record-stoop') {
-    updateRecordStoop(person, geometry, now, events);
-    return person;
-  }
-  if (person.activity === 'listen') {
-    updateListening(person, now);
-    return person;
-  }
-  if (person.crawling) {
-    updateCrawl(person, geometry, spatial, dt, now);
-    return person;
-  }
-
-  if (now >= person.activityUntil) chooseNextActivity(person, geometry, now);
-
-  if (
-    person.carrying &&
-    person.body.grounded &&
-    now >= person.carrying.putDownAt &&
-    (person.activity === 'idle' || person.activity === 'wander')
-  ) {
-    // Records get delivered away from the wall they came from; reaching the
-    // chosen delivery spot also counts (the comfort-clamped goal can sit at
-    // the wall's lip), and a give-up timer bounds the worst case. Either way,
-    // the record gets listened to before it's set down.
-    const stillInWall = isInsideRecordWall(person, geometry);
-    const reachedGoal =
-      Math.abs(person.body.x - person.carrying.deliverGoalX) <= 24;
-    if (
-      !stillInWall ||
-      reachedGoal ||
-      now >= person.carrying.putDownAt + RECORD_ERRAND.deliverTimeoutMs
-    ) {
-      beginListening(person, now);
-      return person;
-    }
-  }
-
-  if (person.activity === 'seek-record' && person.recordErrand) {
-    const source = geometry.itemSources.find(
-      (candidate) => candidate.id === person.recordErrand?.sourceId
-    );
-    if (!source) {
-      cancelRecordErrand(person, now);
-    } else {
-      // Re-aim every step so layout shifts re-route instead of stranding us.
-      person.goalX = source.x + source.width / 2 - person.body.width / 2;
-      const feetY = person.body.y + person.body.height;
-      const arrived =
-        person.body.grounded &&
-        Math.abs(person.body.x - person.goalX) <= RECORD_ERRAND.arrivalSlackX &&
-        sourceReachableAtLevel(source, feetY, person.body.height);
-      if (arrived) {
-        beginRecordBrowse(person, source, now);
-        return person;
-      }
-    }
-  }
-
-  const goalDirection: -1 | 0 | 1 =
-    person.goalX > person.body.x
-      ? 1
-      : person.goalX < person.body.x
-        ? -1
-        : 0;
-  const moveX: -1 | 0 | 1 = person.activity === 'idle' ? 0 : directionTowardGoal(person);
-  if (moveX !== 0) person.facing = moveX;
-
-  // A 'look' beat glances the other way partway through, which reads as taking
-  // the room in without needing a sprite for it.
-  if (person.lookFlipAt > 0 && now >= person.lookFlipAt) {
-    person.lookFlipAt = 0;
-    if (person.activity === 'idle') person.facing = person.facing === 1 ? -1 : 1;
-  }
-
-  if (
-    person.body.grounded &&
-    moveX === 0 &&
-    goalDirection !== 0 &&
-    tryBeginInteriorClimbOut(person, geometry, goalDirection, now)
-  ) {
-    return person;
-  }
-
-  if (
-    person.plannedClimb &&
-    person.body.grounded &&
-    Math.abs(person.body.x - person.plannedClimb.goalX) <= 7
-  ) {
-    const plan = person.plannedClimb;
-    person.plannedClimb = null;
-    // The plan can be up to 15s old; rescans may have replaced its colliders.
-    const liveTop = refreshCollider(geometry, plan.top);
-    const liveWall = refreshCollider(geometry, plan.wall);
-    if (liveTop && liveWall) {
-      handleClimbDownTransition(person, liveTop, liveWall, plan.side, geometry, now);
-      return person;
-    }
-  }
-
-  if (
-    person.plannedLadder &&
-    person.body.grounded &&
-    Math.abs(person.body.x - person.plannedLadder.goalX) <= LADDER_CLIMB.arrivalSlackX
-  ) {
-    const plan = person.plannedLadder;
-    const ladder = geometry.colliders.find(
-      (candidate) => candidate.kind === 'ladder' && candidate.id === plan.ladderId
-    );
-    person.plannedLadder = null;
-    if (ladder) {
-      const started =
-        plan.direction === 'down'
-          ? hasWalkableBottomNear(geometry, ladder) &&
-            beginLadderDescent(person, ladder, geometry, now)
-          : hasWalkableTopNear(geometry, ladder) &&
-            beginLadderClimb(person, ladder, geometry, now);
-      if (started) return person;
-    }
-  }
-
-  if (person.activity === 'seek-hide' && person.hide) {
-    if (Math.abs(person.body.x - person.goalX) <= 5) {
-      beginHiding(person, now);
-      return person;
-    }
-  }
-
-  let jump = false;
-  const hasStandingSupportAhead =
-    moveX !== 0 &&
-    hasSupportAhead(person.body, moveX, spatial, person.definition.body.height);
-  if (person.body.grounded && moveX !== 0 && !hasStandingSupportAhead) {
-    if (hasSupportAhead(person.body, moveX, spatial, CRAWL_HEIGHT)) {
-      beginCrawl(person, now);
-      return person;
-    }
-    const exitedContainer = tryBeginInteriorClimbOut(person, geometry, moveX, now);
-    if (exitedContainer) return person;
-    const descended = tryBeginClimbDown(person, geometry, now);
-    if (descended) return person;
-    // Cliff sense: only hop off an edge when something to land on exists
-    // within a sane drop. Carriers committed to a delivery walk off anyway
-    // (the fall is the exit); everyone else turns back from the void.
-    if (person.body.supportId !== 'viewport-floor') {
-      if (hasLandingBeyondEdge(person.body, moveX, spatial)) {
-        jump = true;
-      } else if (!person.carrying) {
-        reverse(person, geometry, now);
-      }
-    }
-  }
-
-  const nearby = spatial.query(expandedRect(person.body, 28));
-  const result = stepPhysics(person.body, { moveX, jump }, nearby, dt, walkConfigFor(person));
-  person.body = result.body;
-
-  const wall = moveX > 0 ? result.contacts.right : moveX < 0 ? result.contacts.left : null;
-  if (wall) {
-    if (person.activity === 'seek-hide' && person.hide && sameGeometryGroup(wall, person.hide.occluder)) {
-      beginHiding(person, now);
-      return person;
-    }
-
-    const obstacleHeight = person.body.y + person.body.height - wall.y;
-    if (person.body.grounded && obstacleHeight > 0 && obstacleHeight <= 22) {
-      person.body.vy = -150;
-      person.body.grounded = false;
-      person.body.supportId = null;
-    } else {
-      if (tryBeginClimbUp(person, wall, geometry, now)) return person;
-      reverse(person, geometry, now);
-    }
-  }
-
-  if (moveX !== 0 && Math.abs(person.body.x - person.previousX) < 0.15) {
-    person.stuckForMs += dt * 1000;
-    if (person.stuckForMs > 720) reverse(person, geometry, now);
-  } else if (moveX !== 0) {
-    person.stuckForMs = 0;
-  }
-  // Standing still neither accumulates nor clears: reverse() now opens on a
-  // pause, and zeroing here would wipe the progress toward stuck recovery
-  // every single time someone turned around, so a wedged person would
-  // oscillate forever instead of being respawned.
-  person.previousX = person.body.x;
-  trackConfinement(person, now);
-
-  if (moveX === 0 && person.activity !== 'idle') chooseNextActivity(person, geometry, now);
-  setLocomotionAnimation(person, now);
-  return person;
+  room: RoomLayout,
+  startAt: number
+): void {
+  person.body.x = doorwayEnterX(room, person.body.width);
+  person.body.y = room.floorY - person.body.height;
+  // The door is on the right wall, so they come in facing left.
+  person.facing = -1;
+  person.arrival = { startedAt: startAt, clearedAt: null };
+  person.settlingIn = true;
+  person.plan = null;
 }
 
 /**
- * Detects terminal pockets (e.g. between a tall unclimbable panel edge and
- * the viewport boundary): pacing a narrow x-span for a long stretch never
- * trips the blocked-movement stuck counter, so it is handled here by handing
- * the person to the same stuck-recovery respawn.
+ * When the next arrival may start: straight away, or queued behind whoever is
+ * already coming in, so two people never appear in the doorway together.
  */
-function trackConfinement(person: PixelPersonRuntime, now: number): void {
-  // Confinement needs evidence of thwarted movement (reversals); a person
-  // legitimately idling in one spot must never be flagged.
-  // A gap means a special state (climb, listen, drag, ...) ran; start over so
-  // stationary activities never count as confinement.
-  if (now - person.confinedCheckedAt > CONFINED_TRACKING_GAP_MS) {
-    person.confinedSince = now;
-    person.confinedMinX = person.body.x;
-    person.confinedMaxX = person.body.x;
-    person.confinedReversals = 0;
+export function nextArrivalStart(people: readonly PixelPersonRuntime[], now: number): number {
+  let start = now;
+  for (const person of people) {
+    if (person.arrival) {
+      start = Math.max(start, person.arrival.startedAt + DOORWAY_ARRIVAL.queueMs);
+    }
   }
-  person.confinedCheckedAt = now;
-  person.confinedMinX = Math.min(person.confinedMinX, person.body.x);
-  person.confinedMaxX = Math.max(person.confinedMaxX, person.body.x);
-  if (person.confinedMaxX - person.confinedMinX > CONFINED_SPAN) {
-    person.confinedSince = now;
-    person.confinedMinX = person.body.x;
-    person.confinedMaxX = person.body.x;
-    person.confinedReversals = 0;
+  return start;
+}
+
+/** 0 while an arrival is behind the door, 1 once they are fully in view. */
+export function arrivalAppear(person: PixelPersonRuntime, now: number): number {
+  if (!person.arrival) return 1;
+  const visibleFrom = person.arrival.startedAt + DOORWAY_ARRIVAL.openAtMs + DOORWAY_ARRIVAL.openMs;
+  return clamp((now - visibleFrom) / DOORWAY_ARRIVAL.appearMs, 0, 1);
+}
+
+/**
+ * How open this person needs the door, 0 (shut) to 1 (open), or null when
+ * they have no business with it. The room takes the most open of everyone's.
+ */
+export function doorOpenness(person: PixelPersonRuntime, now: number): number | null {
+  if (person.exit) return person.exit.enteredAt === null ? 1 : 1 - doorwayExitFade(person, now);
+  const arrival = person.arrival;
+  if (!arrival) return null;
+  const elapsed = now - arrival.startedAt;
+  if (elapsed < DOORWAY_ARRIVAL.openAtMs) return 0;
+  if (arrival.clearedAt === null) {
+    return clamp((elapsed - DOORWAY_ARRIVAL.openAtMs) / DOORWAY_ARRIVAL.openMs, 0, 1);
+  }
+  return 1 - clamp((now - arrival.clearedAt) / DOORWAY_ARRIVAL.shutMs, 0, 1);
+}
+
+function clearOfDoor(person: PixelPersonRuntime, room: RoomLayout): boolean {
+  const margin = DOORWAY_ARRIVAL.clearancePx;
+  return (
+    person.body.x >= room.door.x + room.door.width + margin ||
+    person.body.x + person.body.width <= room.door.x - margin
+  );
+}
+
+/**
+ * Advances an arrival. Returns true while they are still waiting behind the
+ * door, which means they do nothing else this frame.
+ */
+function updateArrival(person: PixelPersonRuntime, room: RoomLayout, now: number): boolean {
+  const arrival = person.arrival!;
+  if (now - arrival.startedAt < ARRIVAL_STEP_OUT_MS) {
+    person.body.vx = 0;
+    setAnimation(person, 'idle', now);
+    return true;
+  }
+  if (arrival.clearedAt === null && clearOfDoor(person, room)) arrival.clearedAt = now;
+  if (arrival.clearedAt !== null && now - arrival.clearedAt >= DOORWAY_ARRIVAL.shutMs) {
+    person.arrival = null;
+  }
+  return false;
+}
+
+function newPlan(activity: string, beats: Beat[]): Plan {
+  return {
+    activity,
+    beats,
+    index: 0,
+    started: false,
+    beatStartedAt: 0,
+    beatUntil: 0,
+    lookFlipAt: 0
+  };
+}
+
+/** The beat a person is currently running, if any. */
+export function currentBeat(person: PixelPersonRuntime): Beat | null {
+  const plan = person.plan;
+  if (!plan || !plan.started) return null;
+  return plan.beats[plan.index] ?? null;
+}
+
+/** When the current listen began, or null when they are not listening. */
+export function listeningSince(person: PixelPersonRuntime): number | null {
+  return currentBeat(person)?.kind === 'listen' ? (person.plan?.beatStartedAt ?? null) : null;
+}
+
+/**
+ * Advances one person by one frame. Returns false once they have walked out
+ * through the door, which is how the room owner learns to drop them.
+ */
+export function stepPixelPerson(
+  person: PixelPersonRuntime,
+  world: RoomWorld,
+  elapsedSeconds: number,
+  now: number
+): boolean {
+  const dt = clamp(elapsedSeconds, 0, 1 / 20);
+  if (person.drag) {
+    const result = stepDangle(person.drag, person.body, dt);
+    person.drag = result.state;
+    person.body = result.body;
+    return true;
+  }
+  if (person.exit) return updateDoorwayExit(person, world.room, dt, now);
+  if (person.arrival && updateArrival(person, world.room, now)) return true;
+
+  // Airborne (just let go of): fall, land, take a breath, then carry on.
+  if (!person.body.grounded) {
+    move(person, world.room, 0, dt, PURPOSEFUL_PHYSICS_CONFIG);
+    if (person.body.grounded) {
+      person.plan = newPlan('land', [{ kind: 'pause', ms: LANDING_PAUSE_MS }]);
+    }
+    setLocomotionAnimation(person, now);
+    return true;
+  }
+
+  for (let guard = 0; guard < MAX_BEATS_PER_FRAME; guard += 1) {
+    if (!person.plan || person.plan.index >= person.plan.beats.length) {
+      const next = chooseActivity(person, world, now);
+      person.plan = newPlan(next.activity, next.beats);
+    }
+    const plan = person.plan;
+    const beat = plan.beats[plan.index];
+    if (!plan.started && !startBeat(person, world, beat, now)) {
+      abortPlan(person, world);
+      continue;
+    }
+    const status = beatStatus(person, beat, now);
+    if (status === 'running') break;
+    if (status === 'failed') {
+      abortPlan(person, world);
+      continue;
+    }
+    finishBeat(person, beat);
+  }
+
+  const beat = currentBeat(person);
+  let moveX: -1 | 0 | 1 = 0;
+  let config = STROLL_PHYSICS_CONFIG;
+  if (beat?.kind === 'walk') {
+    moveX = walkDirection(person, beat.toX);
+    if (moveX !== 0) person.facing = moveX;
+    if (beat.pace === 'purposeful') config = PURPOSEFUL_PHYSICS_CONFIG;
+  }
+  const plan = person.plan;
+  if (plan && plan.lookFlipAt > 0 && now >= plan.lookFlipAt) {
+    plan.lookFlipAt = 0;
+    person.facing = person.facing === 1 ? -1 : 1;
+  }
+  move(person, world.room, moveX, dt, config);
+
+  if (beat?.kind === 'pose') setAnimation(person, beat.animation, now);
+  // Seated, they lounge (headphones on, since a seat is only ever taken to
+  // listen); on the floor the cross-legged listening pose.
+  else if (person.seated) setAnimation(person, 'lounge', now);
+  else if (beat?.kind === 'listen') setAnimation(person, 'listen', now);
+  else setLocomotionAnimation(person, now);
+  return true;
+}
+
+function move(
+  person: PixelPersonRuntime,
+  room: RoomLayout,
+  moveX: -1 | 0 | 1,
+  dt: number,
+  config: PhysicsConfig
+): void {
+  person.body = stepPhysics(person.body, { moveX }, room.colliders, dt, config);
+}
+
+function walkDirection(person: PixelPersonRuntime, toX: number): -1 | 0 | 1 {
+  if (toX > person.body.x + ARRIVAL_SLACK_X) return 1;
+  if (toX < person.body.x - ARRIVAL_SLACK_X) return -1;
+  return 0;
+}
+
+/**
+ * A walk's budget is derived from the distance at its own pace, so slowing
+ * people down can never turn a legitimate walk into a timeout.
+ */
+export function walkBudgetMs(fromX: number, toX: number, pace: Pace): number {
+  const speed =
+    pace === 'purposeful'
+      ? PURPOSEFUL_PHYSICS_CONFIG.walkSpeed
+      : STROLL_PHYSICS_CONFIG.walkSpeed;
+  return (Math.abs(toX - fromX) / speed) * 1_000 + WALK_ALLOWANCE_MS;
+}
+
+/** Applies a beat's entry effects. False when the beat cannot happen. */
+function startBeat(
+  person: PixelPersonRuntime,
+  world: RoomWorld,
+  beat: Beat,
+  now: number
+): boolean {
+  const plan = person.plan!;
+  plan.started = true;
+  plan.beatStartedAt = now;
+  plan.beatUntil = now;
+  plan.lookFlipAt = 0;
+  switch (beat.kind) {
+    case 'walk': {
+      standUp(person, world);
+      beat.toX = clampToWalk(world.room, beat.toX, person.body.width);
+      plan.beatUntil = now + walkBudgetMs(person.body.x, beat.toX, beat.pace);
+      return true;
+    }
+    case 'pause':
+      plan.beatUntil = now + beat.ms;
+      if (beat.face) person.facing = beat.face;
+      if (beat.look) plan.lookFlipAt = now + beat.ms / 2;
+      return true;
+    case 'pose':
+    case 'listen':
+      if (beat.kind === 'listen' && !person.carrying) return false;
+      plan.beatUntil = now + beat.ms;
+      return true;
+    case 'take-from-shelf': {
+      const record = takeFromShelf(world.shelf, beat.slot, person.id);
+      if (!record) return false;
+      person.carrying = { record, source: 'shelf', takenAt: now, stowingAt: null };
+      rememberPlayed(person, record);
+      return true;
+    }
+    case 'return-to-shelf':
+      // A slot that vanished (the room resized) leaves nowhere to put it;
+      // the record simply goes into a pocket instead.
+      if (person.carrying?.source === 'shelf') returnToShelf(world.shelf, person.id);
+      person.carrying = null;
+      return true;
+    case 'take-from-pocket':
+      person.carrying = { record: beat.record, source: 'pocket', takenAt: now, stowingAt: null };
+      rememberPlayed(person, beat.record);
+      plan.beatUntil = now + MUSIC.pocketMs;
+      return true;
+    case 'stow':
+      if (!person.carrying) return true;
+      // Anything from the shelf goes back there first; stowing is for pockets.
+      if (person.carrying.source === 'shelf') releaseShelf(world.shelf, person.id);
+      person.carrying.stowingAt = now;
+      plan.beatUntil = now + MUSIC.pocketMs;
+      return true;
+    case 'sit': {
+      if (!takeSeat(world.seats, beat.seat, person.id)) return false;
+      person.seated = { seat: beat.seat };
+      person.facing = world.room.seats[beat.seat]?.facing ?? person.facing;
+      person.body.vx = 0;
+      return true;
+    }
+    case 'stand':
+      standUp(person, world);
+      return true;
+    case 'set-lamp':
+      if (world.lamp.on !== beat.on) {
+        world.lamp.on = beat.on;
+        world.lamp.changedAt = now;
+      }
+      return true;
+  }
+}
+
+/** Gets up from their seat. Only a seat they are in: a reservation they are walking to stands. */
+function standUp(person: PixelPersonRuntime, world: RoomFurnitureState): void {
+  if (!person.seated) return;
+  releaseSeats(world.seats, person.id);
+  person.seated = null;
+}
+
+/**
+ * Gives back everything this person had claimed: a shelf record pops back into
+ * its slot, reservations lapse, and their seat is free.
+ */
+export function releaseFurniture(furniture: RoomFurnitureState, personId: string): void {
+  releaseShelf(furniture.shelf, personId);
+  releaseSeats(furniture.seats, personId);
+}
+
+/** Remembered so the next pick prefers something different. */
+export const RECENT_RECORD_MEMORY = 4;
+
+function rememberPlayed(person: PixelPersonRuntime, record: RoomRecord): void {
+  person.recentRecords = [
+    ...person.recentRecords.filter((url) => url !== record.imageUrl),
+    record.imageUrl
+  ].slice(-RECENT_RECORD_MEMORY);
+}
+
+function beatStatus(
+  person: PixelPersonRuntime,
+  beat: Beat,
+  now: number
+): 'running' | 'done' | 'failed' {
+  if (beat.kind === 'walk') {
+    if (walkDirection(person, beat.toX) === 0) return 'done';
+    return now >= person.plan!.beatUntil ? 'failed' : 'running';
+  }
+  return now >= person.plan!.beatUntil ? 'done' : 'running';
+}
+
+function finishBeat(person: PixelPersonRuntime, beat: Beat): void {
+  if (beat.kind === 'stow') person.carrying = null;
+  const plan = person.plan!;
+  plan.index += 1;
+  plan.started = false;
+  plan.lookFlipAt = 0;
+}
+
+/**
+ * Drops a plan that cannot continue. Someone holding a shelf record walks it
+ * back rather than pocketing the room's albums; a second failure on that way
+ * back gives up and pockets it, so recovery cannot loop.
+ */
+function abortPlan(person: PixelPersonRuntime, world: RoomWorld): void {
+  const failed = person.plan?.activity;
+  releaseShelfReservations(world.shelf, person.id);
+  releaseSeats(world.seats, person.id);
+  person.seated = null;
+  const slot = slotHeldBy(world.shelf, person.id);
+  if (person.carrying?.source === 'shelf' && slot >= 0 && failed !== 'return-record') {
+    person.plan = newPlan(
+      'return-record',
+      returnRecordBeats(slotStandX(world.room, slot, person.body.width), 'purposeful')
+    );
     return;
   }
-  if (
-    person.body.grounded &&
-    person.confinedReversals >= CONFINED_MIN_REVERSALS &&
-    now - person.confinedSince > CONFINED_BAILOUT_MS
-  ) {
-    person.stuckForMs = STUCK_RECOVERY_MS;
+  if (person.carrying) {
+    person.plan = newPlan('pocket-record', [{ kind: 'stow' }]);
+    return;
   }
+  releaseShelf(world.shelf, person.id);
+  person.plan = null;
+}
+
+/** From the hand to the body's centre: the pendulum's length while held. */
+function dragLength(definition: CharacterDefinition): number {
+  const bodyCenterY = definition.body.offsetY + definition.body.height / 2;
+  return bodyCenterY - definition.dragGrip.y * definition.scale;
 }
 
 export function beginPixelPersonDrag(
   person: PixelPersonRuntime,
+  furniture: RoomFurnitureState,
   pointerId: number,
   anchor: Point,
   now: number
 ): void {
-  if (person.crawling) resizeBodyFromFeet(person.body, person.definition.body.height);
-  person.crawling = false;
-  cancelSpecialMovement(person);
-  const definition = person.definition;
-  const bodyCenterY = definition.body.offsetY + person.body.height / 2;
-  const gripY = definition.dragGrip.y * definition.scale;
-  person.drag = createDangle(
-    pointerId,
-    anchor,
-    person.body,
-    bodyCenterY - gripY,
-    now
-  );
+  // Being picked up interrupts everything. A shelf record pops back into its
+  // slot, a pocket record goes back in the pocket, and the seat is free.
+  releaseFurniture(furniture, person.id);
+  person.seated = null;
+  person.carrying = null;
+  person.arrival = null;
+  person.settlingIn = false;
+  person.plan = null;
+  person.drag = createDangle(pointerId, anchor, person.body, dragLength(person.definition), now);
   const result = stepDangle(person.drag, person.body, 0);
   person.drag = result.state;
   person.body = result.body;
-  person.activity = 'drag';
-  person.activityUntil = Number.POSITIVE_INFINITY;
-  person.hiddenOccluderId = null;
   setAnimation(person, 'dangle', now);
 }
 
@@ -685,627 +656,92 @@ export function rebaseDraggedPixelPerson(
   return true;
 }
 
+/** Lets go: they keep the swing's momentum, inside the room, and fall. */
 export function releasePixelPersonDrag(
   person: PixelPersonRuntime,
+  room: RoomLayout,
   pointerId: number,
-  spatial: SpatialHash,
-  now: number,
-  bounds?: Rect
+  now: number
 ): boolean {
   if (!person.drag || person.drag.pointerId !== pointerId) return false;
   const released = releaseDangle(person.drag, person.body);
-  const nearby = spatial
-    .query(expandedRect(released, 200))
-    .filter((collider) => collider.kind !== 'ladder');
-  const crawlCandidate = resizedBodyFromFeet(released, CRAWL_HEIGHT);
-  const overheadObstacles = nearby.filter((collider) => intersects(released, collider));
-  const canCrawlAtRelease =
-    overheadObstacles.length > 0 &&
-    overheadObstacles.every(
-      (collider) => collider.y + collider.height <= crawlCandidate.y + 0.5
-    ) &&
-    hasBodyClearance(crawlCandidate, nearby) &&
-    withinBounds(crawlCandidate, bounds);
-  person.body = canCrawlAtRelease
-    ? crawlCandidate
-    : resolveDroppedBody(released, nearby, 180, bounds);
-  person.crawling = canCrawlAtRelease;
-  if (canCrawlAtRelease) person.crawlingSince = now;
+  person.body = containBody(released, room);
   person.drag = null;
-  person.activity = canCrawlAtRelease ? 'wander' : 'idle';
-  person.activityUntil = now + (canCrawlAtRelease ? 3_000 : 700);
-  person.stuckForMs = 0;
-  person.previousX = person.body.x;
+  person.plan = null;
   if (Math.abs(person.body.vx) > 20) person.facing = person.body.vx < 0 ? -1 : 1;
-  if (canCrawlAtRelease) person.goalX = person.body.x + person.facing * 120;
-  setAnimation(
-    person,
-    canCrawlAtRelease ? 'crawl' : person.body.vy < -20 ? 'jump' : 'fall',
-    now
-  );
+  setAnimation(person, person.body.vy < -20 ? 'jump' : 'fall', now);
   return true;
 }
 
-function beginCrawl(person: PixelPersonRuntime, now: number): void {
-  resizeBodyFromFeet(person.body, CRAWL_HEIGHT);
-  person.crawling = true;
-  person.crawlingSince = now;
-  person.plannedLadder = null;
-  person.body.vx = clamp(
-    person.body.vx,
-    -CRAWL_PHYSICS_CONFIG.walkSpeed,
-    CRAWL_PHYSICS_CONFIG.walkSpeed
-  );
-  person.body.vy = 0;
-  person.plannedClimb = null;
-  person.stuckForMs = 0;
-  person.previousX = person.body.x;
-  setAnimation(person, 'crawl', now);
-}
-
-function updateCrawl(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  spatial: SpatialHash,
-  dt: number,
-  now: number
-): void {
-  // Crawling bypasses the activity planner, so a pocket with no stand-up spot
-  // would otherwise trap the person forever; hand them to stuck recovery.
-  if (now - person.crawlingSince > CRAWL_BAILOUT_MS) {
-    person.stuckForMs = STUCK_RECOVERY_MS;
-    return;
-  }
-  let moveX = directionTowardGoal(person);
-  if (moveX === 0 || now >= person.activityUntil) {
-    chooseCrawlGoal(person, geometry, now);
-    moveX = directionTowardGoal(person);
-  }
-  if (moveX !== 0) person.facing = moveX;
-
-  const standingBody = resizedBodyFromFeet(person.body, person.definition.body.height);
-  const canStandHere = hasBodyClearance(
-    standingBody,
-    spatial.query(expandedRect(standingBody, 2))
-  );
-  const lowClearanceAhead =
-    person.body.grounded &&
-    moveX !== 0 &&
-    !hasSupportAhead(person.body, moveX, spatial, person.definition.body.height) &&
-    hasSupportAhead(person.body, moveX, spatial, CRAWL_HEIGHT);
-
-  if (canStandHere && !lowClearanceAhead) {
-    endCrawl(person, now);
-    return;
-  }
-
-  if (
-    person.body.grounded &&
-    moveX !== 0 &&
-    !hasSupportAhead(person.body, moveX, spatial, CRAWL_HEIGHT)
-  ) {
-    reverse(person, geometry, now);
-    moveX = person.facing;
-  }
-
-  const nearby = spatial.query(expandedRect(person.body, 28));
-  const result = stepPhysics(
-    person.body,
-    { moveX, jump: false },
-    nearby,
-    dt,
-    CRAWL_PHYSICS_CONFIG
-  );
-  person.body = result.body;
-
-  const wall = moveX > 0 ? result.contacts.right : moveX < 0 ? result.contacts.left : null;
-  if (wall) reverse(person, geometry, now);
-
-  if (moveX !== 0 && Math.abs(person.body.x - person.previousX) < 0.1) {
-    person.stuckForMs += dt * 1000;
-    if (person.stuckForMs > 520) reverse(person, geometry, now);
-  } else {
-    person.stuckForMs = 0;
-  }
-  person.previousX = person.body.x;
-  setAnimation(person, 'crawl', now);
-}
-
-function endCrawl(person: PixelPersonRuntime, now: number): void {
-  resizeBodyFromFeet(person.body, person.definition.body.height);
-  person.crawling = false;
-  person.stuckForMs = 0;
-  person.previousX = person.body.x;
-  setLocomotionAnimation(person, now);
-}
-
-function chooseCrawlGoal(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  now: number
-): void {
-  const { scanBounds, viewportBounds } = geometry;
-  const minimumX = Math.max(scanBounds.x + 12, viewportBounds.x + 12);
-  const maximumX = Math.min(
-    scanBounds.x + scanBounds.width - person.body.width - 12,
-    viewportBounds.x + viewportBounds.width - person.body.width - 12
-  );
-  let direction = person.facing;
-  let goalX = clamp(person.body.x + direction * 150, minimumX, maximumX);
-  if (Math.abs(goalX - person.body.x) < 12) {
-    direction = direction === 1 ? -1 : 1;
-    goalX = clamp(person.body.x + direction * 150, minimumX, maximumX);
-  }
-  person.facing = direction;
-  person.goalX = goalX;
-  person.activity = 'wander';
-  person.activityUntil = now + 4_000;
-}
-
-function directionTowardGoal(person: PixelPersonRuntime): -1 | 0 | 1 {
-  if (person.goalX > person.body.x + 2) return 1;
-  if (person.goalX < person.body.x - 2) return -1;
-  return 0;
-}
-
-function resizeBodyFromFeet(body: PhysicsBody, height: number): void {
-  const bottom = body.y + body.height;
-  body.height = height;
-  body.y = bottom - height;
-}
-
-function resizedBodyFromFeet(body: PhysicsBody, height: number): PhysicsBody {
-  const resized = { ...body };
-  resizeBodyFromFeet(resized, height);
-  return resized;
-}
-
-/**
- * Which gear this person walks in. Errands read as purposeful; everything else
- * ambles. `stepPhysics` already takes a config, so this is the whole mechanism.
- */
-export function walkConfigFor(person: PixelPersonRuntime): PhysicsConfig {
-  // Airborne is always the committed gear. `walkSpeed` caps horizontal
-  // velocity in the air too, so ambling off a ledge at stroll pace shortens
-  // the jump arc enough to miss landings the cliff sense already cleared —
-  // a hop is a deliberate move and keeps its momentum.
-  if (!person.body.grounded) return PURPOSEFUL_PHYSICS_CONFIG;
-  return person.carrying || person.activity === 'seek-record'
-    ? PURPOSEFUL_PHYSICS_CONFIG
-    : STROLL_PHYSICS_CONFIG;
-}
-
-function restBeat(): Beat {
-  return { kind: 'rest', durationMs: ROUTINE.restMinMs + Math.random() * ROUTINE.restJitterMs };
-}
-
-function lookBeat(): Beat {
-  return { kind: 'look', durationMs: ROUTINE.lookMinMs + Math.random() * ROUTINE.lookJitterMs };
-}
-
-function pauseBeat(): Beat {
-  return Math.random() < 0.5 ? restBeat() : lookBeat();
-}
-
-/**
- * A travel beat's budget is derived from how far it actually is at the amble
- * speed, so slowing people down can never turn a legitimate walk into a
- * timeout. It is a bail-out, not a scheduled re-decision.
- */
-function travelBudgetMs(fromX: number, goalX: number): number {
-  const seconds = Math.abs(goalX - fromX) / STROLL_PHYSICS_CONFIG.walkSpeed;
-  return seconds * 1_000 + ROUTINE.travelAllowanceMs;
-}
-
-function travelBeat(fromX: number, goalX: number): Beat {
-  return { kind: 'travel', goalX, budgetMs: travelBudgetMs(fromX, goalX) };
-}
-
-function walkableRange(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): { minX: number; maxX: number } {
-  const viewport = geometry.viewportBounds;
+/** Clamps a body inside the room's walls, above its floor and below its ceiling. */
+function containBody(body: PhysicsBody, room: RoomLayout): PhysicsBody {
   return {
-    minX: Math.max(geometry.scanBounds.x + 24, viewport.x + EDGE_COMFORT),
-    maxX: Math.min(
-      geometry.scanBounds.x + geometry.scanBounds.width - person.body.width - 24,
-      viewport.x + viewport.width - person.body.width - EDGE_COMFORT
-    )
+    ...body,
+    x: clamp(body.x, 0, Math.max(0, room.width - body.width)),
+    y: clamp(body.y, 0, room.floorY - body.height)
   };
 }
 
 /**
- * The span a routine may plan legs within.
- *
- * Legs used to be planned in pure x-space, blind to what was underfoot, so a
- * walk could be aimed straight through a wall or off a ledge and `reverse()`
- * would clean up on impact. That is what made half the remaining direction
- * changes happen mid-stride rather than out of a pause. Staying on the thing
- * you are standing on keeps the ambient motion on an authored promenade
- * instead of turning arbitrary page geometry into a route.
- *
- * `viewport-floor` spans the whole scan width, so open ground is unaffected;
- * this only bites on panels and authored promenade rails. A narrow support is
- * a resting place, not an excuse to plan into open space.
+ * Sends someone off through the doorway: they are set down beside it, walk to
+ * it and fade on the threshold while it shuts. The reader asked for them to
+ * leave, not to be erased mid-stride.
  */
-export function legRange(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): { minX: number; maxX: number } {
-  const bounds = walkableRange(person, geometry);
-  const support = geometry.colliders.find(
-    (candidate) => candidate.id === person.body.supportId
-  );
-  if (!support) return bounds;
-  const minX = Math.max(bounds.minX, support.x);
-  const maxX = Math.min(bounds.maxX, support.x + support.width - person.body.width);
-  // A support can be narrower than the body, or mostly outside the comfortable
-  // viewport range. Keep the person parked at the closest valid point rather
-  // than treating that as permission to step off it.
-  if (maxX < minX) {
-    return { minX: person.body.x, maxX: person.body.x };
-  }
-  return { minX, maxX };
-}
-
-/**
- * Builds a short itinerary — walk somewhere, stop and take it in, sometimes
- * carry on to a second spot. Planning the whole thing up front is the point:
- * the person executes it beat by beat instead of rolling a fresh direction
- * every few seconds, which is what used to produce the pacing.
- */
-function planRoutine(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): Routine {
-  const { minX, maxX } = legRange(person, geometry);
-  const beats: Beat[] = [];
-  let cursorX = person.body.x;
-  let direction: Facing = Math.random() < 0.5 ? -1 : 1;
-
-  const legs = Math.random() < ROUTINE.extraLegChance ? 2 : 1;
-  for (let leg = 0; leg < legs; leg += 1) {
-    if (leg > 0 && Math.random() >= ROUTINE.continueBias) {
-      direction = direction === 1 ? -1 : 1;
-    }
-    const distance = ROUTINE.travelMinDistance + Math.random() * ROUTINE.travelJitterDistance;
-    const goalX = clamp(cursorX + distance * direction, minX, maxX);
-    if (Math.abs(goalX - cursorX) >= ROUTINE.minTravelDistance) {
-      beats.push(travelBeat(cursorX, goalX));
-      cursorX = goalX;
-    } else {
-      // Pinned against an edge: turning around is the only way to travel, so
-      // the next leg gets the other direction rather than another dead leg.
-      direction = direction === 1 ? -1 : 1;
-    }
-    beats.push(pauseBeat());
-  }
-  return { beats, index: 0 };
-}
-
-/**
- * Applies the routine's next beat. Returns false when it has run dry, which is
- * the caller's signal to plan a new one.
- */
-function advanceRoutine(person: PixelPersonRuntime, now: number): boolean {
-  const routine = person.routine;
-  if (!routine || routine.index >= routine.beats.length) {
-    person.routine = null;
-    return false;
-  }
-  const beat = routine.beats[routine.index];
-  routine.index += 1;
-  person.lookFlipAt = 0;
-  if (beat.kind === 'travel') {
-    person.goalX = beat.goalX;
-    person.facing = beat.goalX >= person.body.x ? 1 : -1;
-    person.activity = 'wander';
-    person.activityUntil = now + beat.budgetMs;
-    return true;
-  }
-  person.goalX = person.body.x;
-  person.activity = 'idle';
-  person.activityUntil = now + beat.durationMs;
-  if (beat.kind === 'look') person.lookFlipAt = now + beat.durationMs / 2;
-  setAnimation(person, 'idle', now);
-  return true;
-}
-
-function chooseNextActivity(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  now: number
-): void {
-  cancelSpecialMovement(person);
-  // Every branch below this one takes the person over for something specific;
-  // only the fall-through keeps a routine running. Clearing it up front and
-  // restoring it at the tail means no interrupt can forget to drop the plan.
-  //
-  // This function only ever runs at a beat boundary (arrival, or the beat's
-  // budget expiring), which is what guarantees nothing redirects someone
-  // halfway through a walk.
-  const routine = person.routine;
-  person.routine = null;
-  person.lookFlipAt = 0;
-
-  // While carrying inside the record wall, the goal is explicit: march toward
-  // the delivery spot instead of dawdling among the shelves.
-  if (person.carrying && isInsideRecordWall(person, geometry)) {
-    const viewport = geometry.viewportBounds;
-    person.goalX = clamp(
-      person.carrying.deliverGoalX,
-      viewport.x + 12,
-      viewport.x + viewport.width - person.body.width - 12
-    );
-    person.facing = person.goalX >= person.body.x ? 1 : -1;
-    person.activity = 'wander';
-    person.activityUntil = now + 4_000;
-    return;
-  }
-
-  // Record errands remain part of the promenade, but only when the album can
-  // be reached from the person's current walking level. Other rows belong to
-  // another platform; ambient people never route to them by ladder.
-  if (!person.carrying && now >= person.nextRecordAt) {
-    const source = chooseRecordSource(person, geometry);
-    if (source) {
-      person.recordErrand = { sourceId: source.id, imageUrl: source.imageUrl };
-      person.goalX = source.x + source.width / 2 - person.body.width / 2;
-      person.facing = person.goalX >= person.body.x ? 1 : -1;
-      person.activity = 'seek-record';
-      person.activityUntil = now + RECORD_ERRAND.travelTimeoutMs;
-      person.nextRecordAt =
-        now + RECORD_ERRAND.cooldownMs + Math.random() * RECORD_ERRAND.cooldownJitterMs;
-      return;
-    }
-    person.nextRecordAt = now + RECORD_ERRAND.retryMs;
-  }
-
-  // Nothing wanted them: carry on with the plan, or make a new one.
-  person.routine = routine;
-  if (advanceRoutine(person, now)) return;
-  person.routine = planRoutine(person, geometry);
-  advanceRoutine(person, now);
-}
-
-/**
- * People walk on top of tiles, so a source is reachable when its top edge is
- * near the given walking plane (or a body standing there would overlap it).
- */
-function sourceReachableAtLevel(
-  source: ItemSource,
-  feetY: number,
-  bodyHeight: number
-): boolean {
-  // Same-row only: the standing body must vertically overlap the album's
-  // tile. Albums below the feet (the next row down, or a row seen from a
-  // perch above) are not reachable — nobody grabs records through the floor.
-  return source.y < feetY && source.y + source.height > feetY - bodyHeight;
-}
-
-/** True when the source is a cover by the artist identified by `ownKey`. */
-function isOwnArtistSource(ownKey: string, source: ItemSource): boolean {
-  if (!source.artistName) return false;
-  return normalizeArtistName(source.artistName) === ownKey;
-}
-
-function chooseRecordSource(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): ItemSource | null {
-  const bodyBottom = person.body.y + person.body.height;
-  const promenade = legRange(person, geometry);
-  const candidates = geometry.itemSources
-    .filter((source) => {
-      if (source.kind !== 'record') return false;
-      if (!intersects(source, geometry.viewportBounds)) return false;
-      const goalX = source.x + source.width / 2 - person.body.width / 2;
-      return (
-        sourceReachableAtLevel(source, bodyBottom, person.body.height) &&
-        goalX >= promenade.minX &&
-        goalX <= promenade.maxX &&
-        horizontalDistance(person.body, source) <= RECORD_ERRAND.maxTravelDistance
-      );
-    })
-    .sort(
-      (left, right) =>
-        horizontalDistance(person.body, left) - horizontalDistance(person.body, right)
-    );
-  if (candidates.length === 0) return null;
-  // Prefer albums not carried recently — walking farther beats repeating —
-  // and only fall back to repeats when everything eligible is recent.
-  const fresh = candidates.filter(
-    (source) => !person.recentRecordSourceIds.includes(source.id)
-  );
-  const eligible = fresh.length > 0 ? fresh : candidates;
-  // An artist character walks past other covers to reach their own. This must
-  // narrow the pool rather than just order it: the final pick is random, so
-  // sorting alone would still take someone else's record half the time.
-  const artistKey = person.definition.artistKey;
-  const ownKey = artistKey ? normalizeArtistName(artistKey) : null;
-  const own = ownKey ? eligible.filter((source) => isOwnArtistSource(ownKey, source)) : [];
-  const pool = (own.length > 0 ? own : eligible).slice(0, 4);
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-
-/** Bounding box of all record sources — the "record wall" as one region. */
-function recordWallBounds(geometry: WorldGeometry): Rect | null {
-  let left = Number.POSITIVE_INFINITY;
-  let top = Number.POSITIVE_INFINITY;
-  let right = Number.NEGATIVE_INFINITY;
-  let bottom = Number.NEGATIVE_INFINITY;
-  let found = false;
-  for (const source of geometry.itemSources) {
-    if (source.kind !== 'record') continue;
-    found = true;
-    left = Math.min(left, source.x);
-    top = Math.min(top, source.y);
-    right = Math.max(right, source.x + source.width);
-    bottom = Math.max(bottom, source.y + source.height);
-  }
-  return found ? { x: left, y: top, width: right - left, height: bottom - top } : null;
-}
-
-function isInsideRecordWall(person: PixelPersonRuntime, geometry: WorldGeometry): boolean {
-  // Exact bounds, no halo: landing on the furniture just below the wall must
-  // count as delivered, or carriers stall at the edge until the give-up timer.
-  const wall = recordWallBounds(geometry);
-  return wall !== null && intersects(person.body, wall);
-}
-
-/**
- * Picks a random-ish delivery x outside the record wall, preferring whichever
- * side of the viewport has room. When the wall spans the full width, aim just
- * past a random wall end — walking off the shelf ends drops the carrier out
- * of the wall's bounds from below. Goals always keep a comfortable distance
- * from the viewport edges; corners are traps, not destinations.
- */
-function chooseDeliveryGoalX(person: PixelPersonRuntime, geometry: WorldGeometry): number {
-  const viewport = geometry.viewportBounds;
-  const promenade = legRange(person, geometry);
-  const minX = Math.max(promenade.minX, viewport.x + DELIVERY_EDGE_COMFORT);
-  const maxX = Math.min(
-    promenade.maxX,
-    viewport.x + viewport.width - person.body.width - DELIVERY_EDGE_COMFORT
-  );
-  if (maxX < minX) return clamp(person.body.x, promenade.minX, promenade.maxX);
-  const wall = recordWallBounds(geometry);
-  if (!wall) {
-    const direction = Math.random() < 0.5 ? -1 : 1;
-    return clamp(person.body.x + direction * (150 + Math.random() * 200), minX, maxX);
-  }
-  const margin = RECORD_ERRAND.wallExitMargin;
-  const leftZone = { from: minX, to: wall.x - margin - person.body.width };
-  const rightZone = { from: wall.x + wall.width + margin, to: maxX };
-  const zones = [leftZone, rightZone].filter((zone) => zone.to - zone.from >= 40);
-  if (zones.length === 0) {
-    // No horizontal room beside the wall: use the nearer promenade end as a
-    // short carry beat. Reaching it starts listening even if the art spans the
-    // whole rail; fetching a record is never permission to leave the platform.
-    const side = Math.random() < 0.5 ? -1 : 1;
-    return side === -1 ? minX : maxX;
-  }
-  const zone = zones[Math.floor(Math.random() * zones.length)];
-  return zone.from + Math.random() * (zone.to - zone.from);
-}
-
-export const DOORWAY_EXIT = {
-  /** Long enough to read as walking off, short enough not to feel stuck. */
-  walkTimeoutMs: 6_000,
-  /** A drop that never finds the floor still has to get on with it. */
-  landingTimeoutMs: 1_600,
-  arrivalSlackX: 7,
-  /**
-   * Matches the door's shut so the two read as one motion — they step in, the
-   * door swings across in front of them, and both finish together.
-   */
-  fadeMs: 380
-} as const;
-
-/**
- * Sends someone off through the doorway: they walk to it and fade out on the
- * threshold. Deliberate and reversible-looking rather than an instant delete —
- * the reader asked for them to leave, not to be erased mid-stride.
- */
-export function beginDoorwayExit(
-  person: PixelPersonRuntime,
-  doorX: number,
-  now: number
-): void {
-  cancelSpecialMovement(person);
-  person.crawling = false;
+export function beginDoorwayExit(person: PixelPersonRuntime, room: RoomLayout, now: number): void {
   person.drag = null;
-  person.routine = null;
-  person.lookFlipAt = 0;
-  person.recordBrowse = null;
-  person.recordStoop = null;
-  person.listen = null;
-  person.recordErrand = null;
+  person.plan = null;
+  person.carrying = null;
+  person.seated = null;
+  person.arrival = null;
+  const doorX = doorwayEnterX(room, person.body.width);
+  person.body = {
+    ...person.body,
+    x: doorstepX(room, person.body.width),
+    y: room.floorY - person.body.height - DOORWAY.dropHeight,
+    vx: 0,
+    vy: 0,
+    grounded: false
+  };
   person.exit = { doorX, startedAt: now, phase: 'landing', enteredAt: null };
-  person.activity = 'exit';
-  person.goalX = doorX;
   person.facing = doorX >= person.body.x ? 1 : -1;
   setLocomotionAnimation(person, now);
 }
 
-/** 0 while solid, 1 once fully faded; the world owner removes them at 1. */
+/** 0 while solid, 1 once fully faded; the room owner removes them at 1. */
 export function doorwayExitFade(person: PixelPersonRuntime, now: number): number {
   const enteredAt = person.exit?.enteredAt;
   if (enteredAt === null || enteredAt === undefined) return 0;
-  return Math.min(1, Math.max(0, (now - enteredAt) / DOORWAY_EXIT.fadeMs));
+  return clamp((now - enteredAt) / DOORWAY_EXIT.fadeMs, 0, 1);
 }
 
-/**
- * How far shut the door is, 0 to 1, given whoever is currently leaving.
- * Nothing leaving means nothing shutting.
- */
-export function doorwayShutProgress(
-  people: readonly PixelPersonRuntime[],
-  now: number
-): number {
-  let shut = 0;
-  for (const person of people) {
-    if (person.exit?.enteredAt == null) continue;
-    shut = Math.max(shut, doorwayExitFade(person, now));
-  }
-  return shut;
+/** True while anyone is coming in or going out, so the door stays up for them. */
+export function isUsingDoor(people: readonly PixelPersonRuntime[]): boolean {
+  return people.some((person) => person.exit !== null || person.arrival !== null);
 }
 
-/** True while anyone is on their way out, so the door stays up for them. */
-export function hasDepartingPerson(people: readonly PixelPersonRuntime[]): boolean {
-  return people.some((person) => person.exit !== null);
-}
-
-/**
- * Walks the last few steps to the door and fades. Returns null once the fade
- * has finished, which is how the world owner learns to drop them.
- */
 function updateDoorwayExit(
   person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  spatial: SpatialHash,
+  room: RoomLayout,
   dt: number,
   now: number
-): PixelPersonRuntime | null {
-  const exit = person.exit;
-  if (!exit) {
-    person.activity = 'idle';
-    person.activityUntil = now;
-    return person;
-  }
-
-  // Stepping through: hold still on the threshold while the door swings shut
-  // across them. Removal happens when the fade completes.
+): boolean {
+  const exit = person.exit!;
   if (exit.phase === 'entering') {
     person.body.vx = 0;
-    return doorwayExitFade(person, now) >= 1 ? null : person;
+    return doorwayExitFade(person, now) < 1;
   }
-
-  const nearby = spatial.query(expandedRect(person.body, 28));
-
-  // Set down: let them fall and settle before they walk anywhere. Without this
-  // they set off mid-air from wherever the pointer let go, which reads as
-  // gliding rather than being put down beside a door.
   if (exit.phase === 'landing') {
-    const result = stepPhysics(person.body, { moveX: 0, jump: false }, nearby, dt);
-    person.body = result.body;
-    const settled =
-      person.body.grounded || now - exit.startedAt >= DOORWAY_EXIT.landingTimeoutMs;
-    if (settled) {
+    move(person, room, 0, dt, PURPOSEFUL_PHYSICS_CONFIG);
+    if (person.body.grounded || now - exit.startedAt >= DOORWAY_EXIT.landingTimeoutMs) {
       exit.phase = 'walking';
       exit.startedAt = now;
       person.facing = exit.doorX >= person.body.x ? 1 : -1;
     }
     setLocomotionAnimation(person, now);
-    return person;
+    return true;
   }
-
-  person.goalX = exit.doorX;
-  const moveX = directionTowardGoal(person);
-  if (moveX !== 0) person.facing = moveX;
-  // Arrival, or a walk that never got there (blocked, stranded on a ledge) —
-  // either way they leave, because the reader already decided that.
+  // Arrival, or a walk that never got there — either way they leave, because
+  // the reader already decided that.
   if (
     Math.abs(person.body.x - exit.doorX) <= DOORWAY_EXIT.arrivalSlackX ||
     now - exit.startedAt >= DOORWAY_EXIT.walkTimeoutMs
@@ -1314,913 +750,63 @@ function updateDoorwayExit(
     exit.enteredAt = now;
     person.body.vx = 0;
     setAnimation(person, 'idle', now);
-    return person;
+    return true;
   }
-
-  const result = stepPhysics(person.body, { moveX, jump: false }, nearby, dt, walkConfigFor(person));
-  person.body = result.body;
+  const moveX = walkDirection(person, exit.doorX);
+  if (moveX !== 0) person.facing = moveX;
+  move(person, room, moveX, dt, STROLL_PHYSICS_CONFIG);
   setLocomotionAnimation(person, now);
-  return person;
-}
-
-function beginListening(person: PixelPersonRuntime, now: number): void {
-  person.listen = {
-    startedAt: now,
-    until: now + RECORD_ERRAND.listenMinMs + Math.random() * RECORD_ERRAND.listenJitterMs
-  };
-  person.activity = 'listen';
-  // Whatever they were walking toward is long since irrelevant; a stale beat
-  // resuming after a 14-24s listen would send them somewhere arbitrary.
-  person.routine = null;
-  person.lookFlipAt = 0;
-  person.body.vx = 0;
-  person.body.vy = 0;
-  setAnimation(person, 'listen', now);
-}
-
-function updateListening(person: PixelPersonRuntime, now: number): void {
-  if (!person.listen || !person.carrying) {
-    person.listen = null;
-    person.activity = 'idle';
-    person.activityUntil = now;
-    setAnimation(person, 'idle', now);
-    return;
-  }
-  if (now < person.listen.until) return;
-  person.listen = null;
-  beginRecordStoop(person, 'place', now);
+  return true;
 }
 
 /**
- * The beat before a pick-up: stand at the shelf facing the record and look at
- * it. Errands are the most legible thing a person does, so they get room to
- * breathe rather than snapping straight into the stoop.
+ * Brings someone into a different room (a navigation mounted a new one) as
+ * themselves: same character, same id, standing on the new floor near the
+ * same relative spot. Whatever they were doing belonged to the old room, so
+ * it is dropped. Returns false for someone who was on their way out.
  */
-function beginRecordBrowse(
+export function settleIntoRoom(
   person: PixelPersonRuntime,
-  source: ItemSource,
+  previousWidth: number,
+  room: RoomLayout,
   now: number
-): void {
-  person.recordBrowse = {
-    until: now + RECORD_ERRAND.browseMinMs + Math.random() * RECORD_ERRAND.browseJitterMs
+): boolean {
+  if (person.exit) return false;
+  const relative = previousWidth > 0 ? person.body.x / previousWidth : 0.5;
+  person.body = {
+    ...person.body,
+    x: clampToWalk(room, relative * room.width, person.body.width),
+    y: room.floorY - person.body.height,
+    vx: 0,
+    vy: 0,
+    grounded: true
   };
-  person.activity = 'record-browse';
-  person.routine = null;
-  person.lookFlipAt = 0;
-  person.facing =
-    source.x + source.width / 2 >= person.body.x + person.body.width / 2 ? 1 : -1;
-  person.body.vx = 0;
+  person.drag = null;
+  person.carrying = null;
+  person.seated = null;
+  person.arrival = null;
+  person.plan = newPlan('arrive', [{ kind: 'pause', ms: 600 }]);
   setAnimation(person, 'idle', now);
-}
-
-function updateRecordBrowse(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  now: number
-): void {
-  // The tile can vanish mid-browse on a rescan; drop the errand rather than
-  // stooping for something that is no longer there.
-  const source = geometry.itemSources.find(
-    (candidate) => candidate.id === person.recordErrand?.sourceId
-  );
-  if (!person.recordBrowse || !source) {
-    person.recordBrowse = null;
-    cancelRecordErrand(person, now);
-    person.activity = 'idle';
-    person.activityUntil = now;
-    setAnimation(person, 'idle', now);
-    return;
-  }
-  if (now < person.recordBrowse.until) return;
-  person.recordBrowse = null;
-  beginRecordStoop(person, 'pickup', now);
-}
-
-function beginRecordStoop(
-  person: PixelPersonRuntime,
-  action: RecordStoop['action'],
-  now: number
-): void {
-  person.recordStoop = { action, startedAt: now };
-  person.activity = 'record-stoop';
-  person.body.vx = 0;
-  person.body.vy = 0;
-  setAnimation(person, 'hide', now);
-}
-
-function updateRecordStoop(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  now: number,
-  events?: PixelWorldEvent[]
-): void {
-  if (person.recordStoop && now - person.recordStoop.startedAt < RECORD_ERRAND.stoopMs) {
-    return;
-  }
-  const action = person.recordStoop?.action;
-  person.recordStoop = null;
-  if (action === 'pickup' && person.recordErrand) {
-    person.carrying = {
-      sourceId: person.recordErrand.sourceId,
-      imageUrl: person.recordErrand.imageUrl,
-      putDownAt: now + RECORD_ERRAND.carryMinMs + Math.random() * RECORD_ERRAND.carryJitterMs,
-      deliverGoalX: chooseDeliveryGoalX(person, geometry)
-    };
-    person.recentRecordSourceIds.push(person.recordErrand.sourceId);
-    if (person.recentRecordSourceIds.length > RECORD_ERRAND.recentMemory) {
-      person.recentRecordSourceIds.shift();
-    }
-  } else if (action === 'place' && person.carrying) {
-    events?.push({ type: 'record-dropped', personId: person.id, record: dropPayload(person) });
-    person.carrying = null;
-    // Head back for another record soon — the browse-deliver loop — but first
-    // stroll toward the middle so the drop spot doesn't become a campsite.
-    person.nextRecordAt =
-      now + RECORD_ERRAND.returnDelayMs + Math.random() * RECORD_ERRAND.returnJitterMs;
-    const viewport = geometry.viewportBounds;
-    const center = viewport.x + viewport.width / 2;
-    const promenade = legRange(person, geometry);
-    person.recordErrand = null;
-    person.goalX = clamp(
-      center + (Math.random() - 0.5) * viewport.width * 0.4,
-      promenade.minX,
-      promenade.maxX
-    );
-    person.facing = person.goalX >= person.body.x ? 1 : -1;
-    // A one-beat routine so the stroll away gets a distance-derived budget and
-    // ends in a pause, like any other leg.
-    person.routine = { beats: [travelBeat(person.body.x, person.goalX), pauseBeat()], index: 1 };
-    person.activity = 'wander';
-    person.activityUntil = now + travelBudgetMs(person.body.x, person.goalX);
-    setAnimation(person, 'idle', now);
-    return;
-  }
-  person.recordErrand = null;
-  person.activity = 'idle';
-  person.activityUntil = now + 500;
-  setAnimation(person, 'idle', now);
-}
-
-function dropPayload(person: PixelPersonRuntime): DroppedRecord {
-  const carrying = person.carrying as CarriedRecord;
-  return {
-    sourceId: carrying.sourceId,
-    imageUrl: carrying.imageUrl,
-    position: {
-      x: person.body.x + person.body.width / 2,
-      y: person.body.y + person.body.height
-    }
-  };
+  return true;
 }
 
 /**
  * Swaps a live person's character while keeping their feet and horizontal
- * centre fixed. Definitions may use different body boxes, so geometry-bound
- * motions planned against the old box are abandoned before the new one takes
- * over. Records, doorway exits and an active drag remain intact.
+ * centre fixed. Definitions may use different body boxes.
  */
 export function setPersonDefinition(
   person: PixelPersonRuntime,
   definition: CharacterDefinition
 ): void {
   if (person.definition.id === definition.id) return;
-  const oldWidth = person.body.width;
-  const oldHeight = person.body.height;
-  const centerX = person.body.x + oldWidth / 2;
-  const feetY = person.body.y + oldHeight;
-  const dimensionsChanged =
-    oldWidth !== definition.body.width || oldHeight !== definition.body.height;
-
+  const centerX = person.body.x + person.body.width / 2;
+  const feetY = person.body.y + person.body.height;
   person.definition = definition;
-  if (!dimensionsChanged) return;
-
   person.body.width = definition.body.width;
   person.body.height = definition.body.height;
   person.body.x = centerX - definition.body.width / 2;
   person.body.y = feetY - definition.body.height;
-  person.previousX = person.body.x;
-  // Goals are body-left coordinates. Shift them with the centre so an errand
-  // or doorway walk still points at the same visual destination.
-  person.goalX += (oldWidth - definition.body.width) / 2;
-
-  person.plannedClimb = null;
-  person.plannedLadder = null;
-  const geometryBoundActivity =
-    person.crawling ||
-    person.activity === 'climb' ||
-    person.activity === 'mantle' ||
-    person.activity === 'seek-hide' ||
-    person.activity === 'hiding';
-  person.crawling = false;
-  person.crawlingSince = 0;
-  person.climb = null;
-  person.mantle = null;
-  person.hide = null;
-  person.hiddenOccluderId = null;
-  if (geometryBoundActivity) {
-    person.routine = null;
-    person.lookFlipAt = 0;
-    person.activity = 'idle';
-    person.activityUntil = 0;
-  }
-
-  if (person.drag) {
-    const bodyCenterY = definition.body.offsetY + definition.body.height / 2;
-    const gripY = definition.dragGrip.y * definition.scale;
-    person.drag.length = Math.max(8, bodyCenterY - gripY);
-  }
-}
-
-/** Abandons a planned pickup, e.g. when its artwork failed to load. */
-export function cancelRecordErrand(person: PixelPersonRuntime, now: number): void {
-  if (!person.recordErrand) return;
-  person.recordErrand = null;
-  if (person.activity === 'seek-record') {
-    person.activity = 'idle';
-    person.activityUntil = now;
-  }
-}
-
-/** Instantly releases a carried record (user grab, respawn); returns where it fell. */
-export function dropCarriedRecord(person: PixelPersonRuntime): DroppedRecord | null {
-  if (!person.carrying) return null;
-  const payload = dropPayload(person);
-  person.carrying = null;
-  return payload;
-}
-
-function beginHiding(person: PixelPersonRuntime, now: number): void {
-  if (!person.hide) return;
-  person.hide.original = { x: person.body.x, y: person.body.y };
-  person.hide.target.y = person.body.y + 5;
-  person.hide.startedAt = now;
-  person.body.vx = 0;
-  person.body.vy = 0;
-  person.activity = 'hiding';
-  person.hiddenOccluderId = person.hide.occluder.id;
-  setAnimation(person, 'hide', now);
-}
-
-function updateHiding(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  now: number
-): void {
-  if (!person.hide) return;
-  // The hiding place can vanish or move mid-animation (rescan); abort in
-  // place rather than sliding behind an occluder that is no longer there.
-  const occluder = geometry.occluders.find(
-    (candidate) => candidate.id === person.hide?.occluder.id
-  );
-  if (
-    !occluder ||
-    Math.abs(occluder.x - person.hide.occluder.x) > STALE_COLLIDER_TOLERANCE ||
-    Math.abs(occluder.y - person.hide.occluder.y) > STALE_COLLIDER_TOLERANCE
-  ) {
-    person.hiddenOccluderId = null;
-    person.hide = null;
-    person.activity = 'idle';
-    person.activityUntil = now;
-    setAnimation(person, 'idle', now);
-    return;
-  }
-  const elapsed = now - person.hide.startedAt;
-  const enterDuration = HIDE.enterMs;
-  const holdUntil = HIDE.holdUntilMs;
-  const exitUntil = HIDE.exitUntilMs;
-  let progress: number;
-
-  if (elapsed <= enterDuration) {
-    progress = easeInOut(elapsed / enterDuration);
-  } else if (elapsed <= holdUntil) {
-    progress = 1;
-  } else {
-    progress = 1 - easeInOut((elapsed - holdUntil) / (exitUntil - holdUntil));
-  }
-
-  person.body.x = lerp(person.hide.original.x, person.hide.target.x, clamp(progress, 0, 1));
-  person.body.y = lerp(person.hide.original.y, person.hide.target.y, clamp(progress, 0, 1));
-
-  if (elapsed >= exitUntil) {
-    person.body.x = person.hide.original.x;
-    person.body.y = person.hide.original.y;
-    person.hiddenOccluderId = null;
-    person.hide = null;
-    person.activityUntil = now;
-    person.activity = 'idle';
-    setAnimation(person, 'idle', now);
-  }
-}
-
-/** The walkable surface a ladder tops out onto, nearest to the ladder's top. */
-function findLadderLanding(geometry: WorldGeometry, ladder: Collider): Collider | null {
-  let best: Collider | null = null;
-  for (const collider of geometry.colliders) {
-    if (collider.edge !== 'top' && collider.kind !== 'solid') continue;
-    if (Math.abs(collider.y - ladder.y) > LADDER_CLIMB.topSlack) continue;
-    if (collider.x >= ladder.x + ladder.width + 30) continue;
-    if (collider.x + collider.width <= ladder.x - 30) continue;
-    if (!best || Math.abs(collider.y - ladder.y) < Math.abs(best.y - ladder.y)) {
-      best = collider;
-    }
-  }
-  return best;
-}
-
-/** A ladder is only worth climbing when something walkable awaits at its top. */
-function hasWalkableTopNear(geometry: WorldGeometry, ladder: Collider): boolean {
-  return findLadderLanding(geometry, ladder) !== null;
-}
-
-/** A ladder is only worth riding down when something walkable awaits below. */
-function hasWalkableBottomNear(geometry: WorldGeometry, ladder: Collider): boolean {
-  return findFootLanding(geometry, ladder, LADDER_CLIMB.bottomSlack) !== null;
-}
-
-/**
- * The surface a climber would step onto at the foot of `wall`, if any.
- *
- * `slack` is how far below the wall's bottom the surface may sit. Ladders want
- * this tight — they are authored to line up. A panel edge wants it loose: the
- * floor under a card is whatever the page happens to put there, and refusing
- * to descend unless it lines up to the pixel means never descending at all.
- */
-function findFootLanding(
-  geometry: WorldGeometry,
-  wall: Collider,
-  slack: number
-): Collider | null {
-  const foot = wall.y + wall.height;
-  let best: Collider | null = null;
-  for (const collider of geometry.colliders) {
-    if (collider.edge !== 'top' && collider.kind !== 'solid') continue;
-    // Strictly below the foot (or level with it), never above: a surface
-    // higher up is something the climber is already standing on top of.
-    const drop = collider.y - foot;
-    if (drop < -LADDER_CLIMB.bottomSlack || drop > slack) continue;
-    if (collider.x >= wall.x + wall.width + 30) continue;
-    if (collider.x + collider.width <= wall.x - 30) continue;
-    if (!best || collider.y < best.y) best = collider;
-  }
-  return best;
-}
-
-function beginLadderClimb(
-  person: PixelPersonRuntime,
-  ladder: Collider,
-  geometry: WorldGeometry,
-  now: number
-): boolean {
-  const climbHeight = person.body.y + person.body.height - ladder.y;
-  if (climbHeight <= 22 || climbHeight > MAX_CLIMB_HEIGHT) return false;
-  const side = person.facing === 1 ? 'left' : 'right';
-  // Only the viewport check applies: ladder climbs deliberately pass through
-  // shelf strips on the way up.
-  if (!hasClearClimbPath(person.body, ladder, ladder, side, ladder.y - person.body.height, geometry, true)) {
-    return false;
-  }
-  person.climb = { wall: ladder, top: ladder, side, direction: 'up' };
-  person.activity = 'climb';
-  person.body.vx = 0;
-  person.body.vy = 0;
-  person.body.grounded = false;
-  person.body.supportId = null;
-  person.lastClimbAt = now;
-  setAnimation(person, 'climb', now);
-  return true;
-}
-
-function beginLadderDescent(
-  person: PixelPersonRuntime,
-  ladder: Collider,
-  geometry: WorldGeometry,
-  now: number
-): boolean {
-  const ladderBottom = ladder.y + ladder.height;
-  const dropHeight = ladderBottom - (person.body.y + person.body.height);
-  if (dropHeight <= 22 || dropHeight > MAX_CLIMB_HEIGHT) return false;
-  const side = person.facing === 1 ? 'left' : 'right';
-  // Only the viewport check applies: ladder rides deliberately pass through
-  // shelf strips on the way down.
-  if (
-    !hasClearClimbPath(
-      person.body,
-      ladder,
-      ladder,
-      side,
-      ladderBottom - person.body.height,
-      geometry,
-      true
-    )
-  ) {
-    return false;
-  }
-  person.climb = {
-    wall: ladder,
-    top: ladder,
-    side,
-    direction: 'down',
-    dismountY: ladderBottom
-  };
-  person.activity = 'climb';
-  person.body.vx = 0;
-  person.body.vy = 0;
-  person.body.grounded = false;
-  person.body.supportId = null;
-  person.lastClimbAt = now;
-  setAnimation(person, 'climb', now);
-  return true;
-}
-
-function tryBeginClimbUp(
-  person: PixelPersonRuntime,
-  wall: Collider,
-  geometry: WorldGeometry,
-  now: number
-): boolean {
-  const top = topForWall(wall, geometry.colliders);
-  const climbHeight = person.body.y + person.body.height - top.y;
-  if (climbHeight <= 22 || climbHeight > MAX_CLIMB_HEIGHT) return false;
-
-  const side = person.facing === 1 ? 'left' : 'right';
-  const endY = top.y - person.body.height;
-  const climbingInsideFrame =
-    (wall.edge === 'left' && side === 'right') ||
-    (wall.edge === 'right' && side === 'left');
-  if (
-    !hasClearClimbPath(
-      person.body,
-      wall,
-      top,
-      side,
-      endY,
-      geometry,
-      climbingInsideFrame
-    )
-  ) {
-    return false;
-  }
-  person.climb = { wall, top, side, direction: 'up' };
-  person.activity = 'climb';
-  person.body.vx = 0;
-  person.body.vy = 0;
-  person.body.grounded = false;
-  person.body.supportId = null;
-  person.lastClimbAt = now;
-  setAnimation(person, 'climb', now);
-  return true;
-}
-
-function tryBeginInteriorClimbOut(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  direction: Facing,
-  now: number
-): boolean {
-  const desiredEdge = direction === 1 ? 'right' : 'left';
-  const wall = geometry.colliders
-    .filter(
-      (collider) =>
-        Boolean(collider.groupId) &&
-        collider.edge === desiredEdge &&
-        isInsideFrameNearWall(person.body, collider, geometry.colliders, direction)
-    )
-    .sort(
-      (left, right) =>
-        distanceToInteriorWall(person.body, left, direction) -
-        distanceToInteriorWall(person.body, right, direction)
-    )[0];
-  if (!wall) return false;
-  person.facing = direction;
-  return tryBeginClimbUp(person, wall, geometry, now);
-}
-
-function isInsideFrameNearWall(
-  body: PhysicsBody,
-  wall: Collider,
-  colliders: Collider[],
-  direction: Facing
-): boolean {
-  if (!wall.groupId) return false;
-  const top = colliders.find(
-    (collider) => collider.groupId === wall.groupId && collider.edge === 'top'
-  );
-  const bottom = colliders.find(
-    (collider) => collider.groupId === wall.groupId && collider.edge === 'bottom'
-  );
-  const opposite = colliders.find(
-    (collider) =>
-      collider.groupId === wall.groupId &&
-      collider.edge === (direction === 1 ? 'left' : 'right')
-  );
-  if (!top || !bottom || !opposite) return false;
-
-  const centerX = body.x + body.width / 2;
-  const centerY = body.y + body.height / 2;
-  const frameLeft = direction === 1 ? opposite.x + opposite.width : wall.x + wall.width;
-  const frameRight = direction === 1 ? wall.x : opposite.x;
-  const distance = distanceToInteriorWall(body, wall, direction);
-  return (
-    centerX >= frameLeft &&
-    centerX <= frameRight &&
-    centerY >= top.y &&
-    centerY <= bottom.y + bottom.height &&
-    distance >= -0.5 &&
-    distance <= 3
-  );
-}
-
-function distanceToInteriorWall(
-  body: PhysicsBody,
-  wall: Collider,
-  direction: Facing
-): number {
-  return direction === 1
-    ? wall.x - (body.x + body.width)
-    : body.x - (wall.x + wall.width);
-}
-
-function tryBeginClimbDown(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  now: number
-): boolean {
-  if (now - person.lastClimbAt < 8_000) return false;
-  const colliders = geometry.colliders;
-  const support = colliders.find((collider) => collider.id === person.body.supportId);
-  if (!support?.groupId || (support.edge !== 'top' && support.kind !== 'solid')) return false;
-  const desiredEdge = person.facing === 1 ? 'right' : 'left';
-  const wall =
-    support.kind === 'solid'
-      ? support
-      : colliders.find(
-          (collider) => collider.groupId === support.groupId && collider.edge === desiredEdge
-        );
-  if (!wall || wall.height < person.body.height * 0.8 || wall.height > MAX_CLIMB_HEIGHT) return false;
-
-  const side = desiredEdge === 'right' ? 'right' : 'left';
-  handleClimbDownTransition(person, support, wall, side, geometry, now);
-  return true;
-}
-
-/**
- * A climb down only starts when there is somewhere to arrive.
- *
- * This used to descend a little way and then turn straight back up — an
- * authored "peek over the edge" that was the *only* thing an edge climb-down
- * ever did, so every one of them read as the character changing its mind.
- * Now the descent commits: reach the surface at the foot of the wall, or don't
- * leave the edge in the first place and turn around instead.
- */
-function handleClimbDownTransition(
-  person: PixelPersonRuntime,
-  support: Collider,
-  wall: Collider,
-  side: 'left' | 'right',
-  geometry: WorldGeometry,
-  now: number
-): void {
-  const landing = findFootLanding(geometry, wall, CLIMB_DOWN_LANDING_SLACK);
-  const endY = landing ? landing.y - person.body.height : null;
-  if (endY === null || !hasClearClimbPath(person.body, wall, support, side, endY, geometry)) {
-    person.lastClimbAt = now;
-    reverse(person, geometry, now);
-    return;
-  }
-  beginClimbDownTransition(person, support, wall, side, landing!.y, now);
-}
-
-function beginClimbDownTransition(
-  person: PixelPersonRuntime,
-  support: Collider,
-  wall: Collider,
-  side: 'left' | 'right',
-  dismountY: number,
-  now: number
-): void {
-  const outsideX =
-    side === 'right' ? wall.x + wall.width + 1 : wall.x - person.body.width - 1;
-  const downMotion: ClimbMotion = {
-    wall,
-    top: support,
-    side,
-    direction: 'down',
-    dismountY
-  };
-  person.mantle = {
-    start: { x: person.body.x, y: person.body.y },
-    end: { x: outsideX, y: support.y - person.body.height + 7 },
-    startedAt: now,
-    after: downMotion
-  };
-  person.activity = 'mantle';
-  person.lastClimbAt = now;
-  person.body.vx = 0;
-  person.body.vy = 0;
-  person.body.grounded = false;
-  person.body.supportId = null;
-  setAnimation(person, 'mantle', now);
-}
-
-function hasClearClimbPath(
-  body: PhysicsBody,
-  wall: Collider,
-  top: Collider,
-  side: 'left' | 'right',
-  endY: number,
-  geometry: WorldGeometry,
-  ignoreObstructions = false
-): boolean {
-  const x =
-    side === 'left' ? wall.x - body.width - 1 : wall.x + wall.width + 1;
-  const viewport = geometry.viewportBounds;
-  const viewportLeft = viewport.x + CLIMB_VIEWPORT_MARGIN;
-  const viewportRight = viewport.x + viewport.width - CLIMB_VIEWPORT_MARGIN;
-  if (x < viewportLeft || x + body.width > viewportRight) return false;
-  if (ignoreObstructions) return true;
-
-  const path: Rect = {
-    x,
-    y: Math.min(body.y, endY),
-    width: body.width,
-    height: Math.abs(body.y - endY) + body.height
-  };
-  return !geometry.colliders.some(
-    (collider) =>
-      collider.kind !== 'ladder' &&
-      collider.id !== wall.id &&
-      collider.id !== top.id &&
-      collider.id !== body.supportId &&
-      intersects(path, collider)
-  );
-}
-
-// Motion states capture Collider objects, but every geometry rescan rebuilds
-// the world; a captured rect can go stale mid-move (page reflow). Refresh the
-// reference when the collider survived, abort into a fall when it vanished or
-// jumped — otherwise people scale thin air or mantle onto phantom geometry.
-const STALE_COLLIDER_TOLERANCE = 24;
-
-function refreshCollider(geometry: WorldGeometry, captured: Collider): Collider | null {
-  const live = geometry.colliders.find((collider) => collider.id === captured.id);
-  if (!live) return null;
-  if (
-    Math.abs(live.x - captured.x) > STALE_COLLIDER_TOLERANCE ||
-    Math.abs(live.y - captured.y) > STALE_COLLIDER_TOLERANCE
-  ) {
-    return null;
-  }
-  return live;
-}
-
-function abortSpecialMove(person: PixelPersonRuntime, now: number): void {
-  person.climb = null;
-  person.mantle = null;
-  person.body.grounded = false;
-  person.body.supportId = null;
-  person.activity = 'idle';
-  person.activityUntil = now;
-  setLocomotionAnimation(person, now);
-}
-
-function updateClimb(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  dt: number,
-  now: number
-): void {
-  if (!person.climb) return;
-  const climb = person.climb;
-  const liveWall = refreshCollider(geometry, climb.wall);
-  const liveTop = refreshCollider(geometry, climb.top);
-  if (!liveWall || !liveTop) {
-    abortSpecialMove(person, now);
-    return;
-  }
-  climb.wall = liveWall;
-  climb.top = liveTop;
-  person.body.vx = 0;
-  person.body.vy = 0;
-  person.facing = climb.side === 'left' ? 1 : -1;
-  person.body.x =
-    climb.side === 'left'
-      ? climb.wall.x - person.body.width - 1
-      : climb.wall.x + climb.wall.width + 1;
-
-  if (climb.direction === 'down') {
-    person.body.y += CLIMB_SPEED * dt;
-    const dismountY = climb.dismountY ?? null;
-    if (dismountY !== null && person.body.y + person.body.height >= dismountY) {
-      // Dismount at the ladder's bottom: physics lands the person on the
-      // shelf strip that lives there.
-      person.body.y = dismountY - person.body.height;
-      person.climb = null;
-      person.activity = 'idle';
-      person.activityUntil = now + 400;
-      person.body.vx = 0;
-      person.body.vy = 0;
-      person.body.grounded = false;
-      setLocomotionAnimation(person, now);
-    }
-    return;
-  }
-
-  person.body.y -= CLIMB_SPEED * dt;
-  const targetY = climb.top.y - person.body.height;
-  if (person.body.y <= targetY + 7) beginMantleUp(person, climb, geometry, now);
-}
-
-function beginMantleUp(
-  person: PixelPersonRuntime,
-  climb: ClimbMotion,
-  geometry: WorldGeometry,
-  now: number
-): void {
-  // Ladder rides mantle onto the real landing surface that qualified the
-  // ladder — the ladder's own top can sit up to topSlack below it, which
-  // would leave the body embedded in (and falling through) the shelf.
-  const landing =
-    climb.wall.kind === 'ladder' ? findLadderLanding(geometry, climb.wall) : null;
-  const surface = landing ?? climb.top;
-  const inset = Math.min(5, Math.max(2, climb.top.width / 4));
-  const targetEdge =
-    climb.wall.edge === 'left' || climb.wall.edge === 'right'
-      ? climb.wall.edge
-      : climb.side;
-  const endX =
-    targetEdge === 'left'
-      ? climb.top.x + inset
-      : climb.top.x + climb.top.width - person.body.width - inset;
-  person.mantle = {
-    start: { x: person.body.x, y: person.body.y },
-    end: { x: endX, y: surface.y - person.body.height },
-    startedAt: now,
-    supportId: surface.id
-  };
-  person.climb = null;
-  person.activity = 'mantle';
-  setAnimation(person, 'mantle', now);
-}
-
-function updateMantle(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry,
-  now: number
-): void {
-  if (!person.mantle) return;
-  const horizontalDistance = Math.abs(person.mantle.end.x - person.mantle.start.x);
-  const duration = Math.max(
-    MIN_MANTLE_DURATION_MS,
-    (horizontalDistance * EASE_IN_OUT_MAX_SLOPE * 1000) / MAX_MANTLE_HORIZONTAL_SPEED
-  );
-  const progress = clamp((now - person.mantle.startedAt) / duration, 0, 1);
-  const eased = easeInOut(progress);
-  person.body.x = lerp(person.mantle.start.x, person.mantle.end.x, eased);
-  person.body.y = lerp(person.mantle.start.y, person.mantle.end.y, eased);
-  if (progress < 1) return;
-
-  const after = person.mantle.after;
-  const supportId = person.mantle.supportId ?? null;
-  person.mantle = null;
-  if (after) {
-    person.climb = after;
-    person.activity = 'climb';
-    setAnimation(person, 'climb', now);
-    return;
-  }
-
-  person.body.vx = 0;
-  person.body.vy = 0;
-  // Only land as grounded when the support still exists where the mantle
-  // aimed; a rescan may have removed or moved it mid-lerp — fall instead.
-  const support = supportId
-    ? geometry.colliders.find((collider) => collider.id === supportId)
-    : undefined;
-  const supported =
-    support !== undefined &&
-    Math.abs(support.y - (person.body.y + person.body.height)) <= STALE_COLLIDER_TOLERANCE;
-  person.body.grounded = supported;
-  person.body.supportId = supported ? supportId : null;
-  person.activity = 'idle';
-  person.activityUntil = now + 600;
-  setAnimation(person, 'idle', now);
-}
-
-function topForWall(wall: Collider, colliders: Collider[]): Collider {
-  if (!wall.groupId) return wall;
-  return (
-    colliders.find(
-      (collider) => collider.groupId === wall.groupId && collider.edge === 'top'
-    ) ?? wall
-  );
-}
-
-const EDGE_LANDING_MAX_DROP = 170;
-const EDGE_LANDING_REACH = 36;
-
-/** Anything to land on just past an edge, within a survivable-looking drop. */
-function hasLandingBeyondEdge(
-  body: PhysicsBody,
-  direction: Facing,
-  spatial: SpatialHash
-): boolean {
-  const feetY = body.y + body.height;
-  const probe: Rect = {
-    x: direction === 1 ? body.x + body.width + 2 : body.x - 2 - EDGE_LANDING_REACH,
-    y: feetY - 6,
-    width: EDGE_LANDING_REACH,
-    height: EDGE_LANDING_MAX_DROP + 6
-  };
-  // The hash query is cell-granular (64px); verify real overlap with the probe.
-  return spatial
-    .query(probe)
-    .some(
-      (collider) =>
-        collider.kind !== 'ladder' &&
-        intersects(probe, collider) &&
-        collider.y >= feetY - 6 &&
-        collider.y <= feetY + EDGE_LANDING_MAX_DROP
-    );
-}
-
-function hasSupportAhead(
-  body: PhysicsBody,
-  direction: Facing,
-  spatial: SpatialHash,
-  occupantHeight = body.height
-): boolean {
-  const probeX = direction === 1 ? body.x + body.width + 2 : body.x - 5;
-  const probe = { x: probeX, y: body.y + body.height, width: 3, height: 11 };
-  return spatial
-    .query(probe)
-    .some((collider) => {
-      if (collider.kind === 'ladder') return false;
-      // The hash query is cell-granular (64px); a collider sharing a cell can
-      // sit entirely behind the probe — require real horizontal overlap.
-      if (collider.x >= probe.x + probe.width || collider.x + collider.width <= probe.x) {
-        return false;
-      }
-      if (
-        collider.y < body.y + body.height - 1 ||
-        collider.y > body.y + body.height + 10
-      ) {
-        return false;
-      }
-      const footX = probe.x + probe.width / 2;
-      const standingBody: Rect = {
-        x: footX - body.width / 2,
-        y: collider.y - occupantHeight,
-        width: body.width,
-        height: occupantHeight
-      };
-      return hasBodyClearance(
-        standingBody,
-        spatial.query(expandedRect(standingBody, 2)),
-        collider.id
-      );
-    });
-}
-
-/**
- * Turns someone away from a dead end (wall, cliff, blocked movement).
- *
- * The pause matters: launching straight into a walk the other way is what made
- * obstacles read as ping-pong. Walking up, hesitating, then leaving reads as
- * noticing the wall.
- *
- * `goalX` and `facing` are still assigned immediately because `updateCrawl`
- * calls this and drives itself from both directly — crawling ignores the
- * routine, so only the standing path sees the rest beat.
- */
-function reverse(person: PixelPersonRuntime, geometry: WorldGeometry, now: number): void {
-  const viewport = geometry.viewportBounds;
-  person.confinedReversals += 1;
-  person.facing = person.facing === 1 ? -1 : 1;
-  const minimumX = viewport.x + EDGE_COMFORT;
-  const maximumX = viewport.x + viewport.width - person.body.width - EDGE_COMFORT;
-  person.goalX = clamp(
-    person.body.x + person.facing * (80 + Math.random() * 130),
-    minimumX,
-    maximumX
-  );
-  if (Math.abs(person.goalX - person.body.x) < 12) {
-    person.facing = person.body.x < viewport.x + viewport.width / 2 ? 1 : -1;
-    person.goalX = clamp(person.body.x + person.facing * 120, minimumX, maximumX);
-  }
-  person.lookFlipAt = 0;
-  person.routine = { beats: [travelBeat(person.body.x, person.goalX)], index: 0 };
-
-  // Hesitate only on first contact. Someone already accruing stuck time has
-  // tried this and failed, and pausing again would stall the stuck counter
-  // (it only climbs while they are actively pushing), stretching recovery
-  // from a couple of seconds to twenty. Repeat failures turn immediately.
-  if (person.stuckForMs > 0) {
-    advanceRoutine(person, now);
-    return;
-  }
-  person.activity = 'idle';
-  person.activityUntil = now + ROUTINE.reverseRestMs;
-  setAnimation(person, 'idle', now);
+  if (person.drag) person.drag.length = Math.max(8, dragLength(definition));
 }
 
 function setLocomotionAnimation(person: PixelPersonRuntime, now: number): void {
@@ -2237,37 +823,4 @@ function setAnimation(person: PixelPersonRuntime, animation: AnimationName, now:
   if (person.animation === animation) return;
   person.animation = animation;
   person.animationStartedAt = now;
-}
-
-function cancelSpecialMovement(person: PixelPersonRuntime): void {
-  person.climb = null;
-  person.mantle = null;
-  person.hide = null;
-  person.hiddenOccluderId = null;
-  person.plannedClimb = null;
-  person.plannedLadder = null;
-  person.recordErrand = null;
-  person.recordStoop = null;
-  person.listen = null;
-  // person.carrying is deliberately kept: records survive activity changes.
-  person.drag = null;
-}
-
-function sameGeometryGroup(collider: Collider, occluder: Occluder): boolean {
-  return Boolean(collider.groupId) && collider.groupId === occluder.groupId;
-}
-
-function horizontalDistance(body: PhysicsBody, rect: Rect): number {
-  if (body.x + body.width < rect.x) return rect.x - (body.x + body.width);
-  if (body.x > rect.x + rect.width) return body.x - (rect.x + rect.width);
-  return 0;
-}
-
-function easeInOut(value: number): number {
-  const t = clamp(value, 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
-function lerp(start: number, end: number, progress: number): number {
-  return start + (end - start) * progress;
 }

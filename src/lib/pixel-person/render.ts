@@ -1,51 +1,54 @@
-import { clientToDocument } from './geometry';
-import { clamp, expandedRect } from './physics';
-import { DOORWAY, doorwayRect } from './doorway';
-import { getRecordArt, RECORD_PIXELS, RECORD_SCALE } from './record-art';
-import { doorwayExitFade, type PixelPersonRuntime } from './simulation';
+import { MUSIC } from './activities';
+import { clamp } from './physics';
+import { getRecordArt } from './record-art';
+import { LOUNGE, SHELF, type FurniturePiece, type RoomLayout } from './room';
+import type { ShelfSlot } from './shelf';
 import {
-  hitTestSpriteFrame,
-  selectSpriteFrame,
-  spawnRevealProgress,
-  spriteTimeScale
-} from './sprite';
-import type {
-  Collider,
-  ItemSource,
-  Occluder,
-  PlacedRecord,
-  Point,
-  Rect,
-  SpriteFrame,
-  WorldGeometry
-} from './types';
+  arrivalAppear,
+  doorwayExitFade,
+  listeningSince,
+  type LampState,
+  type PixelPersonRuntime
+} from './simulation';
+import { hitTestSpriteFrame, selectSpriteFrame, spriteTimeScale } from './sprite';
+import type { AnimationName, Point, SpriteFrame } from './types';
 
-/** Set-down records stay at full opacity for the hold, then fade out. */
-export const PLACED_RECORD_HOLD_MS = 120_000;
-export const PLACED_RECORD_FADE_MS = 4_000;
-
-/** When this record's fade begins: after its hold, or the moment it was dismissed. */
-export function fadeStartAt(record: PlacedRecord): number {
-  return Math.min(
-    record.placedAt + PLACED_RECORD_HOLD_MS,
-    record.dismissedAt ?? Number.POSITIVE_INFINITY
-  );
+/** Everything one frame of the room draws. */
+export interface RoomScene {
+  room: RoomLayout;
+  shelf: readonly ShelfSlot[];
+  people: readonly PixelPersonRuntime[];
+  now: number;
+  /** 0..1: the door fades in while it is wanted (held, arriving, leaving). */
+  doorOpacity: number;
+  /** 0 open .. 1 shut. */
+  doorShut: number;
+  lamp: LampState;
+  debug: boolean;
 }
 
-/** The drawn art box: bottom-centered on the record's feet point. */
-function placedRecordRect(record: PlacedRecord): Rect {
-  const size = RECORD_PIXELS * RECORD_SCALE;
-  return {
-    x: record.position.x - size / 2,
-    y: record.position.y - size,
-    width: size,
-    height: size
-  };
+/**
+ * The lamp's light: always a soft warm yellow, like a real bulb, whatever the
+ * theme. A pale yellow all but vanishes on a light page, so light themes get a
+ * deeper amber at a little more strength — still a lamp, just visible.
+ */
+export const LAMP_GLOW = {
+  fadeMs: 600,
+  /** Reach of the glow from the shade, in CSS px. */
+  radius: 46,
+  dark: { shade: '#ffd27a', glow: '#ffc964', strength: 0.24 },
+  light: { shade: '#f2b544', glow: '#f0a630', strength: 0.34 }
+} as const;
+
+/** 0 dark, 1 fully lit, easing between the two after a switch. */
+export function lampGlow(lamp: LampState, now: number): number {
+  const progress = clamp((now - lamp.changedAt) / LAMP_GLOW.fadeMs, 0, 1);
+  const eased = progress * progress * (3 - 2 * progress);
+  return lamp.on ? eased : 1 - eased;
 }
 
+const RECORD_SIZE = SHELF.recordSize;
 const spriteCache = new Map<string, HTMLCanvasElement>();
-let cachedTheme = '';
-let cachedOutline = '#111';
 
 /**
  * Device pixels per sprite pixel. Rasterizing at this step keeps every pixel
@@ -65,101 +68,180 @@ export function spriteCacheKey(frameKey: string, outline: string, step: number):
   return `${frameKey}:${outline}:${step}`;
 }
 
-// Browser zoom changes devicePixelRatio and innerWidth INVERSELY, so the
-// physical pixel size alone cannot detect it — the applied dpr and CSS size
-// are tracked explicitly or zoom leaves a stale transform and inline size.
-let appliedDpr = 0;
-let appliedCssWidth = 0;
-let appliedCssHeight = 0;
-
 /**
  * The device pixel ratio the canvas is transformed by, capped so a 3x display
- * does not triple the raster cost. Sprites rasterize against this same value —
- * if the two ever disagree, cached sprites are drawn at a different density
- * than the canvas expects, so both callers read it from here.
+ * does not triple the raster cost. Sprites rasterize against this same value,
+ * or cached sprites would be drawn at a different density than the canvas.
  */
 function clampedDpr(): number {
   return Math.min(window.devicePixelRatio || 1, 2);
 }
 
-/** `appliedDpr` is 0 until sizeCanvas runs; fall back to the live ratio. */
-function currentDpr(): number {
-  return appliedDpr || clampedDpr();
+interface AppliedSize {
+  dpr: number;
+  width: number;
+  height: number;
+  signature: string;
 }
 
-export function sizeCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
+const appliedSizes = new WeakMap<HTMLCanvasElement, AppliedSize>();
+
+/**
+ * Sizes the canvas backing store to its CSS box. Browser zoom changes dpr and
+ * CSS size inversely, so all three are tracked; assigning width/height resets
+ * the bitmap even to the same value, so they are only touched on a change.
+ */
+export function sizeCanvas(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number
+): CanvasRenderingContext2D | null {
   const context = canvas.getContext('2d');
   if (!context) return null;
   const dpr = clampedDpr();
-  const pixelWidth = Math.round(window.innerWidth * dpr);
-  const pixelHeight = Math.round(window.innerHeight * dpr);
-  if (
-    canvas.width !== pixelWidth ||
-    canvas.height !== pixelHeight ||
-    appliedDpr !== dpr ||
-    appliedCssWidth !== window.innerWidth ||
-    appliedCssHeight !== window.innerHeight
-  ) {
-    // Assigning width/height always resets the bitmap and canvas state, even
-    // to the same value — only touch them when they actually changed.
-    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
-    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-    canvas.style.width = `${window.innerWidth}px`;
-    canvas.style.height = `${window.innerHeight}px`;
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.imageSmoothingEnabled = false;
-    appliedDpr = dpr;
-    appliedCssWidth = window.innerWidth;
-    appliedCssHeight = window.innerHeight;
+  const applied = appliedSizes.get(canvas);
+  if (applied && applied.dpr === dpr && applied.width === width && applied.height === height) {
+    return context;
   }
+  const pixelWidth = Math.max(1, Math.round(width * dpr));
+  const pixelHeight = Math.max(1, Math.round(height * dpr));
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.imageSmoothingEnabled = false;
+  appliedSizes.set(canvas, { dpr, width, height, signature: '' });
   return context;
 }
 
-let lastGeometry: WorldGeometry | null = null;
-let geometryRevision = 0;
-let lastRenderSignature = '';
+interface ThemeColours {
+  outline: string;
+  line: string;
+  muted: string;
+  accent: string;
+  /** True when the page ground is light; the lamp's warm light needs more body there. */
+  lightGround: boolean;
+  /** Upholstery: the theme's accent ramp, so the lounge belongs to each theme. */
+  fabric: string;
+  cushion: string;
+  pillow: string;
+}
+
+let cachedTheme: string | null = null;
+let cachedColours: ThemeColours = {
+  outline: '#111',
+  line: '#444',
+  muted: '#666',
+  accent: '#666',
+  lightGround: false,
+  fabric: '#444',
+  cushion: '#555',
+  pillow: '#666'
+};
+
+/**
+ * Resolves a custom property to a colour canvas can use. The `--data-*` ramp
+ * is `color-mix()` over other variables, which a canvas fillStyle cannot
+ * parse, so it is resolved through a probe element's computed colour.
+ */
+function resolveColour(name: string, fallback: string): string {
+  const probe = document.createElement('span');
+  probe.style.display = 'none';
+  probe.style.color = `var(${name}, ${fallback})`;
+  document.body.append(probe);
+  const colour = getComputedStyle(probe).color || fallback;
+  probe.remove();
+  return colour;
+}
+
+/** Relative luminance (0..1) of an `rgb(...)` or hex colour. */
+export function luminance(colour: string): number {
+  const [red, green, blue] = withAlpha(colour, 1)
+    .match(/[\d.]+/g)!
+    .slice(0, 3)
+    .map((channel) => {
+      const value = Number(channel) / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function themeColours(): ThemeColours {
+  const theme = document.documentElement.dataset.theme ?? 'light';
+  if (theme !== cachedTheme) {
+    cachedTheme = theme;
+    const styles = getComputedStyle(document.documentElement);
+    const read = (name: string) => styles.getPropertyValue(name).trim();
+    const muted = read('--muted') || read('--text') || '#666';
+    const line = read('--line') || muted;
+    const accent = read('--accent') || muted;
+    cachedColours = {
+      outline: muted,
+      muted,
+      line,
+      accent,
+      lightGround: luminance(resolveColour('--bg', '#000')) > 0.5,
+      fabric: resolveColour('--data-1', line),
+      cushion: resolveColour('--data-2', line),
+      pillow: resolveColour('--data-3', accent)
+    };
+  }
+  return cachedColours;
+}
+
+/**
+ * Silhouette colour for sprites. Reads `--muted` rather than `--text`: at full
+ * text contrast the outline traced every limb in stark white or black, which
+ * read as heavy banding rather than an edge.
+ */
+export function themeOutline(): string {
+  return themeColours().outline;
+}
+
+/** 0..1 for a record rising out of a pocket or sinking back in; 1 when simply held. */
+export function pocketReveal(person: PixelPersonRuntime, now: number): number {
+  const carried = person.carrying;
+  if (!carried) return 0;
+  if (carried.stowingAt !== null) {
+    return 1 - clamp((now - carried.stowingAt) / MUSIC.pocketMs, 0, 1);
+  }
+  if (carried.source !== 'pocket') return 1;
+  return clamp((now - carried.takenAt) / MUSIC.pocketMs, 0, 1);
+}
+
+/** True while something on screen changes every frame, so there is no point comparing. */
+function animatingContinuously(scene: RoomScene): boolean {
+  const { now } = scene;
+  const glow = lampGlow(scene.lamp, now);
+  if (scene.debug || (glow > 0 && glow < 1)) return true;
+  return scene.people.some(
+    (person) =>
+      person.drag !== null ||
+      listeningSince(person) !== null ||
+      person.exit?.enteredAt != null ||
+      (person.carrying !== null && pocketReveal(person, now) < 1) ||
+      arrivalAppear(person, now) < 1
+  );
+}
 
 /**
  * Everything drawn is a pure function of these inputs; when none of them
- * changed since the last frame the previous canvas contents are already
- * correct and the whole clear+draw (and its raster upload) can be skipped.
- * Continuous states (drag pendulum, record fade, debug overlay) fold `now`
- * into the signature, which forces a redraw every frame while they last.
+ * changed since the last frame the canvas is already right and the clear and
+ * draw are skipped. Null when something animates continuously, so a frame is
+ * drawn without building a signature that could never match.
  */
-function renderSignature(
-  canvas: HTMLCanvasElement,
-  people: readonly PixelPersonRuntime[],
-  geometry: WorldGeometry,
-  now: number,
-  debug: boolean,
-  placedRecords: readonly PlacedRecord[]
-): string {
-  if (geometry !== lastGeometry) {
-    lastGeometry = geometry;
-    geometryRevision += 1;
-  }
+function renderSignature(canvas: HTMLCanvasElement, scene: RoomScene): string | null {
+  if (animatingContinuously(scene)) return null;
+  const { now } = scene;
   let signature =
-    `${canvas.width}:${canvas.height}:${window.devicePixelRatio}:${window.scrollX}` +
-    `:${window.scrollY}:${geometryRevision}:${document.documentElement.dataset.theme ?? ''}`;
-  if (debug) signature += `:${now}`;
-  for (const record of placedRecords) {
-    // Held records are static; only an active fade needs per-frame redraws.
-    signature +=
-      now >= fadeStartAt(record)
-        ? `:${now}`
-        : `:${record.id}:${getRecordArt(record.imageUrl)?.status ?? ''}`;
+    `${canvas.width}:${canvas.height}:${scene.room.width}:${scene.room.shelfSide}` +
+    `:${document.documentElement.dataset.theme ?? ''}` +
+    `:door${scene.doorOpacity.toFixed(2)}:${scene.doorShut.toFixed(2)}` +
+    `:${scene.room.furniture.length}:${scene.lamp.on}`;
+  for (const slot of scene.shelf) {
+    const url = slot.record?.imageUrl ?? '';
+    signature += `|${url}:${slot.out ?? ''}:${url ? (getRecordArt(url)?.status ?? '') : ''}`;
   }
-  for (const person of people) {
-    // Dragging (pendulum), listening (floating notes) and the entrance reveal
-    // animate continuously, so they redraw every frame while they last.
-    if (
-      person.drag ||
-      person.activity === 'listen' ||
-      spawnRevealProgress(person.spawnedAt, now) < 1
-    ) {
-      signature += `:${now}`;
-      continue;
-    }
+  for (const person of scene.people) {
     const frameIndex = selectSpriteFrame(
       person.definition,
       person.animation,
@@ -169,193 +251,123 @@ function renderSignature(
     ).index;
     signature +=
       `|${person.id}:${person.definition.id}:${Math.round(person.body.x)}:${Math.round(person.body.y)}` +
-      `:${person.body.height}:${person.facing}:${person.animation}:${frameIndex}` +
-      `:${person.hiddenOccluderId ?? ''}`;
+      `:${person.facing}:${person.animation}:${frameIndex}`;
     if (person.carrying) {
-      const art = getRecordArt(person.carrying.imageUrl);
+      const art = getRecordArt(person.carrying.record.imageUrl);
       signature += `:${art?.status ?? ''}:${carriedRecordBob(person, now)}`;
     }
   }
   return signature;
 }
 
-/**
- * A small door, drawn as flat rectangles rather than a sprite frame: it is
- * axis-aligned pixel shapes either way, and this keeps it themed off the live
- * CSS variables without a palette or a raster cache entry.
- */
-function doorwayScreenRect(viewportBounds: Rect): Rect {
-  const rect = doorwayRect(viewportBounds);
-  return {
-    x: Math.round(rect.x - window.scrollX),
-    y: Math.round(rect.y - window.scrollY),
-    width: rect.width,
-    height: rect.height
-  };
-}
-
-function doorwayColours(): { frame: string; accent: string } {
-  const styles = getComputedStyle(document.documentElement);
-  const frame = styles.getPropertyValue('--muted').trim() || '#666';
-  return { frame, accent: styles.getPropertyValue('--accent').trim() || frame };
-}
-
-/**
- * The frame and the opening, painted *behind* the people so someone standing
- * on the threshold is in the doorway rather than in front of it.
- *
- * The opening is a translucent black rather than the page colour: filled with
- * --bg it read as an empty frame, being page-coloured by definition.
- */
-function drawDoorwayFrame(
-  context: CanvasRenderingContext2D,
-  viewportBounds: Rect,
-  opacity: number
-): void {
-  if (opacity <= 0) return;
-  const rect = doorwayScreenRect(viewportBounds);
-  const { frame } = doorwayColours();
-  const alpha = Math.min(1, Math.max(0, opacity));
-
-  context.save();
-  context.globalAlpha = alpha;
-  context.fillStyle = frame;
-  context.fillRect(rect.x, rect.y, rect.width, rect.height);
-  context.globalAlpha = alpha * 0.62;
-  context.fillStyle = '#000';
-  context.fillRect(rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 3);
-  context.globalAlpha = alpha;
-  context.fillStyle = frame;
-  context.fillRect(rect.x + 3, rect.y + 8, rect.width - 6, 1);
-  context.restore();
-}
-
-/**
- * The door itself, swinging across the opening — painted *in front* of the
- * people, because that is what closing a door on someone looks like. It is
- * what hides them, and the fade underneath is only there so a partly-drawn
- * slab never leaves a sliver of someone behind.
- */
-function drawDoorwayDoor(
-  context: CanvasRenderingContext2D,
-  viewportBounds: Rect,
-  opacity: number,
-  shut: number
-): void {
-  if (opacity <= 0 || shut <= 0) return;
-  const rect = doorwayScreenRect(viewportBounds);
-  const { frame, accent } = doorwayColours();
-  const alpha = Math.min(1, Math.max(0, opacity));
-  const closed = Math.min(1, Math.max(0, shut));
-
-  const openingX = rect.x + 3;
-  const openingY = rect.y + 3;
-  const openingWidth = rect.width - 6;
-  const openingHeight = rect.height - 3;
-  // Hinged on the left, so it sweeps toward the viewport edge.
-  const leafWidth = Math.max(1, Math.round(openingWidth * closed));
-
-  context.save();
-  // Two passes rather than one translucent one. The leaf has to be opaque —
-  // it is what hides the person stepping through, and a see-through door shows
-  // them standing inside it. But a solid --muted slab is much the brightest
-  // thing on screen, so it goes over an opaque dark base to knock it back.
-  context.globalAlpha = alpha;
-  context.fillStyle = '#000';
-  context.fillRect(openingX, openingY, leafWidth, openingHeight);
-  context.globalAlpha = alpha * 0.72;
-  context.fillStyle = frame;
-  context.fillRect(openingX, openingY, leafWidth, openingHeight);
-  // The leading edge reads as the door's thickness catching the light.
-  context.globalAlpha = alpha * 0.55;
-  context.fillStyle = '#000';
-  context.fillRect(openingX + leafWidth - 1, openingY, 1, openingHeight);
-  // The knob only makes sense once there is enough leaf to hang it on.
-  if (closed > 0.65) {
-    context.globalAlpha = alpha;
-    context.fillStyle = accent;
-    context.fillRect(
-      openingX + leafWidth - 5,
-      openingY + Math.round(openingHeight / 2),
-      2,
-      3
-    );
-  }
-  context.restore();
-}
-
-export function renderPixelWorld(
-  canvas: HTMLCanvasElement,
-  people: readonly PixelPersonRuntime[],
-  geometry: WorldGeometry,
-  now: number,
-  debug: boolean,
-  placedRecords: readonly PlacedRecord[] = [],
-  doorwayOpacity = 0,
-  doorwayShut = 0
-): void {
-  const context = sizeCanvas(canvas);
+export function renderRoom(canvas: HTMLCanvasElement, scene: RoomScene): void {
+  const { room, now } = scene;
+  const context = sizeCanvas(canvas, room.width, room.height);
   if (!context) return;
-  const signature =
-    renderSignature(canvas, people, geometry, now, debug, placedRecords) +
-    `|door:${doorwayOpacity.toFixed(2)}:${doorwayShut.toFixed(2)}`;
-  if (signature === lastRenderSignature) return;
-  lastRenderSignature = signature;
+  const applied = appliedSizes.get(canvas)!;
+  const signature = renderSignature(canvas, scene);
+  if (signature !== null && signature === applied.signature) return;
+  applied.signature = signature ?? '';
   // Clear in device space: CSS-space clearing under-covers the last device
-  // row/column when innerWidth * dpr rounds up (fractional-DPR ghosting).
+  // row/column when the size * dpr rounds up (fractional-DPR ghosting).
   context.save();
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.restore();
 
-  if (debug) {
-    drawDebugGeometry(context, geometry.colliders, geometry.occluders, geometry.itemSources);
+  const colours = themeColours();
+  const glow = lampGlow(scene.lamp, now);
+  // Behind everything, so the light falls on the couch and whoever is on it.
+  for (const piece of room.furniture) {
+    if (piece.kind === 'lamp' && glow > 0) drawLampGlow(context, piece, glow, colours);
   }
-  drawPlacedRecords(context, placedRecords, now);
-  drawDoorwayFrame(context, geometry.viewportBounds, doorwayOpacity);
-  for (const person of people) {
-    // While seated the record leans beside the listener, painted first so the
-    // person always sits in front of it; in hand it paints over the sprite.
-    const listening = person.activity === 'listen';
-    if (listening) drawCarriedRecord(context, person, now);
+  for (const piece of room.furniture) drawFurniture(context, piece, colours, glow);
+  drawShelf(context, room, scene.shelf, colours);
+  if (scene.debug) drawDebug(context, room);
+  drawDoorwayFrame(context, room, scene.doorOpacity, colours);
+  for (const person of scene.people) {
+    // Set down beside a sitter, the record is painted first so they sit in
+    // front of it; in hand it paints over the sprite.
+    const behind = person.carrying ? carriedRecordPlacement(person, room, now).behind : false;
+    if (behind) drawCarriedRecord(context, room, person, now);
     drawPerson(context, person, now);
-    if (!listening) drawCarriedRecord(context, person, now);
-    if (listening) drawListeningNotes(context, person, now);
-    const occluder = hidingOccluder(person, geometry);
-    if (occluder) clearOccludedPixels(context, person, occluder);
-    if (debug && person.drag) drawDangleDebug(context, person);
+    if (!behind) drawCarriedRecord(context, room, person, now);
+    if (listeningSince(person) !== null) drawListeningNotes(context, person, now, colours.outline);
   }
   // Last, so the closing door passes in front of whoever stepped through it.
-  drawDoorwayDoor(context, geometry.viewportBounds, doorwayOpacity, doorwayShut);
+  drawDoorwayDoor(context, room, scene.doorOpacity, scene.doorShut, colours);
 }
 
-// A tiny eighth note, drawn at the sprite scale (each cell is 2x2 px).
+/**
+ * The low record shelf: a 2px board with a 1px echo rule beneath it — the
+ * same paired-hairline vocabulary as the cover wall's shelves — on two thin
+ * legs, with the records standing face-out on top. A record someone has out
+ * leaves its gap.
+ */
+function drawShelf(
+  context: CanvasRenderingContext2D,
+  room: RoomLayout,
+  shelf: readonly ShelfSlot[],
+  colours: ThemeColours
+): void {
+  const { x, width, boardY } = room.shelf;
+  context.save();
+  context.fillStyle = colours.line;
+  context.strokeStyle = colours.line;
+  context.fillRect(x, boardY, width, SHELF.boardThickness);
+  context.fillRect(x, boardY + SHELF.boardThickness + 3, width, 1);
+  context.fillRect(x + 1, boardY, 1, room.floorY - boardY);
+  context.fillRect(x + width - 2, boardY, 1, room.floorY - boardY);
+  shelf.forEach((slot, index) => {
+    const layout = room.shelf.slots[index];
+    if (!layout || !slot.record || slot.out) return;
+    const art = getRecordArt(slot.record.imageUrl);
+    if (art?.status === 'ready' && art.sprite) {
+      context.drawImage(art.sprite, layout.x, layout.y, RECORD_SIZE, RECORD_SIZE);
+    } else {
+      // A sleeve outline while the art loads (or if it never does), so the
+      // shelf never looks emptier than it is.
+      context.globalAlpha = 0.6;
+      context.strokeRect(layout.x + 0.5, layout.y + 0.5, RECORD_SIZE - 1, RECORD_SIZE - 1);
+      context.globalAlpha = 1;
+    }
+  });
+  context.restore();
+}
+
+// A tiny eighth note, one CSS pixel per cell, so it reads as a hint of music
+// rather than competing with the sprite.
 const NOTE_GLYPH = ['..#.', '..##', '..#.', '..#.', '.##.', '###.'];
-const NOTE_INTERVAL_MS = 650;
-const NOTE_LIFE_MS = 1_900;
+const NOTE_CELL = 1;
+const NOTE_INTERVAL_MS = 900;
+const NOTE_LIFE_MS = 1_700;
+const NOTE_RISE = 14;
+const NOTE_ALPHA = 0.7;
 
 function drawListeningNotes(
   context: CanvasRenderingContext2D,
   person: PixelPersonRuntime,
-  now: number
+  now: number,
+  colour: string
 ): void {
-  if (!person.listen) return;
-  const elapsed = now - person.listen.startedAt;
+  const since = listeningSince(person);
+  if (since === null) return;
+  const elapsed = now - since;
   const newest = Math.floor(elapsed / NOTE_INTERVAL_MS);
   const oldest = Math.max(0, Math.ceil((elapsed - NOTE_LIFE_MS) / NOTE_INTERVAL_MS));
   const headX = person.body.x + person.body.width / 2;
-  const headY = person.body.y + 6;
+  const headY = person.body.y + 6 + (POSE[person.animation]?.headDrop ?? 0);
   context.save();
-  context.fillStyle = themeOutline();
+  context.fillStyle = colour;
   for (let index = oldest; index <= newest; index += 1) {
     const age = elapsed - index * NOTE_INTERVAL_MS;
     if (age < 0 || age >= NOTE_LIFE_MS) continue;
     const progress = age / NOTE_LIFE_MS;
     const side = index % 2 === 0 ? 1 : -1;
-    const x = headX + side * (7 + progress * 9) + Math.sin(age / 260 + index) * 2;
-    const y = headY - 6 - progress * 24;
-    context.globalAlpha = progress < 0.75 ? 1 : 1 - (progress - 0.75) / 0.25;
-    drawNoteGlyph(context, Math.round(x - window.scrollX), Math.round(y - window.scrollY));
+    const x = headX + side * (6 + progress * 5) + Math.sin(age / 260 + index);
+    const y = Math.max(0, headY - 4 - progress * NOTE_RISE);
+    context.globalAlpha = NOTE_ALPHA * (progress < 0.75 ? 1 : 1 - (progress - 0.75) / 0.25);
+    drawNoteGlyph(context, Math.round(x), Math.round(y));
   }
   context.restore();
 }
@@ -364,51 +376,8 @@ function drawNoteGlyph(context: CanvasRenderingContext2D, x: number, y: number):
   for (let row = 0; row < NOTE_GLYPH.length; row += 1) {
     for (let column = 0; column < NOTE_GLYPH[row].length; column += 1) {
       if (NOTE_GLYPH[row][column] !== '#') continue;
-      context.fillRect(x + column * 2, y + row * 2, 2, 2);
+      context.fillRect(x + column * NOTE_CELL, y + row * NOTE_CELL, NOTE_CELL, NOTE_CELL);
     }
-  }
-}
-
-/**
- * The placed record (topmost first) under a document-space point, if any.
- * Records already fading are not clickable — they are on their way out.
- */
-export function placedRecordHitTest(
-  records: readonly PlacedRecord[],
-  documentPoint: Point,
-  now: number
-): PlacedRecord | null {
-  const slop = 3;
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    const record = records[index];
-    if (now >= fadeStartAt(record)) continue;
-    if (pointInside(documentPoint, expandedRect(placedRecordRect(record), slop))) {
-      return record;
-    }
-  }
-  return null;
-}
-
-function drawPlacedRecords(
-  context: CanvasRenderingContext2D,
-  records: readonly PlacedRecord[],
-  now: number
-): void {
-  if (records.length === 0) return;
-  for (const record of records) {
-    const art = getRecordArt(record.imageUrl);
-    if (art?.status !== 'ready' || !art.sprite) continue;
-    const progress = clamp((now - fadeStartAt(record)) / PLACED_RECORD_FADE_MS, 0, 1);
-    if (progress >= 1) continue;
-    const rect = placedRecordRect(record);
-    context.save();
-    context.globalAlpha = 1 - progress * progress * (3 - 2 * progress);
-    context.drawImage(
-      art.sprite,
-      Math.round(rect.x - window.scrollX),
-      Math.round(rect.y - window.scrollY)
-    );
-    context.restore();
   }
 }
 
@@ -416,71 +385,98 @@ function carriedRecordBob(person: PixelPersonRuntime, now: number): number {
   return person.animation === 'walk' ? Math.round(Math.sin(now / 220)) : 0;
 }
 
+/**
+ * How each pose holds a record and where its head sits, for the poses that
+ * differ from standing. Keyed by the animation actually drawn, so a new pose
+ * declares its own entry rather than adding a special case below.
+ */
+const POSE: Partial<
+  Record<AnimationName, { hold?: 'rest' | 'off-hand'; restHeight?: number; headDrop?: number }>
+> = {
+  // Cross-legged on the floor: the record leans on the floor beside them.
+  listen: { hold: 'rest', restHeight: 0 },
+  // Sunk into a seat: on the cushion by their knee, head about 4px lower.
+  lounge: { hold: 'rest', restHeight: LOUNGE.cushionHeight, headDrop: 4 },
+  // One arm up to the lamp: the record is in the other hand.
+  reach: { hold: 'off-hand' }
+};
+
+/**
+ * Where a carried record is drawn, and whether it sits behind the person.
+ *
+ * - Sitting (on a seat, or cross-legged on the floor to listen): it rests
+ *   beside them — on the cushion by their knee, or on the floor — from the
+ *   moment they sit, behind them. Waiting for the listen to start left it
+ *   hovering at standing hand height for the settle beat, then jumping down.
+ * - Reaching for the lamp: in the hand that is not reaching, i.e. on the side
+ *   away from the lamp, or it hangs in the air beside the raised arm.
+ * - Otherwise: in hand, in front, on the side they face, with a walk bob.
+ *
+ * Kept free of canvas types so the placement rules can be unit tested.
+ */
+export function carriedRecordPlacement(
+  person: PixelPersonRuntime,
+  room: RoomLayout,
+  now: number
+): { x: number; y: number; behind: boolean } {
+  const { body } = person;
+  const pose = POSE[person.animation];
+  if (pose?.hold === 'rest') {
+    const x = person.facing === 1 ? body.x + body.width - 4 : body.x - RECORD_SIZE + 4;
+    return { x, y: room.floorY - (pose.restHeight ?? 0) - RECORD_SIZE, behind: true };
+  }
+  const side = pose?.hold === 'off-hand' ? -person.facing : person.facing;
+  const x = side === 1 ? body.x + body.width - 3 : body.x - RECORD_SIZE + 3;
+  const y = body.y + body.height - RECORD_SIZE - 7 + carriedRecordBob(person, now);
+  return { x, y, behind: false };
+}
+
 function drawCarriedRecord(
   context: CanvasRenderingContext2D,
+  room: RoomLayout,
   person: PixelPersonRuntime,
   now: number
 ): void {
-  if (!person.carrying || person.drag) return;
-  const art = getRecordArt(person.carrying.imageUrl);
+  if (!person.carrying) return;
+  const art = getRecordArt(person.carrying.record.imageUrl);
   if (art?.status !== 'ready' || !art.sprite) return;
-  const size = RECORD_PIXELS * RECORD_SCALE;
-  // Drawn outside the facing-flip transform so the album art never mirrors;
-  // held in front of the body with a slight hand overlap and a walk bob.
-  // While listening it rests on the ground, leaning against the sitter's
-  // side (and is painted behind them by the render order above).
-  const listening = person.activity === 'listen';
-  const bob = listening ? 0 : carriedRecordBob(person, now);
-  const x = listening
-    ? person.facing === 1
-      ? person.body.x + person.body.width - 6
-      : person.body.x - size + 6
-    : person.facing === 1
-      ? person.body.x + person.body.width - 4
-      : person.body.x - size + 4;
-  const y = listening
-    ? person.body.y + person.body.height - size
-    : person.body.y + person.body.height - size - 4 + bob;
-  context.drawImage(
-    art.sprite,
-    Math.round(x - window.scrollX),
-    Math.round(y - window.scrollY)
-  );
+  const reveal = pocketReveal(person, now);
+  if (reveal <= 0) return;
+  // Drawn outside the facing-flip transform so the album art never mirrors.
+  const { x, y } = carriedRecordPlacement(person, room, now);
+  const sink = Math.round((1 - reveal) * 8);
+  context.save();
+  if (reveal < 1) {
+    // Clipped at the hip, so it comes up out of the pocket rather than
+    // fading in mid-air.
+    context.beginPath();
+    context.rect(x - 1, y - 2, RECORD_SIZE + 2, RECORD_SIZE + 2);
+    context.clip();
+    context.globalAlpha = Math.min(1, reveal * 1.5);
+  }
+  context.drawImage(art.sprite, Math.round(x), Math.round(y + sink), RECORD_SIZE, RECORD_SIZE);
+  context.restore();
 }
 
-function hidingOccluder(
-  person: PixelPersonRuntime,
-  geometry: WorldGeometry
-): Occluder | undefined {
-  if (!person.hiddenOccluderId) return undefined;
-  return geometry.occluders.find((candidate) => candidate.id === person.hiddenOccluderId);
-}
-
+/** Room-local hit test against the sprite's lit pixels, not its box. */
 export function isPointOnPixelPerson(
   person: PixelPersonRuntime,
-  screenPoint: Point,
-  geometry: WorldGeometry,
+  point: Point,
   now: number
 ): boolean {
-  if (person.drag) return false;
+  if (person.drag || person.exit || arrivalAppear(person, now) < 1) return false;
   const definition = person.definition;
-  const documentPoint = clientToDocument(screenPoint);
-
   const hitSlop = 2;
   const spriteX = person.body.x - definition.body.offsetX;
-  const spriteY = spriteDocumentY(person);
+  const spriteY = spriteTopY(person);
   if (
-    documentPoint.x < spriteX - hitSlop ||
-    documentPoint.x > spriteX + definition.pixelWidth * definition.scale + hitSlop ||
-    documentPoint.y < spriteY - hitSlop ||
-    documentPoint.y > spriteY + definition.pixelHeight * definition.scale + hitSlop
+    point.x < spriteX - hitSlop ||
+    point.x > spriteX + definition.pixelWidth * definition.scale + hitSlop ||
+    point.y < spriteY - hitSlop ||
+    point.y > spriteY + definition.pixelHeight * definition.scale + hitSlop
   ) {
     return false;
   }
-
-  const occluder = hidingOccluder(person, geometry);
-  if (occluder && pointInside(documentPoint, occluder)) return false;
-
   const { frame } = selectSpriteFrame(
     definition,
     person.animation,
@@ -492,8 +488,8 @@ export function isPointOnPixelPerson(
     frame,
     definition.scale,
     person.facing,
-    documentPoint.x - spriteX,
-    documentPoint.y - spriteY
+    point.x - spriteX,
+    point.y - spriteY
   );
 }
 
@@ -510,8 +506,8 @@ function drawPerson(
     now,
     spriteTimeScale(person.animation, person.body.vx)
   );
-  const spriteX = Math.round(person.body.x - definition.body.offsetX - window.scrollX);
-  const spriteY = Math.round(spriteDocumentY(person) - window.scrollY);
+  const spriteX = Math.round(person.body.x - definition.body.offsetX);
+  const spriteY = Math.round(spriteTopY(person));
   const spriteWidth = definition.pixelWidth * definition.scale;
   const spriteHeight = definition.pixelHeight * definition.scale;
   const sprite = cachedFrame(
@@ -521,30 +517,16 @@ function drawPerson(
     definition.scale
   );
 
+  // Coming in, they fade up on the threshold once the door is open; going
+  // out, they fade as it shuts on them.
+  const visible = arrivalAppear(person, now) * (1 - doorwayExitFade(person, now));
+  if (visible <= 0) return;
   context.save();
-  // Leaving through the doorway: fade out on the threshold.
-  const leaving = doorwayExitFade(person, now);
-  if (leaving > 0) context.globalAlpha = 1 - leaving;
-  // Entrance: clip to where they will end up and draw them offset below it, so
-  // they rise into place instead of blinking into existence. Dragged people are
-  // never mid-entrance, and the drag path draws around an anchor rather than
-  // the sprite box, so it is left alone.
-  const entrance = person.drag ? 1 : spawnRevealProgress(person.spawnedAt, now);
-  if (entrance < 1) {
-    context.beginPath();
-    context.rect(spriteX - 1, spriteY, spriteWidth + 2, spriteHeight);
-    context.clip();
-    // Multiplied, not assigned: an exit fade may already have set it.
-    context.globalAlpha *= entrance;
-    context.translate(0, Math.round((1 - entrance) * spriteHeight));
-  }
+  if (visible < 1) context.globalAlpha = visible;
   if (person.drag) {
     const gripX = definition.dragGrip.x * definition.scale;
     const gripY = definition.dragGrip.y * definition.scale;
-    context.translate(
-      Math.round(person.drag.anchor.x - window.scrollX),
-      Math.round(person.drag.anchor.y - window.scrollY)
-    );
+    context.translate(Math.round(person.drag.anchor.x), Math.round(person.drag.anchor.y));
     context.rotate(-person.drag.angle);
     if (person.facing === -1) context.scale(-1, 1);
     context.drawImage(sprite, -gripX, -gripY, spriteWidth, spriteHeight);
@@ -558,30 +540,246 @@ function drawPerson(
   context.restore();
 }
 
-function drawDangleDebug(
+function spriteTopY(person: PixelPersonRuntime): number {
+  const definition = person.definition;
+  return person.body.y - definition.body.offsetY - (definition.body.height - person.body.height);
+}
+
+/**
+ * Lounge furniture as flat pixel shapes: theme-ramp upholstery with a --line
+ * edge, so it sits in the same quiet register as the shelf. The lamp's shade
+ * is the one accent.
+ */
+function drawFurniture(
   context: CanvasRenderingContext2D,
-  person: PixelPersonRuntime
+  piece: FurniturePiece,
+  colours: ThemeColours,
+  glow: number
 ): void {
-  if (!person.drag) return;
+  const floorY = piece.y + piece.height;
   context.save();
-  context.strokeStyle = 'rgba(229, 106, 170, 0.8)';
+  if (piece.kind === 'lamp') {
+    const centre = piece.x + Math.floor(piece.width / 2);
+    context.fillStyle = colours.line;
+    context.fillRect(centre, floorY - LOUNGE.lampHeight + 6, 1, LOUNGE.lampHeight - 6);
+    context.fillRect(centre - 2, floorY - 1, 5, 1);
+    // A shade that widens downward, one row at a time: a dull edge colour
+    // when off, warming to lamplight as it comes on.
+    const top = floorY - LOUNGE.lampHeight;
+    const drawShade = (colour: string) => {
+      context.fillStyle = colour;
+      [5, 5, 7, 7, 9, 9].forEach((rowWidth, row) => {
+        context.fillRect(piece.x + (piece.width - rowWidth) / 2, top + row, rowWidth, 1);
+      });
+    };
+    drawShade(colours.line);
+    if (glow > 0) {
+      context.globalAlpha = glow;
+      drawShade(lampLight(colours).shade);
+      context.globalAlpha = 1;
+    }
+    context.restore();
+    return;
+  }
+
+  const { x, width } = piece;
+  const arm = LOUNGE.armWidth;
+  const seatTop = floorY - LOUNGE.cushionHeight;
+  const backTop = floorY - LOUNGE.backHeight;
+  const armTop = floorY - LOUNGE.armHeight;
+  // Legs.
+  context.fillStyle = colours.line;
+  context.fillRect(x + 2, floorY - 2, 2, 2);
+  context.fillRect(x + width - 4, floorY - 2, 2, 2);
+  // Back, then the seat base, then the arms over both.
+  outlinedBox(context, x + arm - 1, backTop, width - (arm - 1) * 2, seatTop - backTop + 1, colours.fabric, colours.line);
+  outlinedBox(context, x + arm - 1, seatTop, width - (arm - 1) * 2, floorY - 2 - seatTop, colours.cushion, colours.line);
+  outlinedBox(context, x, armTop, arm, floorY - 2 - armTop, colours.fabric, colours.line);
+  outlinedBox(context, x + width - arm, armTop, arm, floorY - 2 - armTop, colours.fabric, colours.line);
+  if (piece.kind === 'couch') {
+    // The seam between the two cushions, on the seat and up the back.
+    const middle = x + Math.floor(width / 2);
+    context.fillStyle = colours.line;
+    context.fillRect(middle, seatTop + 1, 1, floorY - 3 - seatTop);
+    context.fillRect(middle, backTop + 2, 1, seatTop - backTop - 3);
+    // A throw pillow propped in the left corner.
+    outlinedBox(context, x + arm, seatTop - 6, 6, 6, colours.pillow, colours.line);
+  }
+  context.restore();
+}
+
+function lampLight(colours: ThemeColours): (typeof LAMP_GLOW)['dark' | 'light'] {
+  return colours.lightGround ? LAMP_GLOW.light : LAMP_GLOW.dark;
+}
+
+/**
+ * A soft pool of warm light around the shade. The only gradient in the room,
+ * and only while the lamp is on.
+ */
+function drawLampGlow(
+  context: CanvasRenderingContext2D,
+  lamp: FurniturePiece,
+  glow: number,
+  colours: ThemeColours
+): void {
+  const radius = LAMP_GLOW.radius;
+  const centreX = lamp.x + lamp.width / 2;
+  const centreY = lamp.y + 5;
+  context.save();
+  context.globalAlpha = glow;
+  context.drawImage(glowSprite(lampLight(colours)), centreX - radius, centreY - radius, radius * 2, radius * 2);
+  context.restore();
+}
+
+const glowSprites = new Map<string, HTMLCanvasElement>();
+
+/**
+ * The glow at full strength, rendered once per colour and pixel ratio. The
+ * lamp is usually on, so building a gradient every frame would be the
+ * room's biggest per-frame cost; a fade is just this drawn with an alpha.
+ */
+function glowSprite(light: (typeof LAMP_GLOW)['dark' | 'light']): HTMLCanvasElement {
+  const dpr = clampedDpr();
+  const key = `${light.glow}:${light.strength}:${dpr}`;
+  const cached = glowSprites.get(key);
+  if (cached) return cached;
+  const size = Math.round(LAMP_GLOW.radius * 2 * dpr);
+  const sprite = document.createElement('canvas');
+  sprite.width = size;
+  sprite.height = size;
+  const context = sprite.getContext('2d');
+  if (context) {
+    const half = size / 2;
+    const gradient = context.createRadialGradient(half, half, 0, half, half, half);
+    gradient.addColorStop(0, withAlpha(light.glow, light.strength));
+    gradient.addColorStop(0.45, withAlpha(light.glow, light.strength * 0.4));
+    gradient.addColorStop(1, withAlpha(light.glow, 0));
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, size, size);
+  }
+  glowSprites.set(key, sprite);
+  return sprite;
+}
+
+/** `#rgb`, `#rrggbb` or `rgb(...)` with an alpha, for gradient stops. */
+export function withAlpha(colour: string, alpha: number): string {
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  const hex = colour.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const digits =
+      hex[1].length === 3 ? [...hex[1]].map((digit) => digit + digit).join('') : hex[1];
+    red = parseInt(digits.slice(0, 2), 16);
+    green = parseInt(digits.slice(2, 4), 16);
+    blue = parseInt(digits.slice(4, 6), 16);
+  } else {
+    const parts = colour.match(/[\d.]+/g)?.map(Number) ?? [];
+    [red, green, blue] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+  }
+  return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function outlinedBox(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fill: string,
+  edge: string
+): void {
+  context.fillStyle = edge;
+  context.fillRect(x, y, width, height);
+  context.fillStyle = fill;
+  context.fillRect(x + 1, y + 1, width - 2, height - 2);
+}
+
+/**
+ * The frame and the opening, painted *behind* the people so someone standing
+ * on the threshold is in the doorway rather than in front of it. The opening
+ * is a translucent black: filled with the page colour it read as an empty
+ * frame.
+ */
+function drawDoorwayFrame(
+  context: CanvasRenderingContext2D,
+  room: RoomLayout,
+  opacity: number,
+  colours: ThemeColours
+): void {
+  if (opacity <= 0) return;
+  const rect = room.door;
+  const alpha = clamp(opacity, 0, 1);
+  context.save();
+  context.globalAlpha = alpha;
+  context.fillStyle = colours.muted;
+  context.fillRect(rect.x, rect.y, rect.width, rect.height);
+  context.globalAlpha = alpha * 0.62;
+  context.fillStyle = '#000';
+  context.fillRect(rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 3);
+  context.globalAlpha = alpha;
+  context.fillStyle = colours.muted;
+  context.fillRect(rect.x + 3, rect.y + 8, rect.width - 6, 1);
+  context.restore();
+}
+
+/**
+ * The door itself, swinging across the opening — painted *in front* of the
+ * people, because that is what closing a door on someone looks like.
+ */
+function drawDoorwayDoor(
+  context: CanvasRenderingContext2D,
+  room: RoomLayout,
+  opacity: number,
+  shut: number,
+  colours: ThemeColours
+): void {
+  if (opacity <= 0 || shut <= 0) return;
+  const rect = room.door;
+  const alpha = clamp(opacity, 0, 1);
+  const closed = clamp(shut, 0, 1);
+  const openingX = rect.x + 3;
+  const openingY = rect.y + 3;
+  const openingWidth = rect.width - 6;
+  const openingHeight = rect.height - 3;
+  const leafWidth = Math.max(1, Math.round(openingWidth * closed));
+
+  context.save();
+  // An opaque dark base under a translucent --muted slab: the leaf must hide
+  // whoever is stepping through, but a solid --muted slab glares.
+  context.globalAlpha = alpha;
+  context.fillStyle = '#000';
+  context.fillRect(openingX, openingY, leafWidth, openingHeight);
+  context.globalAlpha = alpha * 0.72;
+  context.fillStyle = colours.muted;
+  context.fillRect(openingX, openingY, leafWidth, openingHeight);
+  context.globalAlpha = alpha * 0.55;
+  context.fillStyle = '#000';
+  context.fillRect(openingX + leafWidth - 1, openingY, 1, openingHeight);
+  if (closed > 0.65) {
+    context.globalAlpha = alpha;
+    context.fillStyle = colours.accent;
+    context.fillRect(openingX + leafWidth - 5, openingY + Math.round(openingHeight / 2), 2, 3);
+  }
+  context.restore();
+}
+
+function drawDebug(context: CanvasRenderingContext2D, room: RoomLayout): void {
+  context.save();
   context.lineWidth = 1;
-  context.beginPath();
-  context.moveTo(
-    person.drag.anchor.x - window.scrollX,
-    person.drag.anchor.y - window.scrollY
-  );
-  context.lineTo(
-    person.body.x + person.body.width / 2 - window.scrollX,
-    person.body.y + person.body.height / 2 - window.scrollY
-  );
-  context.stroke();
+  context.strokeStyle = 'rgba(126, 217, 87, 0.85)';
+  for (const slot of room.shelf.slots) {
+    context.strokeRect(slot.x + 0.5, slot.y + 0.5, RECORD_SIZE - 1, RECORD_SIZE - 1);
+  }
+  context.setLineDash([3, 3]);
+  context.strokeStyle = 'rgba(229, 106, 170, 0.65)';
+  context.strokeRect(room.door.x + 0.5, room.door.y + 0.5, room.door.width - 1, room.door.height - 1);
   context.restore();
 }
 
 /**
  * Rasterizes one frame at `step` device pixels per sprite pixel. Callers own
- * caching; `cachedFrame` is the game path, the sprite explorer is the other.
+ * caching; `cachedFrame` is the room's path, the sprite explorer is the other.
  */
 export function rasterizeFrame(
   frame: SpriteFrame,
@@ -593,7 +791,7 @@ export function rasterizeFrame(
   surface.width = frame.rows[0].length * step;
   surface.height = frame.rows.length * step;
   const context = surface.getContext('2d');
-  if (context) drawFrame(context, frame, palette, outline, 0, 0, step);
+  if (context) drawFrame(context, frame, palette, outline, step);
   return surface;
 }
 
@@ -604,11 +802,10 @@ function cachedFrame(
   scale: number
 ): HTMLCanvasElement {
   const outline = themeOutline();
-  const step = deviceStep(scale, currentDpr());
+  const step = deviceStep(scale, clampedDpr());
   const key = spriteCacheKey(frameKey, outline, step);
   const cached = spriteCache.get(key);
   if (cached) return cached;
-
   const surface = rasterizeFrame(frame, palette, outline, step);
   spriteCache.set(key, surface);
   return surface;
@@ -619,9 +816,7 @@ function drawFrame(
   frame: SpriteFrame,
   palette: Record<string, string>,
   outline: string,
-  x: number,
-  y: number,
-  scale: number
+  step: number
 ): void {
   let activeColor = '';
   for (let row = 0; row < frame.rows.length; row += 1) {
@@ -634,118 +829,7 @@ function drawFrame(
         activeColor = color;
         context.fillStyle = color;
       }
-      context.fillRect(x + column * scale, y + row * scale, scale, scale);
+      context.fillRect(column * step, row * step, step, step);
     }
   }
-}
-
-/**
- * Silhouette colour for sprites. Reads `--muted` rather than `--text`: the
- * outline runs the full height of every limb, and at full text contrast that
- * traced the figure in stark white (dark themes) or black (light ones), which
- * read as heavy banding rather than an edge. `--muted` still separates the
- * sprite from `--bg` in every theme, at a weight that recedes.
- */
-export function themeOutline(): string {
-  const theme = document.documentElement.dataset.theme ?? 'light';
-  if (theme !== cachedTheme) {
-    cachedTheme = theme;
-    const styles = getComputedStyle(document.documentElement);
-    cachedOutline =
-      styles.getPropertyValue('--muted').trim() ||
-      styles.getPropertyValue('--text').trim() ||
-      '#111';
-  }
-  return cachedOutline;
-}
-
-function clearOccludedPixels(
-  context: CanvasRenderingContext2D,
-  person: PixelPersonRuntime,
-  occluder: Occluder
-): void {
-  const definition = person.definition;
-  const sprite = {
-    x: person.body.x - definition.body.offsetX,
-    y: spriteDocumentY(person),
-    width: definition.pixelWidth * definition.scale,
-    height: definition.pixelHeight * definition.scale
-  };
-  const left = Math.max(sprite.x, occluder.x);
-  const top = Math.max(sprite.y, occluder.y);
-  const right = Math.min(sprite.x + sprite.width, occluder.x + occluder.width);
-  const bottom = Math.min(sprite.y + sprite.height, occluder.y + occluder.height);
-  if (right <= left || bottom <= top) return;
-  context.clearRect(
-    Math.floor(left - window.scrollX),
-    Math.floor(top - window.scrollY),
-    Math.ceil(right - left),
-    Math.ceil(bottom - top)
-  );
-}
-
-function spriteDocumentY(person: PixelPersonRuntime): number {
-  const definition = person.definition;
-  return (
-    person.body.y -
-    definition.body.offsetY -
-    (definition.body.height - person.body.height)
-  );
-}
-
-function pointInside(point: Point, rect: Rect): boolean {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  );
-}
-
-function drawDebugGeometry(
-  context: CanvasRenderingContext2D,
-  colliders: Collider[],
-  occluders: Occluder[],
-  itemSources: ItemSource[]
-): void {
-  context.save();
-  context.lineWidth = 1;
-  for (const collider of colliders) {
-    context.strokeStyle = debugColor(collider.kind);
-    context.strokeRect(
-      Math.round(collider.x - window.scrollX) + 0.5,
-      Math.round(collider.y - window.scrollY) + 0.5,
-      Math.round(collider.width),
-      Math.round(collider.height)
-    );
-  }
-  context.setLineDash([3, 3]);
-  context.strokeStyle = 'rgba(229, 106, 170, 0.65)';
-  for (const occluder of occluders) {
-    context.strokeRect(
-      Math.round(occluder.x - window.scrollX) + 0.5,
-      Math.round(occluder.y - window.scrollY) + 0.5,
-      Math.round(occluder.width),
-      Math.round(occluder.height)
-    );
-  }
-  context.setLineDash([1, 2]);
-  context.strokeStyle = 'rgba(126, 217, 87, 0.85)';
-  for (const source of itemSources) {
-    context.strokeRect(
-      Math.round(source.x - window.scrollX) + 1.5,
-      Math.round(source.y - window.scrollY) + 1.5,
-      Math.round(source.width) - 2,
-      Math.round(source.height) - 2
-    );
-  }
-  context.restore();
-}
-
-function debugColor(kind: Collider['kind']): string {
-  if (kind === 'text') return 'rgba(75, 167, 200, 0.75)';
-  if (kind === 'border' || kind === 'platform') return 'rgba(230, 195, 132, 0.8)';
-  if (kind === 'solid') return 'rgba(228, 104, 118, 0.75)';
-  if (kind === 'ladder') return 'rgba(126, 217, 87, 0.6)';
-  return 'rgba(220, 215, 186, 0.5)';
 }

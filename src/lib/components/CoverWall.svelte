@@ -132,13 +132,12 @@
       {#each Array(skeletonCount) as _, index (index)}
         <li>
           <span class="tile skeleton" aria-hidden="true"></span>
-          <span class="shelf" data-pixel-collision="platform"></span>
+          <span class="shelf"></span>
         </li>
       {/each}
     {:else}
       {#each visible as item, index (item.id)}
         <li
-          data-pixel-collision="occluder"
           data-pixel-record={item.imageUrl && !failed[item.id] ? item.imageUrl : undefined}
           data-pixel-artist={item.subtitle ?? undefined}
           data-pixel-artist-rank={index + 1}
@@ -148,7 +147,6 @@
             this={item.href ? 'a' : 'div'}
             class="tile"
             href={item.href ? `${base}${item.href}` : undefined}
-            data-pixel-collision="ignore"
             use:tooltip={[captionText(item), item.value].filter(Boolean).join(' · ')}
             on:mouseenter={enterTile}
             on:mouseleave={leaveTile}
@@ -167,10 +165,7 @@
               <span class="art placeholder" aria-hidden="true">♪</span>
             {/if}
           </svelte:element>
-          <span class="shelf" data-pixel-collision="platform"></span>
-          {#if index % 3 === 1}
-            <span class="ladder" data-pixel-collision="ladder"></span>
-          {/if}
+          <span class="shelf"></span>
         </li>
       {/each}
     {/if}
@@ -187,9 +182,8 @@
     position: relative;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    /* Row gap is deliberately off the 4px spacing scale: .ladder spans from this
-       row's shelf up to the one above, so its -13px top is measured against this
-       exact 14px. Change one and you must re-derive the other. */
+    /* Row gap is off the 4px spacing scale: it leaves room for the shelf board
+       (bottom: -7px, 6px tall) plus a little air above the next row. */
     gap: 14px 8px;
     margin: 0;
     padding: 0 0 8px;
@@ -200,12 +194,9 @@
     position: relative;
   }
 
-  /* Pixel shelf board each row of records stands on; the pixel people walk
-     along these. The element spans exactly the tile so its collision rect
-     ends flush with the wall (overhang stubs were standable and people
-     pinballed down them). All paint lives on the ::before, which also extends
-     4px into each column gap to connect boards across it — pseudo-elements
-     and overflowing paint are both invisible to the geometry scanner. */
+  /* Pixel shelf board each row of records stands on. The element spans the
+     tile; the paint lives on the ::before, which extends 4px into each column
+     gap so the boards join up across it. */
   .shelf {
     position: absolute;
     left: 0;
@@ -224,17 +215,6 @@
     background:
       linear-gradient(var(--line), var(--line)) 0 0 / 100% 2px no-repeat,
       linear-gradient(var(--line), var(--line)) 0 5px / 100% 1px no-repeat;
-  }
-
-  /* Invisible climbing zone in the column gap, spanning from this row's
-     shelf up to the shelf above; pixel people use these to climb the wall. */
-  .ladder {
-    position: absolute;
-    top: -13px;
-    bottom: -7px;
-    right: -6px;
-    width: 4px;
-    pointer-events: none;
   }
 
   .tile {

@@ -5,7 +5,7 @@
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
   import ListeningClock from '$lib/components/ListeningClock.svelte';
-  import PixelPromenade from '$lib/components/PixelPromenade.svelte';
+  import PixelRoom from '$lib/components/PixelRoom.svelte';
   import ReleaseYearChart from '$lib/components/ReleaseYearChart.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
   import StatList from '$lib/components/StatList.svelte';
@@ -315,9 +315,9 @@
       </section>
     </DitherFrame>
 
-    <PixelPromenade station="overview-listening-deck" marker="right" />
+    <PixelRoom station="overview-listening-deck" shelf="right" />
 
-    <div class="window-bar promenade-follow">
+    <div class="window-bar room-follow">
       <div class="window-toggle" role="group" aria-label="Time window for top music">
         <button
           type="button"
@@ -463,7 +463,7 @@
     margin-bottom: 12px;
   }
 
-  .promenade-follow {
+  .room-follow {
     margin-top: var(--space-6);
   }
 

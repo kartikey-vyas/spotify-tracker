@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ambientCharacterRegistry,
-  characterRegistry,
-  tinyPerson
-} from '../../src/lib/pixel-person/characters';
+import { characterRegistry, tinyPerson, withPalette } from '../../src/lib/pixel-person/characters';
 import { normalizeArtistName } from '../../src/lib/pixel-person/artist-name';
 import {
   artistCharacterFor,
   artistRegistry,
+  defaultResident,
   hasMatchedArtist,
   pickCharacter,
   resolveCharacter
@@ -15,7 +12,7 @@ import {
 import type { ArtistPresence } from '../../src/lib/pixel-person/types';
 
 function presence(name: string, rank?: number): ArtistPresence {
-  return { x: 0, y: 0, width: 10, height: 10, id: `p-${name}-${rank ?? 'x'}`, name, rank };
+  return { name, rank };
 }
 
 describe('normalizeArtistName', () => {
@@ -50,27 +47,6 @@ describe('resolveCharacter', () => {
 
   it('resolves generic characters by id', () => {
     expect(resolveCharacter(tinyPerson.id)).toBe(tinyPerson);
-  });
-});
-
-describe('pickCharacter', () => {
-  it('returns only generic characters when no artists are present', () => {
-    const generics = new Set(Object.keys(ambientCharacterRegistry));
-    for (const roll of [0, 0.25, 0.5, 0.75, 0.999]) {
-      expect(generics.has(pickCharacter([], () => roll).id)).toBe(true);
-    }
-  });
-
-  it('still returns a generic when present artists are unregistered', () => {
-    const generics = new Set(Object.keys(ambientCharacterRegistry));
-    const picked = pickCharacter([presence('Nobody At All', 1)], () => 0.5);
-    expect(generics.has(picked.id)).toBe(true);
-  });
-
-  it('always returns a character for any roll in range', () => {
-    for (const roll of [0, 0.1, 0.33, 0.5, 0.7, 0.9, 0.9999]) {
-      expect(pickCharacter([], () => roll)).toBeTruthy();
-    }
   });
 });
 
@@ -110,7 +86,7 @@ describe('Frank Ocean', () => {
     expect(artistCharacterFor('  frank   ocean ')?.id).toBe('artist-frank-ocean');
   });
 
-  it('is not in the generic registry, so he never spawns unprompted', () => {
+  it('is not in the generic registry: he is an artist who is also the default resident', () => {
     expect(characterRegistry['artist-frank-ocean']).toBeUndefined();
   });
 
@@ -148,71 +124,77 @@ describe('Frank Ocean', () => {
       }
     }
   });
+});
 
-  /**
-   * Where Frank's slice of the roll space starts. Generics weigh 1 each and go
-   * into the pool first; he is appended weighing `8 / (rank + 1)`. Derived from
-   * the registry rather than hardcoded, so adding or dropping a generic
-   * character does not turn these into false failures — the rule is what is
-   * under test, not today's population count.
-   */
-  function frankBoundary(rank: number): number {
-    const generics = Object.keys(ambientCharacterRegistry).length;
-    return generics / (generics + 8 / (rank + 1));
-  }
-
-  it('outranks the generics when he is the top artist', () => {
-    const boundary = frankBoundary(1);
-    // Asserted both sides of the boundary, so a different numerator or divisor
-    // moves it and fails: weight 8 and weight 1 both land elsewhere.
-    expect(pickCharacter([presence('Frank Ocean', 1)], () => 0.999).id).toBe('artist-frank-ocean');
-    expect(pickCharacter([presence('Frank Ocean', 1)], () => boundary + 0.01).id).toBe(
-      'artist-frank-ocean'
-    );
-    expect(pickCharacter([presence('Frank Ocean', 1)], () => boundary - 0.01).id).not.toBe(
-      'artist-frank-ocean'
-    );
-    // A top artist is more likely than not: his slice is the larger half.
-    expect(boundary).toBeLessThan(0.5);
-  });
-
-  it('is far less likely at rank 8 than at rank 1', () => {
-    const rankOne = frankBoundary(1);
-    const rankEight = frankBoundary(8);
-    // The whole point of the curve: a #8 artist has to clear a far higher roll.
-    expect(rankEight).toBeGreaterThan(rankOne);
-
-    expect(pickCharacter([presence('Frank Ocean', 1)], () => rankOne + 0.01).id).toBe(
-      'artist-frank-ocean'
-    );
-    expect(pickCharacter([presence('Frank Ocean', 8)], () => rankOne + 0.01).id).not.toBe(
-      'artist-frank-ocean'
-    );
-    expect(pickCharacter([presence('Frank Ocean', 8)], () => rankEight - 0.01).id).not.toBe(
-      'artist-frank-ocean'
-    );
-    expect(pickCharacter([presence('Frank Ocean', 8)], () => rankEight + 0.01).id).toBe(
-      'artist-frank-ocean'
-    );
-  });
-
-  it('counts once at his best rank when present twice', () => {
-    const twice = [presence('Frank Ocean', 5), presence('Frank Ocean', 1)];
-    const once = [presence('Frank Ocean', 1)];
-    const boundary = frankBoundary(1);
-
-    // Deduped at rank 1 -> identical to the single rank-1 case on both sides.
-    expect(pickCharacter(twice, () => boundary + 0.01).id).toBe('artist-frank-ocean');
-    expect(pickCharacter(twice, () => boundary - 0.01).id).not.toBe('artist-frank-ocean');
-    // Sweeping the whole space pins both halves of the rule: counting him twice
-    // would widen his slice, and keeping the worse rank would narrow it.
-    for (const roll of [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.999]) {
-      expect(pickCharacter(twice, () => roll).id).toBe(pickCharacter(once, () => roll).id);
+describe('pickCharacter', () => {
+  it('is Frank Ocean by default', () => {
+    expect(defaultResident.id).toBe('artist-frank-ocean');
+    for (const roll of [0, 0.25, 0.5, 0.75, 0.999]) {
+      expect(pickCharacter([], () => roll)).toBe(defaultResident);
     }
-    // Had dedup kept the worse rank, his slice would start at frankBoundary(5)
-    // instead; a roll just under that still picks him only because rank 1 won.
-    expect(frankBoundary(5)).toBeGreaterThan(boundary);
-    expect(pickCharacter(twice, () => frankBoundary(5) - 0.01).id).toBe('artist-frank-ocean');
+  });
+
+  it('never picks a generic character', () => {
+    const generics = new Set(Object.keys(characterRegistry));
+    for (const roll of [0, 0.1, 0.33, 0.5, 0.7, 0.9, 0.9999]) {
+      expect(generics.has(pickCharacter([presence('Nobody At All', 1)], () => roll).id)).toBe(false);
+    }
+  });
+
+  it('stays the default resident when that is the only artist on the page', () => {
+    for (const roll of [0, 0.5, 0.999]) {
+      expect(pickCharacter([presence('Frank Ocean', 1)], () => roll)).toBe(defaultResident);
+    }
+  });
+
+  describe('with a second artist in the library', () => {
+    // A throwaway artist, so the rank rule is tested against the default
+    // resident without depending on who else happens to be registered.
+    const guest = withPalette(tinyPerson, 'artist-test-guest', { t: '#123456' });
+    const entry = { match: ['test guest'], character: { ...guest, artistKey: 'test guest' } };
+
+    /** Where the guest's slice starts: after the default resident's weight of 1. */
+    function guestBoundary(rank: number): number {
+      return 1 / (1 + 8 / (rank + 1));
+    }
+
+    function withGuest(check: () => void): void {
+      artistRegistry.push(entry);
+      try {
+        check();
+      } finally {
+        artistRegistry.splice(artistRegistry.indexOf(entry), 1);
+      }
+    }
+
+    it('outweighs the default resident as the top artist', () => {
+      withGuest(() => {
+        const boundary = guestBoundary(1);
+        expect(boundary).toBeLessThan(0.5);
+        expect(pickCharacter([presence('Test Guest', 1)], () => boundary + 0.01)).toBe(entry.character);
+        expect(pickCharacter([presence('Test Guest', 1)], () => boundary - 0.01)).toBe(defaultResident);
+      });
+    });
+
+    it('is far less likely at rank 8 than at rank 1', () => {
+      withGuest(() => {
+        const rankOne = guestBoundary(1);
+        const rankEight = guestBoundary(8);
+        expect(rankEight).toBeGreaterThan(rankOne);
+        expect(pickCharacter([presence('Test Guest', 8)], () => rankOne + 0.01)).toBe(defaultResident);
+        expect(pickCharacter([presence('Test Guest', 8)], () => rankEight + 0.01)).toBe(entry.character);
+      });
+    });
+
+    it('counts once at the best rank when present twice', () => {
+      withGuest(() => {
+        const twice = [presence('Test Guest', 5), presence('Test Guest', 1)];
+        const once = [presence('Test Guest', 1)];
+        for (const roll of [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.999]) {
+          expect(pickCharacter(twice, () => roll)).toBe(pickCharacter(once, () => roll));
+        }
+      });
+    });
   });
 });
 

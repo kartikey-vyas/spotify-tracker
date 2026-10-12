@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import DataQualityBadge from '$lib/components/DataQualityBadge.svelte';
-  import PixelPromenade from '$lib/components/PixelPromenade.svelte';
+  import PixelRoom from '$lib/components/PixelRoom.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
   import { qualityLabel, sourceLabel } from '$lib/metrics';
   import { getRecentActivity } from '$lib/queries/activity';
@@ -46,7 +46,7 @@
     <p class="lede">A safe public subset refreshed by import and sync jobs.</p>
   </div>
 
-  <PixelPromenade station="activity-arrivals" marker="centre" />
+  <PixelRoom station="activity-arrivals" shelf="centre" />
 
   {#if loading}
     <section class="panel panel-loading"><RecordMark label="Loading activity..." /></section>
@@ -117,7 +117,7 @@
     margin-top: var(--space-6);
   }
 
-  :global(.pixel-promenade) + .panel {
+  :global(.pixel-room) + .panel {
     margin-top: var(--space-6);
   }
 

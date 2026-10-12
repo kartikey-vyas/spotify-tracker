@@ -1,5 +1,5 @@
 <script lang="ts">
-  import PixelPromenade from '$lib/components/PixelPromenade.svelte';
+  import PixelRoom from '$lib/components/PixelRoom.svelte';
 </script>
 
 <section class="page">
@@ -12,7 +12,7 @@
     </p>
   </div>
 
-  <PixelPromenade station="about-lobby" marker="right" />
+  <PixelRoom station="about-lobby" shelf="right" />
 
   <section class="grid cols-2 about-grid">
     <div class="panel">
