@@ -1,17 +1,13 @@
 import { normalizeArtistName } from './artist-name';
-import {
-  ambientCharacterRegistry,
-  animation,
-  frameOfSize,
-  getCharacter
-} from './characters';
+import { animation, frameOfSize, getCharacter } from './characters';
+import { weightedPick } from './random';
 import type { ArtistPresence, CharacterDefinition, SpriteFrame } from './types';
 
 /**
  * Rank assumed for a matched artist whose element declared no rank. Fed into
  * the same `RANK_WEIGHT / (rank + 1)` curve as a real rank, so this yields a
- * weight of 8/9 ≈ 0.89 — slightly below a single generic's weight of 1, not
- * above it.
+ * weight of 8/9 ≈ 0.89 — slightly below the default resident's weight of 1,
+ * not above it.
  */
 const UNRANKED_RANK = 8;
 /** Numerator of the rank weighting curve: weight = RANK_WEIGHT / (rank + 1). */
@@ -24,10 +20,9 @@ export interface ArtistCharacterEntry {
 }
 
 /**
- * Artist characters are deliberately NOT in `characterRegistry` or
- * `ambientCharacterRegistry`. `pickCharacter` builds its ordinary spawn pool
- * from the latter, so artists must be folded in separately and weighted by
- * presence.
+ * Artist characters are deliberately NOT in `characterRegistry` (the generic
+ * rigs, kept for the sprite editor). `pickCharacter` weighs them against the
+ * default resident by their presence on the page.
  *
  * One array, holding the character itself rather than an id into a second map:
  * a single structure cannot drift out of sync with itself.
@@ -185,6 +180,8 @@ interface FrankStandingPose {
   rightFootX?: number;
   leftHand?: readonly [number, number];
   rightHand?: readonly [number, number];
+  /** Overrides the right elbow, for an arm raised above the shoulder. */
+  rightElbow?: readonly [number, number];
 }
 
 function makeFrankStandingFrame({
@@ -197,7 +194,8 @@ function makeFrankStandingFrame({
   leftFootX = 18,
   rightFootX = 30,
   leftHand = [10, 43],
-  rightHand = [38, 43]
+  rightHand = [38, 43],
+  rightElbow
 }: FrankStandingPose): SpriteFrame {
   return paintFrank((painter) => {
     const { rect, line } = painter;
@@ -227,7 +225,7 @@ function makeFrankStandingFrame({
     );
     frankLimb(
       painter,
-      [[32, 30 + bob], [35, 36 + bob], rightHand],
+      [[32, 30 + bob], rightElbow ?? [35, 36 + bob], rightHand],
       's',
       4
     );
@@ -277,6 +275,43 @@ function makeFrankListenFrame(nod: number, blink: boolean, tap: number): SpriteF
     drawFrankHead(painter, 9 + nod, blink, true);
     line(21, 34 + nod, 24, 39 + nod, 'n');
     line(27, 34 + nod, 24, 39 + nod, 'n');
+  });
+}
+
+/**
+ * Sunk into a couch, front on, matching the pilot's lounge: hips in the
+ * cushion, shins to the floor, one arm on the armrest, chain still on.
+ */
+function makeFrankLoungeFrame(nod: number, blink: boolean, tap: number): SpriteFrame {
+  return paintFrank((painter) => {
+    const { rect, line } = painter;
+    frankLimb(painter, [[27, 47], [31, 51], [32, 58]], 'p', 6);
+    frankLimb(painter, [[21, 47], [17, 51], [16 + tap, 58 - tap]], 'p', 6);
+    rect(28, 58, 10, 4, 'b');
+    rect(28, 62, 11, 2, 't');
+    rect(11 + tap, 58 - tap, 10, 4, 'b');
+    rect(10 + tap, 62 - tap, 11, 2, 't');
+    rect(16, 45, 16, 7, 'o');
+    rect(17, 45, 14, 6, 'p');
+
+    frankLimb(painter, [[17, 37], [10, 40], [3, 39]], 's', 4);
+    rect(0, 37, 4, 4, 's');
+
+    rect(15, 34, 18, 14, 'o');
+    rect(16, 35, 16, 12, 's');
+    rect(19, 35, 10, 12, 't');
+    rect(21, 35, 2, 12, 'a');
+    rect(27, 35, 2, 12, 'a');
+
+    frankLimb(painter, [[31, 37], [35, 42], [32, 48]], 's', 4);
+    rect(30, 47, 4, 4, 's');
+    rect(30, 46, 4, 1, 'n');
+
+    rect(21, 30 + nod, 6, 6, 'o');
+    rect(22, 30 + nod, 4, 6, 's');
+    drawFrankHead(painter, 11 + nod, blink, true);
+    line(21, 35 + nod, 24, 40 + nod, 'n');
+    line(27, 35 + nod, 24, 40 + nod, 'n');
   });
 }
 
@@ -364,6 +399,11 @@ const hiFrankDangleB = makeFrankStandingFrame({
 const hiFrankListenA = makeFrankListenFrame(0, false, 0);
 const hiFrankListenBlink = makeFrankListenFrame(0, true, 0);
 const hiFrankListenNod = makeFrankListenFrame(1, false, 1);
+const hiFrankReachUp = makeFrankStandingFrame({ rightElbow: [37, 21], rightHand: [40, 10] });
+const hiFrankReachClick = makeFrankStandingFrame({ rightElbow: [37, 23], rightHand: [40, 14] });
+const hiFrankLoungeA = makeFrankLoungeFrame(0, false, 0);
+const hiFrankLoungeBlink = makeFrankLoungeFrame(0, true, 0);
+const hiFrankLoungeNod = makeFrankLoungeFrame(1, false, 1);
 
 const hiFrankAnimations: CharacterDefinition['animations'] = {
   idle: animation(
@@ -395,7 +435,12 @@ const hiFrankAnimations: CharacterDefinition['animations'] = {
   listen: animation(
     [hiFrankListenA, hiFrankListenBlink, hiFrankListenA, hiFrankListenNod, hiFrankListenA],
     500
-  )
+  ),
+  lounge: animation(
+    [hiFrankLoungeA, hiFrankLoungeBlink, hiFrankLoungeA, hiFrankLoungeNod, hiFrankLoungeA],
+    500
+  ),
+  reach: animation([hiFrankReachUp, hiFrankReachUp, hiFrankReachClick], 230, false)
 };
 
 const frankOcean: CharacterDefinition = {
@@ -459,12 +504,26 @@ const frankOcean: CharacterDefinition = {
       'listen:1': 'hiFrankListenBlink',
       'listen:2': 'hiFrankListenA',
       'listen:3': 'hiFrankListenNod',
-      'listen:4': 'hiFrankListenA'
+      'listen:4': 'hiFrankListenA',
+      'lounge:0': 'hiFrankLoungeA',
+      'lounge:1': 'hiFrankLoungeBlink',
+      'lounge:2': 'hiFrankLoungeA',
+      'lounge:3': 'hiFrankLoungeNod',
+      'lounge:4': 'hiFrankLoungeA',
+      'reach:0': 'hiFrankReachUp',
+      'reach:1': 'hiFrankReachUp',
+      'reach:2': 'hiFrankReachClick'
     }
   }
 };
 
 artistRegistry.push(artistEntry(['frank ocean'], frankOcean));
+
+/**
+ * Who lives in the room when nobody in particular is asked for. The generic
+ * characters still exist for the sprite editor, but residents are Frank.
+ */
+export const defaultResident: CharacterDefinition = frankOcean;
 
 export function artistCharacterFor(name: string): CharacterDefinition | null {
   const key = normalizeArtistName(name);
@@ -482,46 +541,30 @@ export function hasMatchedArtist(presences: ArtistPresence[]): boolean {
 }
 
 /** Resolves any character id — artist or generic — for the spawn command path. */
-export function resolveCharacter(id?: string): CharacterDefinition {
-  if (!id) return getCharacter(id);
+export function resolveCharacter(id: string): CharacterDefinition {
   const artist = artistRegistry.find((entry) => entry.character.id === id);
   return artist ? artist.character : getCharacter(id);
 }
 
 /**
- * Picks who spawns. Generic characters weight 1; each artist present on the
- * page weights `8 / (rank + 1)`, so a #1 artist is likely and a #8 is a treat.
- * With no matched artists this reduces to a uniform pick over the generics,
- * which is the pre-existing behaviour.
+ * Picks who spawns. The default resident weighs 1; each artist present on the
+ * page weighs `8 / (rank + 1)`, so a #1 artist is likely and a #8 is a treat.
+ * With no matched artists — or when the only match is the default resident —
+ * it is always the default resident.
  */
 export function pickCharacter(
   presences: ArtistPresence[] = [],
   random: () => number = Math.random
 ): CharacterDefinition {
-  const pool: { character: CharacterDefinition; weight: number }[] = Object.values(
-    ambientCharacterRegistry
-  ).map((character) => ({ character, weight: 1 }));
-
   // Best (lowest) rank wins, so an artist in both the cover wall and the list
   // does not get counted twice. Keyed by the definition itself — they are
   // singletons, so identity dedupes without a second lookup.
-  const bestRank = new Map<CharacterDefinition, number>();
+  const weights = new Map<CharacterDefinition, number>([[defaultResident, 1]]);
   for (const presence of presences) {
     const character = artistCharacterFor(presence.name);
     if (!character) continue;
-    const rank = presence.rank ?? UNRANKED_RANK;
-    const existing = bestRank.get(character);
-    if (existing === undefined || rank < existing) bestRank.set(character, rank);
+    const weight = RANK_WEIGHT / ((presence.rank ?? UNRANKED_RANK) + 1);
+    weights.set(character, Math.max(weights.get(character) ?? 0, weight));
   }
-  for (const [character, rank] of bestRank) {
-    pool.push({ character, weight: RANK_WEIGHT / (rank + 1) });
-  }
-
-  const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
-  let roll = random() * total;
-  for (const entry of pool) {
-    roll -= entry.weight;
-    if (roll < 0) return entry.character;
-  }
-  return pool[pool.length - 1].character;
+  return weightedPick([...weights], random);
 }

@@ -53,9 +53,9 @@ Edge functions bundle `_shared/` at deploy time, so **editing a `_shared/` file 
 
 ## Pixel people and sprites
 
-An ambient pixel character walks the dashboard chrome, driven off the rendered DOM. It lives in `src/lib/pixel-person/`; the traps are in [docs/pixel-people.md](docs/pixel-people.md), which is worth reading before touching it.
+Pixel people live in a **room**: one band per page (`<PixelRoom station shelf />`) with its own canvas, a floor, a low record shelf and a door. They never leave it, and the page is never terrain. Behaviour is a registry of activities built from beats in `src/lib/pixel-person/activities.ts`; adding something for them to do means writing one activity. The traps are in [docs/pixel-people.md](docs/pixel-people.md), which is worth reading before touching it.
 
-Worth knowing from outside the subsystem: **components opt in by tagging elements** (`data-pixel-collision`, `data-pixel-record`, `data-pixel-artist`), never by importing the pixel world. Adding a behaviour to a list means tagging it, not wiring it.
+Worth knowing from outside the subsystem: **components opt in by tagging elements** (`data-pixel-record` stocks the room's shelf, `data-pixel-artist` weights which artists turn up), never by importing the pixel world. Adding a behaviour to a list means tagging it, not wiring it.
 
 ## Paper Shaders — the record mark and the dither fields
 

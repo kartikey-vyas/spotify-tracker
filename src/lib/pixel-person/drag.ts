@@ -1,5 +1,5 @@
-import { clamp, hasBodyClearance, intersects, withinBounds } from './physics';
-import type { Collider, PhysicsBody, Point, Rect } from './types';
+import { clamp } from './physics';
+import type { PhysicsBody, Point } from './types';
 
 export interface DangleConfig {
   gravity: number;
@@ -179,7 +179,6 @@ export function stepDangle(
   body.vx = massVelocity.x;
   body.vy = massVelocity.y;
   body.grounded = false;
-  body.supportId = null;
   return { state, body };
 }
 
@@ -193,65 +192,8 @@ export function releaseDangle(
     ...sourceBody,
     vx: velocity.x,
     vy: velocity.y,
-    grounded: false,
-    supportId: null
+    grounded: false
   };
-}
-
-export function resolveDroppedBody(
-  source: PhysicsBody,
-  colliders: Collider[],
-  maximumDistance = 180,
-  bounds?: Rect
-): PhysicsBody {
-  const blockers = colliders.filter((collider) => intersects(source, collider));
-  const isClear = (candidate: PhysicsBody) =>
-    withinBounds(candidate, bounds) && hasBodyClearance(candidate, colliders);
-  if (isClear(source)) return { ...source };
-
-  if (bounds) {
-    const bounded = {
-      ...source,
-      x: clamp(source.x, bounds.x, bounds.x + bounds.width - source.width),
-      y: clamp(source.y, bounds.y, bounds.y + bounds.height - source.height)
-    };
-    if (isClear(bounded)) return bounded;
-  }
-
-  for (const blocker of blockers.sort((left, right) => left.y - right.y)) {
-    const candidate = { ...source, y: blocker.y - source.height };
-    // Popping onto a tall blocker's top must honor the same distance cap as
-    // every other escape, or releases teleport hundreds of pixels.
-    if (source.y - candidate.y > maximumDistance) continue;
-    if (isClear(candidate)) return candidate;
-  }
-
-  for (let distance = 4; distance <= maximumDistance; distance += 4) {
-    const candidate = { ...source, y: source.y - distance };
-    if (isClear(candidate)) return candidate;
-  }
-
-  const directions: Point[] = [
-    { x: -1, y: 0 },
-    { x: 1, y: 0 },
-    { x: -0.7, y: -0.7 },
-    { x: 0.7, y: -0.7 },
-    { x: 0, y: 1 },
-    { x: -0.7, y: 0.7 },
-    { x: 0.7, y: 0.7 }
-  ];
-  for (let distance = 4; distance <= maximumDistance; distance += 4) {
-    for (const direction of directions) {
-      const candidate = {
-        ...source,
-        x: source.x + direction.x * distance,
-        y: source.y + direction.y * distance
-      };
-      if (isClear(candidate)) return candidate;
-    }
-  }
-
-  return { ...source };
 }
 
 export function dangleCenter(state: DangleState): Point {

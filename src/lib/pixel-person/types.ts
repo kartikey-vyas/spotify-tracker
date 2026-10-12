@@ -8,7 +8,11 @@ export type AnimationName =
   | 'mantle'
   | 'hide'
   | 'dangle'
-  | 'listen';
+  | 'listen'
+  /** Sunk into a lounge seat, feet on the floor. */
+  | 'lounge'
+  /** One arm up to the lamp's shade, then a small pull down to switch it. */
+  | 'reach';
 
 export type Facing = -1 | 1;
 
@@ -22,71 +26,23 @@ export interface Rect extends Point {
   height: number;
 }
 
-/** 'ladder' colliders never block movement; they are climbable zones. */
-export type ColliderKind = 'text' | 'border' | 'solid' | 'platform' | 'floor' | 'ladder';
-
+/** The room's walls, floor and ceiling. Nothing on the page is terrain. */
 export interface Collider extends Rect {
   id: string;
-  kind: ColliderKind;
-  groupId?: string;
-  edge?: 'top' | 'right' | 'bottom' | 'left';
-}
-
-export interface Occluder extends Rect {
-  id: string;
-  groupId?: string;
-}
-
-/** A page element pixel people can interact with (extensible beyond records). */
-export type ItemSourceKind = 'record';
-
-export interface ItemSource extends Rect {
-  id: string;
-  kind: ItemSourceKind;
-  imageUrl: string;
-  /** Display name of the album's artist, when the element also declares one. */
-  artistName?: string;
 }
 
 /** An artist represented somewhere on the page — a list row, a cover tile. */
-export interface ArtistPresence extends Rect {
-  id: string;
+export interface ArtistPresence {
   name: string;
   /** 1-based position in whatever ranking rendered it; absent when unranked. */
   rank?: number;
 }
 
-export interface WorldGeometry {
-  colliders: Collider[];
-  occluders: Occluder[];
-  itemSources: ItemSource[];
-  artistPresences: ArtistPresence[];
-  scanBounds: Rect;
-  viewportBounds: Rect;
-}
-
-/** A record released by a person; position is the feet point it lands on. */
-export interface DroppedRecord {
-  sourceId: string;
+/** An album a person can take off the shelf or out of a pocket. */
+export interface RoomRecord {
   imageUrl: string;
-  position: Point;
-}
-
-/** Events the DOM-free simulation emits for the world owner to act on. */
-export type PixelWorldEvent = {
-  type: 'record-dropped';
-  personId: string;
-  record: DroppedRecord;
-};
-
-/** A set-down record living in the world until its fade-out completes. */
-export interface PlacedRecord {
-  id: number;
-  imageUrl: string;
-  position: Point;
-  placedAt: number;
-  /** Set when the user clicks the record; starts its fade immediately. */
-  dismissedAt?: number;
+  /** Display name of the album's artist, when the page declared one. */
+  artistName?: string;
 }
 
 export interface SpriteFrame {
@@ -136,24 +92,10 @@ export interface PhysicsBody extends Rect {
   vx: number;
   vy: number;
   grounded: boolean;
-  supportId: string | null;
-}
-
-export interface PhysicsContacts {
-  left: Collider | null;
-  right: Collider | null;
-  ground: Collider | null;
-  ceiling: Collider | null;
 }
 
 export interface PhysicsInput {
   moveX: -1 | 0 | 1;
-  jump: boolean;
-}
-
-export interface PhysicsStep {
-  body: PhysicsBody;
-  contacts: PhysicsContacts;
 }
 
 export interface PhysicsConfig {
@@ -163,9 +105,6 @@ export interface PhysicsConfig {
   groundAcceleration: number;
   airAcceleration: number;
   groundFriction: number;
-  jumpSpeed: number;
 }
 
-export type PixelPersonCommand =
-  | { type: 'summon' }
-  | { type: 'spawn'; position: Point; characterId?: string };
+export type PixelPersonCommand = { type: 'summon' } | { type: 'spawn'; characterId: string };

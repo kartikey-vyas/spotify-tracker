@@ -38,7 +38,7 @@
 
   /* Spacing — a 4px grid. --space-0-5 is the one sub-grid step, for detail that
      sits against a hairline. Data geometry (calendar cells, chart bars) and the
-     pixel-person collision rects are NOT spacing and are not on this scale. */
+     pixel room's drawing are NOT spacing and are not on this scale. */
   --space-0-5: 2px;
   --space-1: 4px;
   --space-2: 8px;

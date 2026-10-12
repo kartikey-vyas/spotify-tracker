@@ -173,6 +173,8 @@ interface PilotStandingPose {
   rightFootX?: number;
   leftHand?: readonly [number, number];
   rightHand?: readonly [number, number];
+  /** Overrides the right elbow, for an arm raised above the shoulder. */
+  rightElbow?: readonly [number, number];
 }
 
 function makePilotStandingFrame({
@@ -184,7 +186,8 @@ function makePilotStandingFrame({
   leftFootX = 18,
   rightFootX = 30,
   leftHand = [9, 42],
-  rightHand = [39, 42]
+  rightHand = [39, 42],
+  rightElbow
 }: PilotStandingPose): SpriteFrame {
   return paintPilot((painter) => {
     const { rect } = painter;
@@ -194,7 +197,7 @@ function makePilotStandingFrame({
     pilotLimb(painter, [[27, hipY], [rightKneeX, 52], [rightFootX, 59]], 'p', 5);
     pilotLimb(
       painter,
-      [[34, 29 + bob], [36 + Math.sign(rightHand[0] - 34), 35 + bob], rightHand],
+      [[34, 29 + bob], rightElbow ?? [36 + Math.sign(rightHand[0] - 34), 35 + bob], rightHand],
       't',
       4
     );
@@ -262,6 +265,51 @@ function makePilotListenFrame(nod: number, blink: boolean, tap: number): SpriteF
     rect(21, 28 + nod, 6, 7, 'o');
     rect(22, 28 + nod, 4, 7, 's');
     drawPilotHead(painter, 8 + nod, blink, true);
+  });
+}
+
+/**
+ * Sunk into a couch, front on: hips down in the cushion, shins hanging to the
+ * floor, one arm out on the armrest and the other hand on the knee. Feet
+ * stay on the floor, so the sitter is drawn with no lift and ends up shorter
+ * than when standing, the way sitting down should look. The lounge's cushion
+ * top sits at row 46 (9 CSS px above the floor) and its back at row 24.
+ */
+function makePilotLoungeFrame(nod: number, blink: boolean, tap: number): SpriteFrame {
+  return paintPilot((painter) => {
+    const { rect } = painter;
+
+    // Thighs come toward the viewer, so they read short; shins hang off the
+    // cushion edge to the floor, a little apart.
+    pilotLimb(painter, [[27, 47], [31, 51], [32, 58]], 'p', 6);
+    pilotLimb(painter, [[21, 47], [17, 51], [16 + tap, 58 - tap]], 'p', 6);
+    rect(28, 58, 10, 4, 'b');
+    rect(28, 62, 11, 2, 'n');
+    rect(11 + tap, 58 - tap, 10, 4, 'b');
+    rect(10 + tap, 62 - tap, 11, 2, 'n');
+    rect(16, 45, 16, 7, 'o');
+    rect(17, 45, 14, 6, 'p');
+
+    // Arm out along the armrest, drawn before the torso hides the shoulder.
+    pilotLimb(painter, [[15, 37], [9, 40], [3, 39]], 't', 4);
+    rect(0, 37, 4, 4, 's');
+
+    rect(13, 34, 22, 14, 'o');
+    rect(14, 35, 20, 12, 't');
+    rect(20, 35, 8, 12, 'n');
+    rect(14, 41, 3, 5, 'a');
+    rect(31, 41, 3, 5, 'a');
+    rect(19, 35, 3, 5, 'a');
+    rect(28, 35, 3, 5, 'a');
+    rect(24, 40, 2, 7, 'o');
+
+    // The other hand rests on the knee.
+    pilotLimb(painter, [[33, 37], [36, 42], [32, 48]], 't', 4);
+    rect(30, 47, 4, 4, 's');
+
+    rect(21, 30 + nod, 6, 6, 'o');
+    rect(22, 30 + nod, 4, 6, 's');
+    drawPilotHead(painter, 11 + nod, blink, true);
   });
 }
 
@@ -354,6 +402,13 @@ const pilotDangleB = makePilotStandingFrame({
 const pilotListenA = makePilotListenFrame(0, false, 0);
 const pilotListenBlink = makePilotListenFrame(0, true, 0);
 const pilotListenNod = makePilotListenFrame(1, false, 1);
+// One arm up to the shade, then a small pull down: the switch. The other arm
+// stays at rest, so it reads as a single deliberate reach.
+const pilotReachUp = makePilotStandingFrame({ rightElbow: [39, 21], rightHand: [41, 10] });
+const pilotReachClick = makePilotStandingFrame({ rightElbow: [39, 23], rightHand: [41, 14] });
+const pilotLoungeA = makePilotLoungeFrame(0, false, 0);
+const pilotLoungeBlink = makePilotLoungeFrame(0, true, 0);
+const pilotLoungeNod = makePilotLoungeFrame(1, false, 1);
 
 const promenadeAnimations: CharacterDefinition['animations'] = {
   // Long stretches of stillness make the occasional glance, blink and breath
@@ -384,7 +439,12 @@ const promenadeAnimations: CharacterDefinition['animations'] = {
   listen: animation(
     [pilotListenA, pilotListenBlink, pilotListenA, pilotListenA, pilotListenNod, pilotListenA],
     520
-  )
+  ),
+  lounge: animation(
+    [pilotLoungeA, pilotLoungeBlink, pilotLoungeA, pilotLoungeA, pilotLoungeNod, pilotLoungeA],
+    520
+  ),
+  reach: animation([pilotReachUp, pilotReachUp, pilotReachClick], 230, false)
 };
 
 /**
@@ -460,7 +520,16 @@ export const promenadePerson: CharacterDefinition = {
       'listen:2': 'pilotListenA',
       'listen:3': 'pilotListenA',
       'listen:4': 'pilotListenNod',
-      'listen:5': 'pilotListenA'
+      'listen:5': 'pilotListenA',
+      'lounge:0': 'pilotLoungeA',
+      'lounge:1': 'pilotLoungeBlink',
+      'lounge:2': 'pilotLoungeA',
+      'lounge:3': 'pilotLoungeA',
+      'lounge:4': 'pilotLoungeNod',
+      'lounge:5': 'pilotLoungeA',
+      'reach:0': 'pilotReachUp',
+      'reach:1': 'pilotReachUp',
+      'reach:2': 'pilotReachClick'
     }
   }
 };
@@ -496,12 +565,6 @@ const mossPerson = withPalette(promenadePerson, 'promenade-person-moss', {
 });
 
 export const characterRegistry: Record<string, CharacterDefinition> = {
-  [promenadePerson.id]: promenadePerson,
-  [mossPerson.id]: mossPerson
-};
-
-/** High-density characters eligible for ordinary ambient promenade spawns. */
-export const ambientCharacterRegistry: Record<string, CharacterDefinition> = {
   [promenadePerson.id]: promenadePerson,
   [mossPerson.id]: mossPerson
 };

@@ -6,7 +6,7 @@
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import DitherFrame from '$lib/components/DitherFrame.svelte';
   import ListeningHistoryChart from '$lib/components/ListeningHistoryChart.svelte';
-  import PixelPromenade from '$lib/components/PixelPromenade.svelte';
+  import PixelRoom from '$lib/components/PixelRoom.svelte';
   import RankingTable from '$lib/components/RankingTable.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
   import { dateRangeOptions, getPresetDateRange, type DateRangePreset } from '$lib/dateRanges';
@@ -523,14 +523,14 @@
     </div>
   </DitherFrame>
 
-  <PixelPromenade station="explorer-listening-desk" marker="left" />
+  <PixelRoom station="explorer-listening-desk" shelf="left" />
 
   {#if loading && rankings.length === 0}
-    <section class="panel panel-loading promenade-follow"><RecordMark size="lg" label="Loading explorer data..." /></section>
+    <section class="panel panel-loading room-follow"><RecordMark size="lg" label="Loading explorer data..." /></section>
   {:else if error}
-    <section class="panel promenade-follow"><p class="error">{error}</p></section>
+    <section class="panel room-follow"><p class="error">{error}</p></section>
   {:else}
-    <section class="explorer-layout promenade-follow" class:has-detail={Boolean(entityId)}>
+    <section class="explorer-layout room-follow" class:has-detail={Boolean(entityId)}>
       <div class="ranking-col">
         <div class="section-heading">
           <h2>Ranking</h2>
@@ -564,7 +564,6 @@
             {#if entityType !== 'artist'}
               <div
                 class="entity-art"
-                data-pixel-collision="occluder"
                 data-pixel-record={entityArtwork?.image_url && !artworkFailed ? entityArtwork.image_url : undefined}
               >
                 {#if entityArtwork?.image_url && !artworkFailed}
@@ -647,7 +646,7 @@
 </section>
 
 <style>
-  .promenade-follow {
+  .room-follow {
     margin-top: var(--space-6);
   }
 
