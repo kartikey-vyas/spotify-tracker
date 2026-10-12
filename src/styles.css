@@ -1,9 +1,13 @@
-/* Self-hosted so every platform renders the same face. The variable file covers
-   100–800, which is why the stack below can ask for a 500 the old system-mono
-   stack could not supply. Its subsets are latin/greek/cyrillic/vietnamese only,
-   so the system fallbacks below still carry the odd symbol the UI uses — ♪ for
-   missing album art, ◦ in the ticker. */
-@import '@fontsource-variable/jetbrains-mono';
+/* Paper Mono, self-hosted so every platform renders the same face. The one
+   variable file covers 100–800. It has no ♪ (used for missing album art), so the
+   system fallbacks below still carry that glyph. Licence: lib/fonts/OFL.txt. */
+@font-face {
+  font-family: 'Paper Mono';
+  src: url('./lib/fonts/PaperMono-Variable.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
   color-scheme: light;
@@ -60,7 +64,7 @@
   --data-empty: color-mix(in srgb, var(--line) 16%, transparent);
 
   font-family:
-    "JetBrains Mono Variable", "SFMono-Regular", Consolas, "Liberation Mono",
+    "Paper Mono", "SFMono-Regular", Consolas, "Liberation Mono",
     Menlo, ui-monospace, monospace;
   font-size: 15px;
   background: var(--bg);
