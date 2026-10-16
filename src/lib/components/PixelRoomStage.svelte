@@ -20,7 +20,8 @@
     roomSession,
     uniqueRecords
   } from '$lib/pixel-person/residents';
-  import { layoutRoom, type RoomLayout, type ShelfSide } from '$lib/pixel-person/room';
+  import { isOnLamp, layoutRoom, type RoomLayout, type ShelfSide } from '$lib/pixel-person/room';
+  import { createRecordPlayer } from '$lib/pixel-person/record-player';
   import { createSeats, resizeSeats, type SeatState } from '$lib/pixel-person/seats';
   import { createShelf, releaseShelf, resizeShelf, stockShelf, type ShelfSlot } from '$lib/pixel-person/shelf';
   import {
@@ -38,6 +39,7 @@
     setPersonDefinition,
     settleIntoRoom,
     stepPixelPerson,
+    setLamp,
     type LampState,
     type PixelPersonRuntime,
     type RoomWorld
@@ -64,6 +66,7 @@
   let room: RoomLayout = layoutRoom(0, 0, shelfSide);
   let shelf: ShelfSlot[] = createShelf(room.shelf.slots.length);
   let seats: SeatState[] = createSeats(room.seats.length);
+  const player = createRecordPlayer();
   // Shared with every page's room, so a lamp left on stays on.
   const lamp: LampState = { on: roomSession.lampOn, changedAt: Number.NEGATIVE_INFINITY };
   let people: PixelPersonRuntime[] = [];
@@ -91,6 +94,8 @@
   let doorShut = 1;
 
   let activePointerId: number | null = null;
+  /** The press began on the lamp; the click that ends it switches the lamp. */
+  let pressedLamp = false;
   let activePersonId: string | null = null;
   let lastPointerClient: Point | null = null;
 
@@ -304,7 +309,7 @@
     if (people.length > desired) {
       for (const person of people.slice(desired)) {
         if (person.id === activePersonId) cancelDrag();
-        releaseFurniture({ shelf, seats }, person.id);
+        releaseFurniture({ shelf, seats, player }, person.id);
       }
       people = people.slice(0, desired);
     } else if (people.length < desired && now >= spawnReadyAt && room.width > 0) {
@@ -330,6 +335,7 @@
       room,
       shelf,
       seats,
+      player,
       lamp,
       people,
       // Pockets only offer records whose art is ready, so nothing is pulled
@@ -370,6 +376,7 @@
       doorOpacity: doorwayOpacity(doorShown, doorChangedAt, now),
       doorShut,
       lamp,
+      player,
       debug
     });
     // Dev builds always expose state for runtime checks; outlines need ?pixelDebug=1.
@@ -438,19 +445,35 @@
     return undefined;
   }
 
+  /**
+   * What is under a room point, people first: they stand in front of the lamp,
+   * so a press on someone is a grab, not a switch.
+   */
+  function targetAt(
+    local: Point,
+    now: number
+  ): { kind: 'person'; person: PixelPersonRuntime } | { kind: 'lamp' } | null {
+    const person = personAt(local, now);
+    if (person) return { kind: 'person', person };
+    return isOnLamp(room, local) ? { kind: 'lamp' } : null;
+  }
+
   function onPointerDown(event: PointerEvent): void {
-    // Touch stays a scroll gesture; picking people up is a mouse and pen thing.
     if (activePointerId !== null || !event.isPrimary || event.button !== 0) return;
-    if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
     const now = performance.now();
     const client = { x: event.clientX, y: event.clientY };
-    const target = personAt(toLocal(client), now);
-    if (!target) return;
+    const found = targetAt(toLocal(client), now);
+    // The lamp answers any pointer, taps included; the switch happens on click.
+    pressedLamp = found?.kind === 'lamp';
+    // Touch stays a scroll gesture; picking people up is a mouse and pen thing.
+    if (found?.kind !== 'person') return;
+    if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+    const target = found.person;
     event.preventDefault();
     activePointerId = event.pointerId;
     activePersonId = target.id;
     lastPointerClient = client;
-    beginPixelPersonDrag(target, { shelf, seats }, event.pointerId, anchorFor(client, target), now);
+    beginPixelPersonDrag(target, { shelf, seats, player }, event.pointerId, anchorFor(client, target), now);
     canvas.style.cursor = 'grabbing';
     try {
       canvas.setPointerCapture(event.pointerId);
@@ -464,9 +487,8 @@
     const now = performance.now();
     if (activePointerId === null) {
       if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
-        canvas.style.cursor = personAt(toLocal({ x: event.clientX, y: event.clientY }), now)
-          ? 'grab'
-          : '';
+        const found = targetAt(toLocal({ x: event.clientX, y: event.clientY }), now);
+        canvas.style.cursor = found?.kind === 'person' ? 'grab' : found ? 'pointer' : '';
       }
       return;
     }
@@ -492,6 +514,17 @@
 
   function onPointerCancel(event: PointerEvent): void {
     if (event.pointerId === activePointerId) finishDrag(performance.now(), false);
+  }
+
+  /**
+   * A click (or tap) switches the lamp only when the press began on it, so
+   * dropping someone near the lamp after a drag never flicks it.
+   */
+  function onClick(): void {
+    if (!pressedLamp) return;
+    pressedLamp = false;
+    setLamp(lamp, !lamp.on, performance.now());
+    requestFrame();
   }
 
   function cancelDrag(): void {
@@ -562,6 +595,7 @@
     );
     canvas.dataset.pixelCrate = String(roomSession.crate.length);
     canvas.dataset.pixelLamp = lamp.on ? 'on' : 'off';
+    canvas.dataset.pixelPlayer = player.record ? `playing:${player.owner}` : 'idle';
     canvas.dataset.pixelSeats = JSON.stringify(seats.map((seat) => seat.occupant ?? seat.reservedBy ?? null));
   }
 </script>
@@ -573,6 +607,7 @@
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
   on:pointercancel={onPointerCancel}
+  on:click={onClick}
   on:lostpointercapture={onPointerCancel}
   on:pointerleave={() => {
     if (activePointerId === null) canvas.style.cursor = '';

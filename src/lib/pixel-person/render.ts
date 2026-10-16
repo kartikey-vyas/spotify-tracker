@@ -1,6 +1,7 @@
 import { MUSIC } from './activities';
 import { clamp } from './physics';
 import { getRecordArt } from './record-art';
+import type { RecordPlayerState } from './record-player';
 import { LOUNGE, SHELF, type FurniturePiece, type RoomLayout } from './room';
 import type { ShelfSlot } from './shelf';
 import {
@@ -24,6 +25,7 @@ export interface RoomScene {
   /** 0 open .. 1 shut. */
   doorShut: number;
   lamp: LampState;
+  player: RecordPlayerState;
   debug: boolean;
 }
 
@@ -236,7 +238,9 @@ function renderSignature(canvas: HTMLCanvasElement, scene: RoomScene): string | 
     `${canvas.width}:${canvas.height}:${scene.room.width}:${scene.room.shelfSide}` +
     `:${document.documentElement.dataset.theme ?? ''}` +
     `:door${scene.doorOpacity.toFixed(2)}:${scene.doorShut.toFixed(2)}` +
-    `:${scene.room.furniture.length}:${scene.lamp.on}`;
+    `:${scene.room.furniture.length}:${scene.lamp.on}` +
+    // A playing record only changes when its sheen steps on, not every frame.
+    `:${playerSignature(scene.player, now)}`;
   for (const slot of scene.shelf) {
     const url = slot.record?.imageUrl ?? '';
     signature += `|${url}:${slot.out ?? ''}:${url ? (getRecordArt(url)?.status ?? '') : ''}`;
@@ -281,7 +285,10 @@ export function renderRoom(canvas: HTMLCanvasElement, scene: RoomScene): void {
   for (const piece of room.furniture) {
     if (piece.kind === 'lamp' && glow > 0) drawLampGlow(context, piece, glow, colours);
   }
-  for (const piece of room.furniture) drawFurniture(context, piece, colours, glow);
+  for (const piece of room.furniture) {
+    if (piece.kind === 'player') drawRecordPlayer(context, piece, scene.player, colours, now);
+    else drawFurniture(context, piece, colours, glow);
+  }
   drawShelf(context, room, scene.shelf, colours);
   if (scene.debug) drawDebug(context, room);
   drawDoorwayFrame(context, room, scene.doorOpacity, colours);
@@ -292,7 +299,8 @@ export function renderRoom(canvas: HTMLCanvasElement, scene: RoomScene): void {
     if (behind) drawCarriedRecord(context, room, person, now);
     drawPerson(context, person, now);
     if (!behind) drawCarriedRecord(context, room, person, now);
-    if (listeningSince(person) !== null) drawListeningNotes(context, person, now, colours.outline);
+    // From the headphones, whether the record is in hand or on the player.
+    drawListeningNotes(context, person, now, colours.outline);
   }
   // Last, so the closing door passes in front of whoever stepped through it.
   drawDoorwayDoor(context, room, scene.doorOpacity, scene.doorShut, colours);
@@ -355,8 +363,8 @@ function drawListeningNotes(
   const elapsed = now - since;
   const newest = Math.floor(elapsed / NOTE_INTERVAL_MS);
   const oldest = Math.max(0, Math.ceil((elapsed - NOTE_LIFE_MS) / NOTE_INTERVAL_MS));
-  const headX = person.body.x + person.body.width / 2;
-  const headY = person.body.y + 6 + (POSE[person.animation]?.headDrop ?? 0);
+  const originX = person.body.x + person.body.width / 2;
+  const originY = person.body.y + 2 + (POSE[person.animation]?.headDrop ?? 0);
   context.save();
   context.fillStyle = colour;
   for (let index = oldest; index <= newest; index += 1) {
@@ -364,8 +372,8 @@ function drawListeningNotes(
     if (age < 0 || age >= NOTE_LIFE_MS) continue;
     const progress = age / NOTE_LIFE_MS;
     const side = index % 2 === 0 ? 1 : -1;
-    const x = headX + side * (6 + progress * 5) + Math.sin(age / 260 + index);
-    const y = Math.max(0, headY - 4 - progress * NOTE_RISE);
+    const x = originX + side * (6 + progress * 5) + Math.sin(age / 260 + index);
+    const y = Math.max(0, originY - progress * NOTE_RISE);
     context.globalAlpha = NOTE_ALPHA * (progress < 0.75 ? 1 : 1 - (progress - 0.75) / 0.25);
     drawNoteGlyph(context, Math.round(x), Math.round(y));
   }
@@ -678,6 +686,83 @@ export function withAlpha(colour: string, alpha: number): string {
     [red, green, blue] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
   }
   return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+/** Vinyl is black whatever the theme. */
+const VINYL = '#141414';
+const VINYL_SHEEN = '#5c5c5c';
+/** How fast the sheen travels round the spinning record. */
+const SPIN_STEP_MS = 90;
+const DISC_WIDTH = 11;
+
+/** Which pixel of the disc the sheen is on. Nobody can tell where it started. */
+function spinStep(now: number): number {
+  return Math.floor(now / SPIN_STEP_MS) % DISC_WIDTH;
+}
+
+function playerSignature(player: RecordPlayerState, now: number): string {
+  if (!player.record) return '';
+  const art = getRecordArt(player.record.imageUrl);
+  return `${player.record.imageUrl}:${art?.status ?? ''}:${spinStep(now)}`;
+}
+
+/**
+ * The record player: a low cabinet in the lounge's upholstery colours with a
+ * turntable on top. While a record plays, the vinyl sits on the platter with
+ * a sheen travelling across it, the tonearm is over the record, and the
+ * sleeve is propped against the cabinet so you can see what is on.
+ */
+function drawRecordPlayer(
+  context: CanvasRenderingContext2D,
+  piece: FurniturePiece,
+  player: RecordPlayerState,
+  colours: ThemeColours,
+  now: number
+): void {
+  const { x, width } = piece;
+  const floorY = piece.y + piece.height;
+  const cabinetTop = floorY - LOUNGE.playerCabinetHeight;
+  const plinthTop = floorY - LOUNGE.playerHeight;
+  context.save();
+  context.fillStyle = colours.line;
+  context.fillRect(x + 2, floorY - 2, 2, 2);
+  context.fillRect(x + width - 4, floorY - 2, 2, 2);
+  outlinedBox(context, x, cabinetTop, width, floorY - 2 - cabinetTop, colours.fabric, colours.line);
+  // A drawer line across the cabinet front.
+  context.fillStyle = colours.line;
+  context.fillRect(x + 3, cabinetTop + 4, width - 6, 1);
+  outlinedBox(context, x + 2, plinthTop, width - 4, cabinetTop - plinthTop + 1, colours.cushion, colours.line);
+
+  const discX = x + 4;
+  const discWidth = DISC_WIDTH;
+  const armPivotX = x + width - 4;
+  context.fillStyle = colours.line;
+  context.fillRect(armPivotX, plinthTop - 2, 1, 2);
+  if (player.record) {
+    // The disc seen almost edge-on: a narrower top row reads as its far rim.
+    context.fillStyle = VINYL;
+    context.fillRect(discX + 1, plinthTop - 2, discWidth - 2, 1);
+    context.fillRect(discX, plinthTop - 1, discWidth, 1);
+    context.fillStyle = colours.pillow;
+    context.fillRect(discX + 4, plinthTop - 2, 3, 1);
+    context.fillStyle = VINYL_SHEEN;
+    context.fillRect(discX + spinStep(now), plinthTop - 1, 1, 1);
+    // Tonearm across to the record, its stylus down in the groove.
+    context.fillStyle = colours.line;
+    context.fillRect(discX + 8, plinthTop - 3, armPivotX - discX - 7, 1);
+    context.fillRect(discX + 8, plinthTop - 2, 1, 1);
+    // The sleeve leans against the cabinet's outer side, so you can see what
+    // is on without it hiding the player.
+    const art = getRecordArt(player.record.imageUrl);
+    if (art?.status === 'ready' && art.sprite) {
+      context.drawImage(art.sprite, x - RECORD_SIZE + 5, floorY - RECORD_SIZE, RECORD_SIZE, RECORD_SIZE);
+    }
+  } else {
+    // An empty platter, and the tonearm parked at its rest.
+    context.fillRect(discX, plinthTop - 1, discWidth, 1);
+    context.fillRect(armPivotX - 3, plinthTop - 3, 4, 1);
+  }
+  context.restore();
 }
 
 function outlinedBox(

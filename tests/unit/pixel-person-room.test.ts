@@ -4,6 +4,8 @@ import { DOORWAY, doorstepX, doorwayEnterX, isOverDoorway } from '../../src/lib/
 import { defaultPhysicsConfig, intersects, stepPhysics } from '../../src/lib/pixel-person/physics';
 import {
   chooseOpenSpot,
+  isOnLamp,
+  lampOf,
   lampReach,
   layoutRoom,
   LOUNGE,
@@ -286,7 +288,7 @@ describe('the lamp', () => {
     for (const width of WIDTHS) {
       for (const side of SIDES) {
         const room = layoutRoom(width, HEIGHT, side);
-        const lamp = room.furniture.find((piece) => piece.kind === 'lamp');
+        const lamp = lampOf(room);
         const reach = lampReach(room, BODY_WIDTH);
         if (!lamp) {
           expect(reach).toBeNull();
@@ -323,5 +325,24 @@ describe('stage right', () => {
       const step = doorstepX(room, BODY_WIDTH);
       expect(room.shelf.x + room.shelf.width).toBeLessThanOrEqual(step);
     }
+  });
+});
+
+describe('clicking the lamp', () => {
+  it('counts a click on or just around the lamp, and nowhere else', () => {
+    const room = layoutRoom(1180, HEIGHT, 'right');
+    const lamp = lampOf(room)!;
+    const centre = lamp.x + lamp.width / 2;
+    expect(isOnLamp(room, { x: centre, y: lamp.y + 2 })).toBe(true);
+    expect(isOnLamp(room, { x: centre, y: lamp.y + lamp.height - 1 })).toBe(true);
+    expect(isOnLamp(room, { x: lamp.x - 3, y: lamp.y + 10 })).toBe(true);
+    expect(isOnLamp(room, { x: lamp.x - 20, y: lamp.y + 10 })).toBe(false);
+    expect(isOnLamp(room, { x: centre, y: lamp.y - 20 })).toBe(false);
+  });
+
+  it('is never true in a room without a lamp', () => {
+    const room = layoutRoom(1180, HEIGHT, 'right');
+    const bare = { ...room, furniture: room.furniture.filter((piece) => piece.kind !== 'lamp') };
+    expect(isOnLamp(bare, { x: 500, y: 60 })).toBe(false);
   });
 });

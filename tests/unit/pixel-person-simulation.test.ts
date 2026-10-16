@@ -3,6 +3,7 @@ import { MUSIC } from '../../src/lib/pixel-person/activities';
 import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { isOverDoorway } from '../../src/lib/pixel-person/doorway';
 import { lampReach, layoutRoom, walkRange } from '../../src/lib/pixel-person/room';
+import { createRecordPlayer } from '../../src/lib/pixel-person/record-player';
 import { createSeats } from '../../src/lib/pixel-person/seats';
 import { availableSlots, createShelf, stockShelf } from '../../src/lib/pixel-person/shelf';
 import {
@@ -22,6 +23,7 @@ import {
   settleIntoRoom,
   stepPixelPerson,
   STROLL_PHYSICS_CONFIG,
+  setLamp,
   walkBudgetMs,
   type PixelPersonRuntime,
   type RoomWorld
@@ -56,7 +58,8 @@ function makeWorld(seed = 1, width = 1000, shelfRecords = records(5)): RoomWorld
   stockShelf(shelf, shelfRecords);
   const seats = createSeats(room.seats.length);
   const lamp = { on: false, changedAt: 0 };
-  return { room, shelf, seats, lamp, people: [], crate: [], random: seededRandom(seed) };
+  const player = createRecordPlayer();
+  return { room, shelf, seats, player, lamp, people: [], crate: [], random: seededRandom(seed) };
 }
 
 function addPerson(world: ReturnType<typeof makeWorld>, x: number, id = `p${world.people.length + 1}`) {
@@ -164,7 +167,8 @@ describe('listening to a record from the shelf', () => {
           expect(person.body.grounded).toBe(true);
           expect(person.animation).toBe(person.seated ? 'lounge' : 'listen');
         }
-        if (tookAt >= 0 && listened && !person.carrying) {
+        // Back on the shelf: no slot is out any more.
+        if (tookAt >= 0 && listened && world.shelf.every((slot) => slot.out === null)) {
           returned = true;
           return true;
         }
@@ -247,9 +251,11 @@ describe('being picked up', () => {
 
   it('puts a shelf record straight back when someone is grabbed mid-listen', () => {
     const { world, person, drive } = listeningWorld(11);
-    expect(person.carrying?.source).toBe('shelf');
+    // In hand, or theirs spinning on the record player.
+    expect(person.carrying?.source === 'shelf' || world.player.owner === person.id).toBe(true);
     beginPixelPersonDrag(person, world, 1, { x: person.body.x, y: 10 }, drive.now);
     expect(person.carrying).toBeNull();
+    expect(world.player.record).toBeNull();
     expect(world.shelf.every((slot) => slot.out === null && slot.reservedBy === null)).toBe(true);
     expect(person.animation).toBe('dangle');
   });
@@ -407,10 +413,10 @@ describe('the lounge', () => {
         for (const person of world.people) {
           if (!person.seated) continue;
           // The record is only absent while it is coming out of, or going
-          // back into, a pocket.
+          // back into, a pocket, or while it is theirs on the record player.
           const beat = currentBeat(person)?.kind;
           if (beat === 'take-from-pocket' || beat === 'stow') continue;
-          expect(person.carrying).not.toBeNull();
+          expect(person.carrying !== null || world.player.owner === person.id).toBe(true);
         }
       });
     }
@@ -629,3 +635,98 @@ describe('listening time', () => {
     }
   });
 });
+
+describe('the record player', () => {
+  it('stands between the couch and the armchair', () => {
+    const room = layoutRoom(1180, HEIGHT, 'right');
+    const kinds = room.furniture.map((piece) => piece.kind);
+    const player = kinds.indexOf('player');
+    expect(player).toBeGreaterThan(-1);
+    const neighbours = [kinds[player - 1], kinds[player + 1]].sort();
+    expect(neighbours).toEqual(['armchair', 'couch']);
+  });
+
+  it('takes the record, puts it on, sits and listens hands-free, then shelves it again', () => {
+    for (const seed of TRAJECTORY_SEEDS) {
+      const world = makeWorld(seed);
+      const person = addPerson(world, 500);
+      enterThroughDoor(person, world.room, 0);
+      const order: string[] = [];
+      const note = (event: string) => {
+        if (!order.includes(event)) order.push(event);
+      };
+      driver(world).run(4 * 60_000, () => {
+        if (person.carrying?.source === 'shelf') note('record');
+        if (world.lamp.on) note('lamp');
+        if (world.player.owner === person.id) note('playing');
+        if (person.seated) note('seat');
+        if (currentBeat(person)?.kind === 'listen') {
+          note('listen');
+          // Hands free: the record is on the player, not in hand.
+          expect(person.carrying).toBeNull();
+          expect(world.player.record).not.toBeNull();
+        }
+        if (order.includes('listen') && world.shelf.every((slot) => slot.out === null)) {
+          note('shelved');
+          return true;
+        }
+      });
+      expect(order).toEqual(['record', 'lamp', 'playing', 'seat', 'listen', 'shelved']);
+      expect(world.player.record).toBeNull();
+      expect(world.player.owner).toBeNull();
+    }
+  });
+
+  it('plays one record at a time', () => {
+    for (const seed of TRAJECTORY_SEEDS) {
+      const world = makeWorld(seed);
+      for (const x of [100, 400, 700, 900]) addPerson(world, x);
+      driver(world).run(5 * 60_000, () => {
+        if (!world.player.record) return;
+        const owner = world.people.find((person) => person.id === world.player.owner);
+        expect(owner).toBeDefined();
+        // Whoever owns it is not also holding it.
+        expect(owner!.carrying).toBeNull();
+        // It is a shelf record still out to them, so it can go back.
+        expect(world.shelf.some((slot) => slot.out === owner!.id)).toBe(true);
+      });
+    }
+  });
+
+  it('falls back to listening with the record in hand when the player is busy', () => {
+    const world = makeWorld(6);
+    world.player.record = { imageUrl: 'https://covers/elsewhere' };
+    world.player.owner = 'someone-else';
+    const person = addPerson(world, 500);
+    enterThroughDoor(person, world.room, 0);
+    let listenedInHand = false;
+    driver(world).run(3 * 60_000, () => {
+      if (currentBeat(person)?.kind === 'listen' && person.carrying) listenedInHand = true;
+      return listenedInHand;
+    });
+    expect(listenedInHand).toBe(true);
+    expect(world.player.owner).toBe('someone-else');
+  });
+});
+
+describe('switching the lamp by hand', () => {
+  it('switches it and restarts the glow fade, but not when it is already so', () => {
+    const lamp = { on: false, changedAt: 0 };
+    setLamp(lamp, true, 500);
+    expect(lamp).toEqual({ on: true, changedAt: 500 });
+    setLamp(lamp, true, 700);
+    expect(lamp).toEqual({ on: true, changedAt: 500 });
+    setLamp(lamp, false, 900);
+    expect(lamp).toEqual({ on: false, changedAt: 900 });
+  });
+
+  it('makes a resident already heading to the lamp for the same thing a no-op', () => {
+    const world = makeWorld();
+    const person = addPerson(world, 300);
+    person.plan = { activity: 'lamp', beats: [{ kind: 'set-lamp', on: true }], index: 0, started: false, beatStartedAt: 0, beatUntil: 0, lookFlipAt: 0 };
+    setLamp(world.lamp, true, 50);
+    stepPixelPerson(person, world, 0.05, 100);
+    expect(world.lamp).toEqual({ on: true, changedAt: 50 });
+  });
+});
+

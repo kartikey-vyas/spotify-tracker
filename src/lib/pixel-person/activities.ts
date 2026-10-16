@@ -2,9 +2,11 @@ import { normalizeArtistName } from './artist-name';
 import { doorstepX } from './doorway';
 import { clamp } from './physics';
 import { pickOne, weightedPick } from './random';
+import { isPlayerFree, releasePlayer, reservePlayer } from './record-player';
 import {
   chooseOpenSpot,
   lampReach,
+  playerStandX,
   seatStandX,
   SETTLE_DISTANCE,
   slotStandX,
@@ -97,6 +99,14 @@ export const LAMP = {
   reachMs: 820,
   /** Chance a seated listen starts by switching the lamp on, when it is off. */
   beforeListenChance: 0.6
+} as const;
+
+/** The record player between the couch and the armchair. */
+export const RECORD_PLAYER = {
+  /** Chance a shelf record goes on the player, when it and a seat are free. */
+  playChance: 0.8,
+  /** A beat in front of the player before crouching to it. */
+  approachMs: 300
 } as const;
 
 function randomBetween(random: () => number, minimum: number, jitter: number): number {
@@ -220,10 +230,14 @@ function listenBeats(world: RoomWorld): Beat[] {
  * shelf listen and by the recovery when a plan is abandoned mid-errand.
  */
 export function returnRecordBeats(standX: number, pace: 'stroll' | 'purposeful'): Beat[] {
+  return [{ kind: 'walk', toX: standX, pace }, ...crouchTo({ kind: 'return-to-shelf' })];
+}
+
+/** Crouch, do something low (a shelf, the player), and rise again. */
+function crouchTo(action: Beat): Beat[] {
   return [
-    { kind: 'walk', toX: standX, pace },
     { kind: 'pose', animation: 'hide', ms: MUSIC.crouchMs },
-    { kind: 'return-to-shelf' },
+    action,
     { kind: 'pose', animation: 'hide', ms: MUSIC.riseMs }
   ];
 }
@@ -268,6 +282,25 @@ function lampSpokenFor(world: RoomWorld): boolean {
 }
 
 /**
+ * Settling in with a record is when someone thinks to put the lamp on: when
+ * it is off and nobody else is on the way to it, sometimes (always, `eager`).
+ */
+function lightFirstBeats(person: PixelPersonRuntime, world: RoomWorld, eager: boolean): Beat[] {
+  const lightFirst =
+    !world.lamp.on &&
+    !lampSpokenFor(world) &&
+    (eager || world.random() < LAMP.beforeListenChance);
+  return lightFirst ? lampBeats(person, world, true) : [];
+}
+
+function sitBeats(person: PixelPersonRuntime, world: RoomWorld, seat: number): Beat[] {
+  return [
+    { kind: 'walk', toX: seatStandX(world.room, seat, person.body.width), pace: 'stroll' },
+    { kind: 'sit', seat }
+  ];
+}
+
+/**
  * Wraps `inner` (beats done with a record in hand) in a seat, when the mood
  * takes them and one is free, switching the lamp on first when it is off.
  * Someone settling in (`eager`) always takes a free seat and always lights
@@ -283,22 +316,47 @@ function seatedListen(
   if (!eager && world.random() >= LOUNGE_TIMING.seatedListenChance) return null;
   const seat = claimNearestSeat(person, world, fromX);
   if (seat === null) return null;
-  const lightFirst =
-    !world.lamp.on &&
-    !lampSpokenFor(world) &&
-    (eager || world.random() < LAMP.beforeListenChance);
   return [
-    ...(lightFirst ? lampBeats(person, world, true) : []),
-    { kind: 'walk', toX: seatStandX(world.room, seat, person.body.width), pace: 'stroll' },
-    { kind: 'sit', seat },
+    ...lightFirstBeats(person, world, eager),
+    ...sitBeats(person, world, seat),
     ...inner,
     { kind: 'stand' }
   ];
 }
 
 /**
- * Browse the shelf, crouch for a record, take it to a seat (or somewhere with
- * a bit of room), listen, then walk it back and put it where it came from.
+ * The record player route: lamp on, crouch at the player and put the record
+ * on, sit and enjoy it hands-free, then get up and take it back off. Needs the
+ * player and a seat both free; someone settling in always takes it when it is.
+ * Null when it cannot happen, with nothing left claimed.
+ */
+function playerListen(person: PixelPersonRuntime, world: RoomWorld, eager: boolean): Beat[] | null {
+  const standX = playerStandX(world.room, person.body.width);
+  if (standX === null || !isPlayerFree(world.player)) return null;
+  if (!eager && world.random() >= RECORD_PLAYER.playChance) return null;
+  if (!reservePlayer(world.player, person.id)) return null;
+  const seat = claimNearestSeat(person, world, standX);
+  if (seat === null) {
+    releasePlayer(world.player, person.id);
+    return null;
+  }
+  return [
+    ...lightFirstBeats(person, world, eager),
+    { kind: 'walk', toX: standX, pace: 'stroll' },
+    { kind: 'pause', ms: RECORD_PLAYER.approachMs },
+    ...crouchTo({ kind: 'play-record' }),
+    ...sitBeats(person, world, seat),
+    ...listenBeats(world),
+    { kind: 'stand' },
+    { kind: 'walk', toX: standX, pace: 'stroll' },
+    ...crouchTo({ kind: 'take-from-player' })
+  ];
+}
+
+/**
+ * Browse the shelf, crouch for a record, put it on the record player (or take
+ * it to a seat, or somewhere with a bit of room), listen, then walk it back
+ * and put it where it came from.
  */
 export const shelfListen: Activity = {
   id: 'shelf-listen',
@@ -321,6 +379,7 @@ function planShelfListen(
   const standX = slotStandX(world.room, slot, person.body.width);
   const listen = listenBeats(world);
   const somewhere =
+    playerListen(person, world, eager) ??
     seatedListen(person, world, standX, listen, eager) ?? [
       {
         kind: 'walk',
@@ -335,9 +394,7 @@ function planShelfListen(
   return [
     { kind: 'walk', toX: standX, pace: 'purposeful' },
     { kind: 'pause', ms: randomBetween(world.random, MUSIC.browseMinMs, MUSIC.browseJitterMs) },
-    { kind: 'pose', animation: 'hide', ms: MUSIC.crouchMs },
-    { kind: 'take-from-shelf', slot },
-    { kind: 'pose', animation: 'hide', ms: MUSIC.riseMs },
+    ...crouchTo({ kind: 'take-from-shelf', slot }),
     ...somewhere,
     ...returnRecordBeats(standX, 'stroll'),
     restBeat(world.random)
