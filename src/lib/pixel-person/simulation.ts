@@ -10,6 +10,12 @@ import {
 import { DOORWAY, doorstepX, doorwayEnterX } from './doorway';
 import { clamp, defaultPhysicsConfig, stepPhysics } from './physics';
 import { clampToWalk, slotStandX, type RoomLayout } from './room';
+import {
+  playRecord,
+  releasePlayer,
+  stopRecord,
+  type RecordPlayerState
+} from './record-player';
 import { releaseSeats, takeSeat, type SeatState } from './seats';
 import {
   releaseShelf,
@@ -82,6 +88,10 @@ export type Beat =
   | { kind: 'stow' }
   /** Flick the floor lamp to `on`; a no-op if someone already did. */
   | { kind: 'set-lamp'; on: boolean }
+  /** Put the shelf record in hand on the record player (reserved first). */
+  | { kind: 'play-record' }
+  /** Take their record back off the record player, into their hands. */
+  | { kind: 'take-from-player' }
   | { kind: 'listen'; ms: number }
   /** Sit in a lounge seat they are standing in front of (and reserved). */
   | { kind: 'sit'; seat: number }
@@ -197,12 +207,24 @@ export interface PixelPersonRuntime {
 export interface RoomFurnitureState {
   shelf: ShelfSlot[];
   seats: SeatState[];
+  player: RecordPlayerState;
 }
 
 /** The floor lamp. `changedAt` drives the glow fading in or out. */
 export interface LampState {
   on: boolean;
   changedAt: number;
+}
+
+/**
+ * The one place the lamp is switched, by a resident or a reader's click. A
+ * switch to the state it is already in changes nothing, so the glow fade is
+ * not restarted.
+ */
+export function setLamp(lamp: LampState, on: boolean, now: number): void {
+  if (lamp.on === on) return;
+  lamp.on = on;
+  lamp.changedAt = now;
 }
 
 /** Everything a person needs to know about the room they are in. */
@@ -486,8 +508,11 @@ function startBeat(
       if (beat.look) plan.lookFlipAt = now + beat.ms / 2;
       return true;
     case 'pose':
+      plan.beatUntil = now + beat.ms;
+      return true;
     case 'listen':
-      if (beat.kind === 'listen' && !person.carrying) return false;
+      // Listening needs music: a record in hand, or theirs on the player.
+      if (!person.carrying && world.player.owner !== person.id) return false;
       plan.beatUntil = now + beat.ms;
       return true;
     case 'take-from-shelf': {
@@ -526,11 +551,19 @@ function startBeat(
       standUp(person, world);
       return true;
     case 'set-lamp':
-      if (world.lamp.on !== beat.on) {
-        world.lamp.on = beat.on;
-        world.lamp.changedAt = now;
-      }
+      setLamp(world.lamp, beat.on, now);
       return true;
+    case 'play-record':
+      if (person.carrying?.source !== 'shelf') return false;
+      if (!playRecord(world.player, person.carrying.record, person.id)) return false;
+      person.carrying = null;
+      return true;
+    case 'take-from-player': {
+      const record = stopRecord(world.player, person.id);
+      if (!record) return false;
+      person.carrying = { record, source: 'shelf', takenAt: now, stowingAt: null };
+      return true;
+    }
   }
 }
 
@@ -546,6 +579,7 @@ function standUp(person: PixelPersonRuntime, world: RoomFurnitureState): void {
  * its slot, reservations lapse, and their seat is free.
  */
 export function releaseFurniture(furniture: RoomFurnitureState, personId: string): void {
+  releasePlayer(furniture.player, personId);
   releaseShelf(furniture.shelf, personId);
   releaseSeats(furniture.seats, personId);
 }
@@ -590,6 +624,9 @@ function abortPlan(person: PixelPersonRuntime, world: RoomWorld): void {
   releaseShelfReservations(world.shelf, person.id);
   releaseSeats(world.seats, person.id);
   person.seated = null;
+  // A record of theirs left playing comes off; with nothing in hand, the
+  // release below puts it back on the shelf.
+  releasePlayer(world.player, person.id);
   const slot = slotHeldBy(world.shelf, person.id);
   if (person.carrying?.source === 'shelf' && slot >= 0 && failed !== 'return-record') {
     person.plan = newPlan(

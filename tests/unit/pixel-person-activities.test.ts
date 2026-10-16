@@ -16,6 +16,7 @@ import { artistCharacterFor } from '../../src/lib/pixel-person/artists';
 import { pickOne, weightedPick } from '../../src/lib/pixel-person/random';
 import { tinyPerson } from '../../src/lib/pixel-person/characters';
 import { layoutRoom, walkRange } from '../../src/lib/pixel-person/room';
+import { createRecordPlayer } from '../../src/lib/pixel-person/record-player';
 import { createSeats, takeSeat } from '../../src/lib/pixel-person/seats';
 import { createShelf, stockShelf, takeFromShelf } from '../../src/lib/pixel-person/shelf';
 import {
@@ -49,7 +50,8 @@ function world(overrides: Partial<RoomWorld> = {}, shelfRecords = records('a', '
   stockShelf(shelf, shelfRecords);
   const seats = createSeats(room.seats.length);
   const lamp = { on: false, changedAt: 0 };
-  return { room, shelf, seats, lamp, people: [], crate: [], random: seededRandom(1), ...overrides };
+  const player = createRecordPlayer();
+  return { room, shelf, seats, player, lamp, people: [], crate: [], random: seededRandom(1), ...overrides };
 }
 
 function person(at = 300, definition = tinyPerson): PixelPersonRuntime {

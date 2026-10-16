@@ -1,6 +1,6 @@
 import { DOORWAY } from './doorway';
 import { clamp } from './physics';
-import type { Collider, Facing, Rect } from './types';
+import type { Collider, Facing, Point, Rect } from './types';
 
 /**
  * The room is the whole world. It is one authored band of page with its own
@@ -70,14 +70,22 @@ export const LOUNGE = {
   /** Floor to the top of the seat cushion, where a record set down beside a sitter rests. */
   cushionHeight: 9,
   lampHeight: 34,
-  /** Between the lamp and the couch, and between the couch and the armchair. */
+  /** The record player: a low cabinet with a turntable on top. */
+  playerWidth: 22,
+  /** Floor to the top of the cabinet; the turntable's plinth sits on it. */
+  playerCabinetHeight: 11,
+  /** Floor to the top of the plinth, where the vinyl sits. */
+  playerHeight: 14,
+  /** Between the lamp and the couch. */
   lampGap: 3,
+  /** Either side of the record player. */
+  playerGap: 10,
   chairGap: 14,
   /** Clear floor kept around the shelf and the door. */
   clearance: 28
 } as const;
 
-export type FurnitureKind = 'couch' | 'armchair' | 'lamp';
+export type FurnitureKind = 'couch' | 'armchair' | 'lamp' | 'player';
 
 export interface FurniturePiece extends Rect {
   kind: FurnitureKind;
@@ -180,6 +188,19 @@ type LoungePlan = { kind: FurnitureKind; width: number; gapAfter: number }[];
 
 /** Largest first: a room gets the biggest lounge that fits its free floor. */
 const LOUNGE_PLANS: LoungePlan[] = [
+  // The record player sits between the couch and the armchair, within reach
+  // of both.
+  [
+    { kind: 'lamp', width: LOUNGE.lampWidth, gapAfter: LOUNGE.lampGap },
+    { kind: 'couch', width: LOUNGE.couchWidth, gapAfter: LOUNGE.playerGap },
+    { kind: 'player', width: LOUNGE.playerWidth, gapAfter: LOUNGE.playerGap },
+    { kind: 'armchair', width: LOUNGE.armchairWidth, gapAfter: 0 }
+  ],
+  [
+    { kind: 'lamp', width: LOUNGE.lampWidth, gapAfter: LOUNGE.lampGap },
+    { kind: 'couch', width: LOUNGE.couchWidth, gapAfter: LOUNGE.playerGap },
+    { kind: 'player', width: LOUNGE.playerWidth, gapAfter: 0 }
+  ],
   [
     { kind: 'lamp', width: LOUNGE.lampWidth, gapAfter: LOUNGE.lampGap },
     { kind: 'couch', width: LOUNGE.couchWidth, gapAfter: LOUNGE.chairGap },
@@ -231,7 +252,12 @@ function layoutLounge(
     const seats: SeatLayout[] = [];
     let x = choice.side === 'right' ? rightStart : leftEnd - total;
     ordered.forEach((piece, index) => {
-      const height = piece.kind === 'lamp' ? LOUNGE.lampHeight : LOUNGE.backHeight;
+      const height =
+        piece.kind === 'lamp'
+          ? LOUNGE.lampHeight
+          : piece.kind === 'player'
+            ? LOUNGE.playerHeight
+            : LOUNGE.backHeight;
       furniture.push({ kind: piece.kind, x, y: floorY - height, width: piece.width, height });
       if (piece.kind === 'couch') {
         seats.push({ x: x + Math.round(piece.width * 0.3), facing: 1 });
@@ -249,9 +275,35 @@ function layoutLounge(
   return { furniture: [], seats: [] };
 }
 
+function pieceOf(room: RoomLayout, kind: FurnitureKind): FurniturePiece | null {
+  return room.furniture.find((piece) => piece.kind === kind) ?? null;
+}
+
+/** Body-left x that stands a body in front of the record player. */
+export function playerStandX(room: RoomLayout, bodyWidth: number): number | null {
+  const player = pieceOf(room, 'player');
+  if (!player) return null;
+  return clampToWalk(room, player.x + player.width / 2 - bodyWidth / 2, bodyWidth);
+}
+
+/** Slack around the lamp for clicking it: a 1px pole is too fine a target. */
+const LAMP_HIT_PADDING = 4;
+
+/** True when a room-local point is on (or just around) the floor lamp. */
+export function isOnLamp(room: RoomLayout, point: Point): boolean {
+  const lamp = lampOf(room);
+  if (!lamp) return false;
+  return (
+    point.x >= lamp.x - LAMP_HIT_PADDING &&
+    point.x <= lamp.x + lamp.width + LAMP_HIT_PADDING &&
+    point.y >= lamp.y - LAMP_HIT_PADDING &&
+    point.y <= lamp.y + lamp.height
+  );
+}
+
 /** The floor lamp, when this room's lounge has one. */
 export function lampOf(room: RoomLayout): FurniturePiece | null {
-  return room.furniture.find((piece) => piece.kind === 'lamp') ?? null;
+  return pieceOf(room, 'lamp');
 }
 
 export interface LampReach {
