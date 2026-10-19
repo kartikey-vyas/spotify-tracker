@@ -1,0 +1,555 @@
+normalized_tag,decision,category,label,plays_covered,notes
+hip hop,include,style,hip-hop,59808,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+rap,include,style,hip-hop,47796,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+electronic,include,style,electronic,41596,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+american,exclude,place,,37972,
+experimental,include,style,experimental,23162,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+pop,include,style,pop,19842,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+rnb,include,style,r&b,19348,Also in genre_tag_rules.
+trap,include,style,trap,16928,Also in genre_tag_rules.
+indie,include,style,indie,16890,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+british,exclude,place,,16462,
+underground hip hop,include,style,underground hip-hop,13982,Also in genre_tag_rules.
+experimental hip hop,include,style,experimental hip-hop,13535,Also in genre_tag_rules.
+alternative,include,style,alternative,12975,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+soul,include,style,soul,12383,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+rock,include,style,rock,11209,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+alternative rnb,include,style,alternative r&b,11151,Also in genre_tag_rules.
+house,include,style,house,10604,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+indie rock,include,style,indie rock,10132,Also in genre_tag_rules.
+cloud rap,include,style,cloud rap,9446,Also in genre_tag_rules.
+hardcore hip hop,include,style,hardcore hip-hop,8775,Also in genre_tag_rules.
+ambient,include,style,ambient,8316,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+pop rap,include,style,pop rap,7967,Also in genre_tag_rules.
+electronica,include,style,electronica,7767,Umbrella tag; rarely lifts.
+neo soul,include,style,neo-soul,7720,Also in genre_tag_rules.
+jazz rap,include,style,jazz rap,7688,Also in genre_tag_rules.
+female vocalists,include,texture,female vocalists,7647,
+united states,exclude,place,,7514,
+instrumental,include,texture,instrumental,7227,
+dance,include,style,dance,7145,Also in genre_tag_rules. Umbrella tag; rarely lifts.
+alternative rock,include,style,alternative rock,7113,Also in genre_tag_rules.
+psychedelic,include,style,psychedelic,7089,Also in genre_tag_rules.
+gangsta rap,include,style,gangsta rap,6873,
+lo fi,include,texture,lo-fi,6630,
+instrumental hip hop,include,style,instrumental hip-hop,6238,Also in genre_tag_rules.
+techno,include,style,techno,6057,Also in genre_tag_rules.
+alternative hip hop,include,style,alternative hip-hop,5801,Also in genre_tag_rules.
+usa,exclude,place,,5777,
+r and b,include,style,r&b,5546,Also in genre_tag_rules.
+downtempo,include,style,downtempo,5476,
+funk,include,style,funk,5388,
+new york,exclude,place,,5284,
+indie pop,include,style,indie pop,5259,Also in genre_tag_rules.
+west coast hip hop,include,style,west coast hip-hop,5214,Also in genre_tag_rules.
+jazz,include,style,jazz,5180,Also in genre_tag_rules.
+swag,include,style,swag,5032,Used as 'swag rap' (2010s); borderline.
+trip hop,include,style,trip-hop,4988,Also in genre_tag_rules.
+art rock,include,style,art rock,4793,Also in genre_tag_rules.
+canadian,exclude,place,,4748,
+glitch hop,include,style,glitch hop,4494,Also in genre_tag_rules.
+synthpop,include,style,synthpop,4467,Also in genre_tag_rules.
+britpop,include,style,britpop,4427,
+ofwgkta,exclude,person_or_label,,4346,
+beats,include,style,instrumental hip-hop,4161,
+southern hip hop,include,style,southern hip-hop,4038,
+trap rap,include,style,trap,4019,Also in genre_tag_rules.
+chillout,include,mood,chill,4016,
+deep house,include,style,deep house,3895,
+canada,exclude,place,,3843,
+idm,include,style,idm,3811,Also in genre_tag_rules.
+underground rap,include,style,underground hip-hop,3706,
+abstract hip hop,include,style,abstract hip hop,3697,
+singer songwriter,include,style,singer-songwriter,3445,Also in genre_tag_rules.
+japanese,exclude,place,,3387,
+uk garage,include,style,uk garage,3372,
+industrial hip hop,include,style,industrial hip-hop,3275,Also in genre_tag_rules. One listener only.
+uk,exclude,place,,3223,
+chicago,exclude,place,,3220,
+trance,include,style,trance,2867,Also in genre_tag_rules.
+horrorcore,include,style,horrorcore,2809,
+atlanta,exclude,place,,2699,
+dream pop,include,style,dream pop,2680,
+california,exclude,place,,2536,
+electropop,include,style,electropop,2506,
+west coast,include,style,west coast hip-hop,2483,
+future garage,include,style,future garage,2480,
+conscious hip hop,include,style,conscious hip-hop,2471,
+psychedelic rock,include,style,psychedelic rock,2458,
+chillwave,include,style,chillwave,2396,
+dubstep,include,style,dubstep,2347,
+neo psychedelia,include,style,neo psychedelia,2296,
+australian,exclude,place,,2293,
+electro,include,style,electro,2280,
+memphis rap,include,style,memphis rap,2237,
+kanye west,exclude,person_or_label,,2179,
+noise,include,style,noise,2161,Also in genre_tag_rules.
+vaporwave,include,style,vaporwave,2143,
+florida,exclude,place,,2054,
+industrial,include,style,industrial,2024,Also in genre_tag_rules.
+dirty south,include,style,southern hip-hop,2015,
+boyband,include,style,boyband,1999,Format more than sound; borderline.
+japan,exclude,place,,1973,
+post punk,include,style,post-punk,1953,Also in genre_tag_rules.
+dance pop,include,style,dance pop,1939,
+jazz hop,include,style,jazz hop,1938,
+psychedelic pop,include,style,psychedelic pop,1920,
+gay fish,exclude,junk,,1873,Joke tag on one artist.
+drum and bass,include,style,drum and bass,1813,
+east coast,include,style,east coast hip-hop,1798,
+indiana,exclude,place,,1788,
+breakbeat,include,style,breakbeat,1753,
+male vocalists,include,texture,male vocalists,1753,Excluded from genre_tag_rules as a performer attribute; kept here as texture.
+east coast hip hop,include,style,east coast hip-hop,1747,
+psytrance,include,style,psytrance,1688,
+chill,include,mood,chill,1682,
+young money,exclude,person_or_label,,1648,
+drake,exclude,person_or_label,,1618,
+bedroom pop,include,style,bedroom pop,1616,Also in genre_tag_rules.
+chillhop,include,style,chillhop,1592,
+all,exclude,junk,,1571,
+plugg,include,style,plugg,1566,Rap microgenre.
+east coast rap,include,style,east coast hip-hop,1547,
+folk,include,style,folk,1542,
+detroit,exclude,place,,1524,
+compton,exclude,place,,1506,
+spazz rap,exclude,junk,,1500,"Single artist, single listener."
+woman beater,exclude,junk,,1498,"Accusation tag, not sound."
+rage,include,style,rage,1497,Rap microgenre.
+nu jazz,include,style,nu jazz,1495,Also in genre_tag_rules.
+experimental rap,include,style,experimental hip-hop,1492,One listener only.
+art pop,include,style,art pop,1482,Also in genre_tag_rules.
+jazz fusion,include,style,jazz fusion,1478,Also in genre_tag_rules.
+progressive house,include,style,progressive house,1430,
+progressive trance,include,style,progressive trance,1412,Also in genre_tag_rules.
+grime,include,style,grime,1410,
+los angeles,exclude,place,,1394,
+opium,exclude,person_or_label,,1392,
+avant garde,include,style,avant garde,1369,
+french,exclude,place,,1362,
+drone,include,style,drone,1358,
+soundtrack,include,texture,soundtrack,1353,
+space rock,include,style,space rock,1335,
+boom bap,include,style,boom bap,1324,
+wonky,include,style,wonky,1263,Also in genre_tag_rules.
+conscious,include,style,conscious hip-hop,1241,Only 2 artists.
+psychedelic trance,include,style,psytrance,1221,One listener only.
+bass,include,style,bass,1219,
+tech house,include,style,tech house,1205,
+german,exclude,place,,1134,
+houston,exclude,place,,1112,
+hyperpop,include,style,hyperpop,1077,
+shoegaze,include,style,shoegaze,1042,Also in genre_tag_rules.
+pop rock,include,style,pop rock,1008,
+disco,include,style,disco,991,Also in genre_tag_rules.
+virginia,exclude,place,,988,
+80s,exclude,era,,967,
+swedish,exclude,place,,956,
+handsome,exclude,junk,,942,
+ugly,exclude,junk,,942,
+electroclash,include,style,electroclash,937,
+clipse,exclude,person_or_label,,930,
+emo rap,include,style,emo rap,929,
+outsider house,include,style,outsider house,929,
+uk hip hop,include,style,uk hip-hop,925,
+acid,include,style,acid,897,
+progressive psytrance,include,style,progressive psytrance,888,One listener only.
+bubblegum bass,include,style,bubblegum bass,887,
+post rock,include,style,post rock,879,
+glo fi,include,style,chillwave,873,
+jungle,include,style,jungle,870,
+alt pop,include,style,alt pop,865,
+ambient techno,include,style,ambient techno,855,
+travis scott,exclude,person_or_label,,848,
+math rock,include,style,math rock,846,
+nature sounds,include,texture,nature sounds,842,
+acoustic,include,texture,acoustic,830,
+hardcore,include,style,hardcore,829,"Ambiguous: hardcore punk, hardcore techno and hardcore hip-hop."
+2 step,include,style,2 step,811,
+hip house,include,style,hip house,796,Also in genre_tag_rules.
+dreampunk,include,style,dreampunk,787,One listener. One listener only.
+mf doom,exclude,person_or_label,,787,
+australia,exclude,place,,768,
+90s,exclude,era,,760,
+indietronica,include,style,indietronica,743,
+synthwave,include,style,synthwave,736,Also in genre_tag_rules.
+ambient pop,include,style,ambient pop,734,
+punk,include,style,punk,728,
+dub,include,style,dub,725,
+nu disco,include,style,nu disco,724,
+composer,exclude,junk,,716,"Role, not sound; correlates with classical/soundtrack labels already present."
+acid techno,include,style,acid techno,715,One listener only.
+dub techno,include,style,dub techno,714,
+glitch,include,style,glitch,703,Also in genre_tag_rules.
+england,exclude,place,,697,
+french house,include,style,french house,685,
+piano,include,texture,piano,685,
+pennsylvania,exclude,place,,674,
+rave,include,style,rave,672,
+finnish,exclude,place,,667,
+lo fi house,include,style,lo-fi house,666,
+electro house,include,style,electro house,663,
+minimal,include,style,minimal,657,"Mostly minimal techno, some minimalism; borderline."
+beast coast,exclude,person_or_label,,656,
+lofi,include,texture,lo-fi,656,
+uk bass,include,style,uk bass,654,
+latin,include,style,latin,642,
+new wave,include,style,new wave,641,Also in genre_tag_rules.
+korean,exclude,place,,627,
+lo fi hip hop,include,texture,lo-fi,617,
+goa,include,style,goa trance,607,
+reggae,include,style,reggae,606,
+nature,include,texture,nature sounds,605,One listener only.
+70s,exclude,era,,604,
+ambient house,include,style,ambient house,603,
+yeah,exclude,junk,,599,
+scottish,exclude,place,,596,
+contemporary rnb,include,style,r&b,595,
+classic rock,include,style,classic rock,594,
+germany,exclude,place,,589,
+breaks,include,style,breakbeat,587,
+dj,exclude,junk,,584,"Role, not sound."
+west coast rap,include,style,west coast hip-hop,584,
+irish,exclude,place,,579,
+post dubstep,include,style,post dubstep,574,
+producer,exclude,junk,,574,"Role, not sound."
+breakcore,include,style,breakcore,567,
+southern rap,include,style,southern hip-hop,564,
+garage rock,include,style,garage rock,561,
+video game music,include,texture,video game music,553,
+post hardcore,include,style,post hardcore,545,
+lounge,include,style,lounge,536,
+progressive,exclude,junk,,535,Ambiguous: mixes prog rock and progressive house/trance.
+ireland,exclude,place,,531,
+nature sound,include,texture,nature sounds,524,One listener only.
+stutter house,include,style,stutter house,520,
+goa trance,include,style,goa trance,516,
+hypnagogic pop,include,style,hypnagogic pop,513,
+edm,include,style,edm,512,
+def jux,exclude,person_or_label,,511,
+finland,exclude,place,,503,
+female vocalist,include,texture,female vocalists,492,
+metal,include,style,metal,486,
+daft punk,exclude,person_or_label,,481,
+dnb,include,style,drum and bass,479,
+water,exclude,junk,,472,Single artist; would make one act the whole label.
+alternative rap,include,style,alternative hip-hop,470,
+blues,include,style,blues,467,
+stones throw,exclude,person_or_label,,463,
+based,include,style,based,460,"Lil B's 'based' scene; 6 artists, one listener. One listener only."
+dreamy,include,mood,dreamy,459,
+my top songs,exclude,junk,,459,
+classical,include,style,classical,458,
+dark ambient,include,style,dark ambient,454,
+uk hiphop,include,style,uk hip-hop,439,Only 1 artists.
+reggaeton,include,style,reggaeton,434,
+united kingdom,exclude,place,,429,
+dutch,exclude,place,,427,
+maryland,exclude,place,,427,
+garage rock revival,include,style,garage rock,424,Only 3 artists.
+indie folk,include,style,indie folk,422,Also in genre_tag_rules.
+modern classical,include,style,modern classical,422,
+kid cudi,exclude,person_or_label,,418,
+glitch pop,include,style,glitch pop,416,
+comedy,include,mood,funny,413,One listener only.
+comfy,include,mood,comfy,411,Only 3 artists. One listener only.
+real recognize real and this nigga the realest,exclude,junk,,411,
+free jazz,include,style,free jazz,410,
+newbreed,exclude,junk,,410,Unclear scene/collective tag.
+black hippy,exclude,person_or_label,,406,
+future bass,include,style,future bass,405,
+underworld,exclude,person_or_label,,405,
+seapunk,include,style,seapunk,401,"Eight artists, one listener. One listener only."
+vocal trance,include,style,vocal trance,400,Also in genre_tag_rules.
+drill,include,style,drill,398,
+comedy rap,include,mood,funny,396,One listener only.
+emo,include,style,emo,390,
+france,exclude,place,,382,
+griselda,exclude,person_or_label,,382,
+glam rock,include,style,glam rock,380,One listener only.
+minimal techno,include,style,minimal techno,379,
+sounds of nature,include,texture,nature sounds,378,One listener only.
+freak folk,include,style,freak folk,373,One listener only.
+progressive rock,include,style,progressive rock,372,
+saxophone,include,texture,saxophone,367,
+texas,exclude,place,,362,
+post punk revival,include,style,post-punk revival,360,Also in genre_tag_rules.
+microhouse,include,style,microhouse,359,
+hiphop,include,style,hip-hop,358,
+psychedelic soul,include,style,psychedelic soul,358,
+new zealand,exclude,place,,357,
+indian,exclude,place,,356,
+full on,include,style,psytrance,353,One listener only.
+uk funky,include,style,uk funky,351,
+nu metal,include,style,nu metal,350,
+vaportrap,include,style,vaportrap,348,
+black metal,include,style,black metal,346,
+alternative metal,include,style,alternative metal,344,
+puerto rico,exclude,place,,344,
+tde,exclude,person_or_label,,343,
+alchemist,exclude,person_or_label,,342,
+danish,exclude,place,,340,
+noise rock,include,style,noise rock,340,One listener only.
+hard rock,include,style,hard rock,339,
+drumless,include,texture,drumless,336,One listener only.
+sad,include,mood,sad,335,
+new orleans,exclude,place,,333,
+london,exclude,place,,332,
+avant garde jazz,include,style,avant garde jazz,331,
+pop punk,include,style,pop punk,331,
+calm,include,mood,calm,323,
+queens,exclude,place,,322,
+urban,exclude,junk,,321,"Marketing umbrella, no sound meaning."
+bay area,exclude,place,,319,
+the black asap rocky,exclude,person_or_label,,318,
+neptunes,exclude,person_or_label,,316,
+post industrial,include,style,post industrial,315,
+experimental rock,include,style,experimental rock,314,
+frictionless,exclude,junk,,312,
+2,exclude,junk,,311,
+brazilian,exclude,place,,310,
+soprano sax,exclude,junk,,307,Single artist (would swamp the saxophone label).
+georgia,exclude,place,,303,
+israeli,exclude,place,,303,
+memphis,exclude,place,,302,
+lo fi beat,include,texture,lo-fi,298,
+detroit techno,include,style,detroit techno,294,
+denmark,exclude,place,,293,
+english,exclude,place,,293,
+relax,include,mood,relaxing,289,One listener only.
+eurodance,include,style,eurodance,288,
+heavy metal,include,style,heavy metal,283,
+trill shit,exclude,junk,,283,
+country,include,style,country,282,
+big beat,include,style,big beat,279,
+pittsburgh,exclude,place,,279,
+latin pop,include,style,latin pop,277,
+good,exclude,junk,,276,
+india,exclude,place,,276,
+new age,include,style,new age,275,One listener only.
+rapcore,include,style,rapcore,273,One listener only.
+dungeon synth,include,style,dungeon synth,271,One listener only.
+lofi house,include,style,lo-fi house,270,
+pop soul,include,style,pop soul,269,
+puerto rican,exclude,place,,267,
+trap latino,include,style,trap latino,265,
+j pop,include,style,j-pop,263,
+coke rap,exclude,junk,,262,Real subgenre but only two artists here.
+bollywood,include,style,bollywood,260,One listener only.
+netherlands,exclude,place,,260,
+contemporary classical,include,style,modern classical,259,
+relaxing,include,mood,relaxing,258,One listener only.
+retrowave,include,style,synthwave,256,
+isaiah rashad,exclude,person_or_label,,255,
+irish hip hop,exclude,place,,254,
+mumble rap,include,style,mumble rap,254,
+dublin,exclude,place,,252,
+garage,exclude,junk,,252,Ambiguous: garage rock vs UK garage.
+madlib,exclude,person_or_label,,252,
+anime,include,style,anime,251,Setting/source more than a sound; borderline.
+phonk,include,style,phonk,251,
+plunderphonics,include,style,plunderphonics,250,
+progressive electronic,include,style,progressive electronic,249,One listener only.
+afrobeats,include,style,afrobeats,248,
+soft rock,include,style,soft rock,248,
+art,exclude,junk,,247,
+asap mob,exclude,person_or_label,,247,
+dance punk,include,style,dance punk,247,
+detroit electro,include,style,electro,246,Only 3 artists.
+gospel,include,style,gospel,246,
+harlem,exclude,place,,246,
+latin rap,exclude,junk,,245,Two artists; effectively a person tag.
+go,exclude,junk,,242,
+deconstructed club,include,style,deconstructed club,241,
+hindi,exclude,place,,241,
+dreamwave,include,style,synthwave,240,
+punk rock,include,style,punk rock,240,
+psyprog,include,style,progressive psytrance,238,One listener only.
+composers,exclude,junk,,235,"Role, not sound."
+linkin park,exclude,person_or_label,,235,
+dancehall,include,style,dancehall,232,
+lil wayne,exclude,person_or_label,,229,
+old school,exclude,era,,226,
+the police,exclude,person_or_label,,224,
+white,exclude,junk,,223,
+minimalism,include,style,minimalism,221,One listener only.
+us,exclude,place,,221,
+brooklyn,exclude,place,,220,
+atmospheric,include,mood,atmospheric,216,
+san francisco,exclude,place,,216,
+fusion,include,style,jazz fusion,215,
+runescape,exclude,junk,,215,
+synth pop,include,style,synthpop,215,
+sound collage,include,style,plunderphonics,213,
+chamber pop,include,style,chamber pop,212,
+folk rock,include,style,folk rock,212,
+italian,exclude,place,,212,
+medieval,include,style,medieval,211,"Three artists, one listener. Only 3 artists. One listener only."
+sweden,exclude,place,,209,
+chillsynth,include,style,synthwave,208,
+crunk,include,style,crunk,207,
+j rock,include,style,j rock,207,
+liquid funk,include,style,liquid dnb,206,
+drum n bass,include,style,drum and bass,204,
+polish,exclude,place,,204,
+the cool kids,exclude,person_or_label,,202,
+g eazy,exclude,person_or_label,,201,
+impressionism,exclude,era,,201,
+juvenile,exclude,person_or_label,,201,
+orchestral,include,texture,orchestral,201,
+world,include,style,world,201,
+youtube,exclude,junk,,200,
+chinese,exclude,place,,199,
+sexy,include,mood,sexy,198,
+club,include,style,club,192,
+nigerian,exclude,place,,192,
+north carolina,exclude,place,,192,
+88rising,exclude,person_or_label,,190,
+chill hop,include,style,chillhop,189,
+queer,exclude,junk,,189,"Identity of performer, not sound."
+trillwave,include,style,trillwave,189,One listener. One listener only.
+acid house,include,style,acid house,186,
+belgium,exclude,place,,183,
+comedy rock,exclude,junk,,183,Single artist.
+illinois,exclude,place,,183,
+death metal,include,style,death metal,181,
+psy trance,include,style,psytrance,181,One listener only.
+mexican,exclude,place,,180,
+south korea,exclude,place,,180,
+ebm,include,style,ebm,179,One listener only.
+minecraft,exclude,junk,,179,
+portland,exclude,place,,179,
+wanttohearagain,exclude,junk,,178,
+manchester,exclude,place,,177,
+south sudan,exclude,place,,177,
+norwegian,exclude,place,,175,
+turntablism,include,style,turntablism,174,
+biracial,exclude,junk,,173,"Identity of performer, not sound."
+dope sample,exclude,junk,,173,Single artist opinion tag.
+lil tecca,exclude,person_or_label,,173,
+melodic death metal,include,style,melodic death metal,172,
+ninja tune,exclude,person_or_label,,172,
+contemporary jazz,include,style,contemporary jazz,169,
+party,include,mood,party,169,
+j cole,exclude,person_or_label,,164,
+jangle pop,include,style,jangle pop,164,
+spanish,exclude,place,,164,
+funk rock,include,style,funk rock,163,
+afrobeat,include,style,afrobeat,161,
+ysl,exclude,person_or_label,,161,
+colombia,exclude,place,,160,
+desi,exclude,place,,160,
+afropop,include,style,afropop,159,
+future funk,include,style,future funk,159,
+new rave,include,style,new rave,159,
+psychedelic folk,include,style,psychedelic folk,158,One listener only.
+hardcore punk,include,style,hardcore punk,155,
+score,include,texture,soundtrack,155,
+alternative dance,include,style,alternative dance,152,
+future bounce,exclude,junk,,151,Single artist.
+trill,exclude,junk,,151,Slang; overlaps person tags.
+uk rap,include,style,uk hip-hop,151,
+acid rap,exclude,junk,,150,Two artists; effectively a person tag.
+colombian,exclude,place,,150,
+smooth jazz,include,style,smooth jazz,149,
+liquid drum and bass,include,style,liquid dnb,147,
+dill,exclude,junk,,146,
+folktronica,include,style,folktronica,146,
+mississippi,exclude,place,,146,
+soundcloud rap,include,style,soundcloud rap,146,One listener only.
+synth funk,include,style,synth funk,146,Also in genre_tag_rules. Only 3 artists.
+teen pop,include,style,teen pop,146,
+watts,exclude,place,,146,
+oldies,exclude,era,,145,
+new jersey,exclude,place,,143,
+ed banger,exclude,person_or_label,,141,
+rhythm and blues,include,style,r&b,141,
+neosoul,include,style,neo-soul,140,Only 2 artists.
+rain,include,texture,rain sounds,140,One listener only.
+romantic,include,mood,romantic,140,
+snitch,exclude,junk,,140,"Accusation tag, not sound."
+nigeria,exclude,place,,139,
+spotify,exclude,junk,,138,
+african,exclude,place,,137,
+mike will made it,exclude,person_or_label,,137,
+retro electro,include,style,retro electro,137,
+ghana,exclude,place,,136,
+sophisti pop,include,style,sophisti pop,135,
+acid jazz,include,style,acid jazz,134,
+atmospheric drum and bass,include,style,liquid dnb,134,
+future jazz,include,style,nu jazz,132,
+ghetto sage,exclude,person_or_label,,132,
+poland,exclude,place,,132,
+brazil,exclude,place,,130,
+miguel,exclude,person_or_label,,130,
+happy trap,exclude,junk,,129,Single artist.
+hard trance,include,style,hard trance,129,
+alte,include,style,alte,128,
+brutal death metal,include,style,brutal death metal,126,
+kpop,include,style,k-pop,126,
+ost,include,texture,soundtrack,126,
+ariana grande,exclude,person_or_label,,125,
+belgian,exclude,place,,125,
+underground,exclude,junk,,125,"Scene descriptor, no sound meaning."
+driving,exclude,junk,,124,Single artist; would make one act the whole label.
+melodic rap,include,style,melodic rap,124,
+footwork,include,style,footwork,123,
+funk add to lidarr,exclude,junk,,123,
+funk add to lidarr batch 30,exclude,junk,,122,
+norway,exclude,place,,122,
+4,exclude,junk,,121,
+aarhus,exclude,place,,121,
+bookmarks,exclude,junk,,121,
+coldplay,exclude,person_or_label,,121,
+no wave,include,style,no wave,121,
+field recordings,include,texture,field recordings,120,One listener only.
+jpop,include,style,j-pop,120,
+katy perry,exclude,person_or_label,,120,
+psy prog,include,style,progressive psytrance,120,One listener only.
+relaxation,include,mood,relaxing,120,One listener only.
+uplifting trance,include,style,uplifting trance,120,
+baroque pop,include,style,baroque pop,117,One listener only.
+christian hip hop,include,style,christian hip hop,117,One listener only.
+80s influenced,exclude,era,,116,
+collective,exclude,junk,,116,
+grunge,include,style,grunge,116,
+vocal,exclude,junk,,116,Ambiguous (vocal trance / vocal jazz / vocalist).
+russian,exclude,place,,115,
+g funk,include,style,g funk,114,
+game,exclude,junk,,114,
+jizz jazz,exclude,junk,,114,Joke genre on one artist.
+justin bieber,exclude,person_or_label,,114,
+ethereal,include,mood,ethereal,113,Below top-520 by coverage; added as mood/texture or synonym.
+lofi hip hop,include,texture,lo-fi,113,Below top-520 by coverage; added as mood/texture or synonym.
+sleep,include,mood,sleep,110,Below top-520 by coverage; added as mood/texture or synonym.
+synth,include,texture,synth,110,Below top-520 by coverage; added as mood/texture or synonym.
+funny,include,mood,funny,107,Below top-520 by coverage; added as mood/texture or synonym.
+hardcore rap,include,style,hardcore hip-hop,107,Below top-520 by coverage; added as mood/texture or synonym.
+guitar,include,texture,guitar,106,Below top-520 by coverage; added as mood/texture or synonym.
+male vocalist,include,texture,male vocalists,100,Below top-520 by coverage; added as mood/texture or synonym.
+emotional,include,mood,emotional,86,Below top-520 by coverage; added as mood/texture or synonym.
+melancholic,include,mood,melancholic,81,Below top-520 by coverage; added as mood/texture or synonym.
+field recording,include,texture,field recordings,76,Below top-520 by coverage; added as mood/texture or synonym.
+rain sound,include,texture,rain sounds,76,Below top-520 by coverage; added as mood/texture or synonym.
+soundscape,include,texture,soundscape,62,Below top-520 by coverage; added as mood/texture or synonym.
+video game soundtrack,exclude,junk,,62,Two artists; kept out rather than merged. Below top-520 by coverage; added as mood/texture or synonym.
+rain sounds,include,texture,rain sounds,61,Below top-520 by coverage; added as mood/texture or synonym.
+groovy,include,mood,groovy,59,Below top-520 by coverage; added as mood/texture or synonym.
+nature healing,include,texture,nature sounds,59,Below top-520 by coverage; added as mood/texture or synonym.
+white noise,include,texture,white noise,52,Below top-520 by coverage; added as mood/texture or synonym.
+nature music,include,texture,nature sounds,50,Below top-520 by coverage; added as mood/texture or synonym.
+funky,include,mood,groovy,49,Below top-520 by coverage; added as mood/texture or synonym.
+dream,include,mood,dreamy,47,Below top-520 by coverage; added as mood/texture or synonym.
+meditation,include,mood,meditation,47,Below top-520 by coverage; added as mood/texture or synonym.
+lofihiphop,include,texture,lo-fi,44,Below top-520 by coverage; added as mood/texture or synonym.
+slowcore,include,style,slowcore,41,Below top-520 by coverage; added as mood/texture or synonym.
+game soundtrack,include,texture,video game music,39,Below top-520 by coverage; added as mood/texture or synonym.
+sound of nature,include,texture,nature sounds,36,Below top-520 by coverage; added as mood/texture or synonym.
+smooth,include,mood,smooth,35,Below top-520 by coverage; added as mood/texture or synonym.
+sadcore,include,style,sadcore,33,Below top-520 by coverage; added as mood/texture or synonym.
+soundtracks,include,texture,soundtrack,30,Below top-520 by coverage; added as mood/texture or synonym.
+water sounds,include,texture,nature sounds,30,Below top-520 by coverage; added as mood/texture or synonym.
+water sound,include,texture,nature sounds,29,Below top-520 by coverage; added as mood/texture or synonym.
+lo fi hiphop,include,texture,lo-fi,28,Below top-520 by coverage; added as mood/texture or synonym.
+dreampop,include,style,dream pop,27,Below top-520 by coverage; added as mood/texture or synonym.
+mellow,include,mood,mellow,25,Below top-520 by coverage; added as mood/texture or synonym.

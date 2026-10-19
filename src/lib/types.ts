@@ -91,6 +91,68 @@ export type OverviewPayload = {
   release_years?: ReleaseYearBucket[];
 };
 
+/** A play-weighted median of Last.fm artist listeners over one window. */
+export type PopularitySummary = {
+  /** Null when no play in the window has a listener count. */
+  median_artist_listeners: number | null;
+  plays: number;
+  /** Plays whose primary artist has a Last.fm listener count. */
+  covered_plays: number;
+};
+
+export type PopularityYear = PopularitySummary & { year: number };
+
+export type DeepCut = {
+  spotify_track_id: string | null;
+  track_name: string;
+  artist_id: number | null;
+  artist_name: string | null;
+  plays: number;
+  track_listeners: number;
+};
+
+export type HourTagPart = 'late_night' | 'morning' | 'day' | 'evening' | 'night';
+
+export type HourTagLabel = {
+  label: string;
+  plays: number;
+  /** Adjusted lift: how much more than usual this label plays in the part. */
+  lift: number;
+};
+
+export type HourTagBucket = {
+  part: HourTagPart;
+  first_hour: number;
+  last_hour: number;
+  plays: number;
+  /** Empty when the part has too few plays or nothing stands out. */
+  labels: HourTagLabel[];
+};
+
+/** The daily 'public_insights:<user_id>' cache row. */
+export type InsightsPayload = {
+  generated_at: string;
+  timezone: string;
+  source: 'lastfm';
+  /** The newest Last.fm stats day behind this person's artists; counts are as
+      of then, not as of when they played. */
+  stats_observed_through: string | null;
+  popularity: {
+    all_time: PopularitySummary | null;
+    last_30_days: PopularitySummary | null;
+    by_year: PopularityYear[];
+    deep_cuts: DeepCut[];
+  };
+  hour_tags: HourTagBucket[];
+};
+
+/** One public profile's all-time score, for the comparison strip. */
+export type PopularityStripRow = {
+  slug: string;
+  display_name: string;
+  all_time: PopularitySummary | null;
+};
+
 export type ActivityRow = {
   id: number;
   played_at: string;

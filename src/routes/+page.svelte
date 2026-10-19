@@ -5,12 +5,15 @@
   import MetricCard from '$lib/components/MetricCard.svelte';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import ContributionGraph from '$lib/components/ContributionGraph.svelte';
+  import HourTags from '$lib/components/HourTags.svelte';
   import ListeningClock from '$lib/components/ListeningClock.svelte';
   import PixelRoom from '$lib/components/PixelRoom.svelte';
+  import PopularityPanel from '$lib/components/PopularityPanel.svelte';
   import ReleaseYearChart from '$lib/components/ReleaseYearChart.svelte';
   import RecordMark from '$lib/components/RecordMark.svelte';
   import StatList from '$lib/components/StatList.svelte';
   import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
+  import { bandFor, buildStrip, formatListeners, hasHourTags, reliableMedian } from '$lib/insights';
   import { publicSupabaseConfigured } from '$lib/supabase';
   import {
     bestAvailableMetric,
@@ -21,17 +24,29 @@
     topArtistDetail
   } from '$lib/metrics';
   import { defaultProfileSlug } from '$lib/profileDefaults';
+  import { getPopularityStrip, getPublicProfileInsights } from '$lib/queries/insights';
   import { getPublicProfileOverview } from '$lib/queries/overview';
   import { getProfileRankings } from '$lib/queries/rankings';
   import { fetchAlbumArtists, fetchAlbumImages } from '$lib/queries/images';
   import { listPublicProfiles } from '$lib/queries/profile';
-  import type { CalendarDay, OverviewPayload, PublicProfileOption, RankingRow } from '$lib/types';
+  import type {
+    CalendarDay,
+    DeepCut,
+    InsightsPayload,
+    OverviewPayload,
+    PopularityStripRow,
+    PublicProfileOption,
+    RankingRow
+  } from '$lib/types';
 
   type ListWindow = '7d' | '30d';
 
   let profiles: PublicProfileOption[] = [];
   let selectedSlug = defaultProfileSlug;
   let overview: OverviewPayload | null = null;
+  // The daily Last.fm insights cache. Optional: the page renders without it.
+  let insights: InsightsPayload | null = null;
+  let popularityRows: PopularityStripRow[] = [];
   let topAlbums: CoverItem[] = [];
   let topArtists: RankingRow[] = [];
   let topTracks: RankingRow[] = [];
@@ -40,6 +55,9 @@
   // toggle is loading, so links keep matching the rows on screen.
   let bandWindow: ListWindow = '30d';
   let loadToken = 0;
+  // Guards chooseProfile the way loadToken guards loadRecent: a slow response
+  // for an earlier pick must not land after a newer one.
+  let profileToken = 0;
   let loading = true;
   let bandLoading = false;
   let error = '';
@@ -71,6 +89,9 @@
   // Loading while data is already on screen (a 7d/30d toggle): dim the band so
   // the swap eases instead of popping. Distinct from the cold-load skeleton.
   $: bandPending = bandLoading && !bandSkeleton;
+  $: popularityStrip = buildStrip(popularityRows, selectedSlug);
+  $: popularityCard = popularityCardFor(insights);
+  $: metricColumns = popularityCard ? 'cols-4' : 'cols-3';
 
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
@@ -82,7 +103,13 @@
         selectedSlug =
           profiles.find((profile) => profile.slug === defaultProfileSlug)?.slug ?? profiles[0]?.slug ?? defaultProfileSlug;
       }
-      overview = profiles.length > 0 ? await getPublicProfileOverview(selectedSlug) : null;
+      if (profiles.length > 0) {
+        [overview, insights, popularityRows] = await Promise.all([
+          getPublicProfileOverview(selectedSlug),
+          loadInsights(selectedSlug),
+          getPopularityStrip().catch(() => [])
+        ]);
+      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     } finally {
@@ -118,9 +145,17 @@
     topAlbums = [];
     topArtists = [];
     topTracks = [];
+    insights = null;
+    const token = ++profileToken;
 
     try {
-      overview = await getPublicProfileOverview(selectedSlug);
+      const [nextOverview, nextInsights] = await Promise.all([
+        getPublicProfileOverview(slug),
+        loadInsights(slug)
+      ]);
+      if (token !== profileToken) return;
+      overview = nextOverview;
+      insights = nextInsights;
       const url = new URL(window.location.href);
       if (selectedSlug === defaultProfileSlug) {
         url.searchParams.delete('slug');
@@ -129,12 +164,50 @@
       }
       window.history.replaceState({}, '', url.toString());
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : String(caught);
+      if (token === profileToken) error = caught instanceof Error ? caught.message : String(caught);
     } finally {
-      loading = false;
+      // Only the newest pick owns the flag, as in loadRecent.
+      if (token === profileToken) loading = false;
     }
 
+    if (token !== profileToken) return;
     await loadBand();
+  }
+
+  // The insights cache is extra: a missing row or a failed read hides its
+  // panels instead of failing the page.
+  async function loadInsights(slug: string): Promise<InsightsPayload | null> {
+    try {
+      return await getPublicProfileInsights(slug);
+    } catch {
+      return null;
+    }
+  }
+
+  // Deep cuts span all of history, so their artist links open the explorer on
+  // "All time" rather than the band's 7d/30d window.
+  function deepCutArtistHref(cut: DeepCut): string | null {
+    if (cut.artist_id === null) return null;
+    const params = new URLSearchParams({
+      profile: selectedSlug,
+      range: 'all_time',
+      entity: 'artist',
+      id: String(cut.artist_id)
+    });
+    return `${base}/explore/?${params.toString()}`;
+  }
+
+  function popularityCardFor(
+    payload: InsightsPayload | null
+  ): { label: string; value: string; caption: string; detail: string } | null {
+    const listeners = reliableMedian(payload?.popularity.last_30_days);
+    if (listeners === null) return null;
+    return {
+      label: 'Popularity, 30 days',
+      value: bandFor(listeners),
+      caption: 'Typical artist',
+      detail: `${formatListeners(listeners)} listeners`
+    };
   }
 
   // Loads the band rankings once the page chrome is up. Kept separate so the
@@ -317,7 +390,7 @@
     </div>
 
     <DitherFrame>
-      <section class="grid cols-3">
+      <section class="grid {metricColumns}">
         {#each summaryRows() as row}
           <MetricCard
             label={row.label}
@@ -326,6 +399,14 @@
             detail={row.detail}
           />
         {/each}
+        {#if popularityCard}
+          <MetricCard
+            label={popularityCard.label}
+            value={popularityCard.value}
+            caption={popularityCard.caption}
+            detail={popularityCard.detail}
+          />
+        {/if}
       </section>
     </DitherFrame>
 
@@ -409,6 +490,26 @@
           <span class="muted">Plays by release year</span>
         </div>
         <ReleaseYearChart buckets={overview.release_years} />
+      </section>
+    {/if}
+
+    {#if insights && hasHourTags(insights.hour_tags)}
+      <section class="section-gap">
+        <div class="section-heading">
+          <h2>What your hours sound like</h2>
+          <span class="muted">Tags you play more than usual, all time</span>
+        </div>
+        <HourTags buckets={insights.hour_tags} />
+      </section>
+    {/if}
+
+    {#if insights && reliableMedian(insights.popularity.all_time) !== null}
+      <section class="section-gap">
+        <div class="section-heading">
+          <h2>How mainstream</h2>
+          <span class="muted">Last.fm listeners, all time</span>
+        </div>
+        <PopularityPanel {insights} strip={popularityStrip} artistHref={deepCutArtistHref} />
       </section>
     {/if}
 
