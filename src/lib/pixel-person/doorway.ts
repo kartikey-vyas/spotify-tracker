@@ -19,7 +19,7 @@ export const DOORWAY = {
   fadeMs: 180,
   /**
    * Where someone dropped on the door is set down, measured from the frame on
-   * the room side. Just far enough to see them arrive, not a journey.
+   * the room side. Just far enough to see them arrive.
    */
   approachDistance: 16,
   /** How far above the floor they are set down, so the landing is visible. */

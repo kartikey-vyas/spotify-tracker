@@ -706,7 +706,7 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
     padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--line);
     margin-bottom: var(--space-4);
@@ -714,6 +714,7 @@
 
   .section-heading .muted {
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .section-heading h2,
@@ -766,6 +767,7 @@
   .entity-heading-copy h2 {
     overflow-wrap: anywhere;
     font-size: var(--text-lg);
+    line-height: var(--leading-lg);
   }
 
   .entity-art {
@@ -783,6 +785,8 @@
     object-fit: cover;
   }
 
+  /* The missing-art glyph is sized as a graphic, so it is off the type scale.
+     The cover wall placeholder does the same. */
   .entity-art span {
     color: var(--muted);
     font-size: 2rem;
@@ -791,25 +795,26 @@
   .summary-strip {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   /* Summary figures: no boxes — label over a bold tabular figure. */
   .compact {
-    gap: 2px;
+    gap: var(--space-0-5);
   }
 
   .compact .muted {
     font-size: var(--text-2xs);
-    letter-spacing: 0.08em;
+    line-height: var(--leading-2xs);
+    letter-spacing: var(--tracking-wide);
     text-transform: uppercase;
   }
 
   .compact strong {
     font-size: var(--text-lg);
     font-weight: 700;
-    letter-spacing: -0.02em;
-    line-height: 1.15;
+    letter-spacing: var(--tracking-tight);
+    line-height: var(--leading-lg);
     font-variant-numeric: tabular-nums;
   }
 
@@ -839,7 +844,7 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   @media (max-width: 900px) {

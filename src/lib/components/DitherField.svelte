@@ -30,7 +30,7 @@
    * parent `position: relative` and mind the stacking order).
    *
    * Each instance is one live WebGL context (browsers cap these at 16), so
-   * place a few, not a grid of them.
+   * use only a few on a page.
    */
   export let shape: keyof typeof DitheringShapes = DITHER_FIELD_DEFAULTS.shape;
   export let dither: keyof typeof DitheringTypes = DITHER_FIELD_DEFAULTS.dither;

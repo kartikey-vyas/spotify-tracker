@@ -301,12 +301,12 @@
       <section class="panel auth-panel">
         <h2>Set a new password</h2>
         <form on:submit|preventDefault={submitRecovery}>
-          <label>
-            new password
+          <label class="field">
+            <span class="field-label">new password</span>
             <input bind:value={password} type="password" autocomplete="new-password" disabled={authSubmitting} required />
           </label>
-          <label>
-            confirm password
+          <label class="field">
+            <span class="field-label">confirm password</span>
             <input bind:value={confirmPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
           </label>
           <button type="submit" disabled={authSubmitting}>
@@ -320,12 +320,12 @@
         <p class="muted">Invite-only access.</p>
 
         <form on:submit|preventDefault={submitLogin}>
-          <label>
-            email
+          <label class="field">
+            <span class="field-label">email</span>
             <input bind:value={email} type="email" autocomplete="email" disabled={authSubmitting} required />
           </label>
-          <label>
-            password
+          <label class="field">
+            <span class="field-label">password</span>
             <input
               bind:value={password}
               type="password"
@@ -354,20 +354,20 @@
         <h2>Set up your account</h2>
         <p class="muted">Choose a password and your profile details.</p>
         <form on:submit|preventDefault={submitSetup}>
-          <label>
-            password
+          <label class="field">
+            <span class="field-label">password</span>
             <input bind:value={password} type="password" autocomplete="new-password" disabled={authSubmitting} required />
           </label>
-          <label>
-            confirm password
+          <label class="field">
+            <span class="field-label">confirm password</span>
             <input bind:value={confirmPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
           </label>
-          <label>
-            display name
+          <label class="field">
+            <span class="field-label">display name</span>
             <input bind:value={displayName} disabled={authSubmitting} required />
           </label>
-          <label>
-            profile slug
+          <label class="field">
+            <span class="field-label">profile slug</span>
             <input bind:value={slug} pattern={slugPattern} disabled={authSubmitting} required />
           </label>
           <label class="check-row">
@@ -409,12 +409,12 @@
         </div>
         {#if showChangePassword}
           <form class="change-password-form" on:submit|preventDefault={submitChangePassword}>
-            <label>
-              new password
+            <label class="field">
+              <span class="field-label">new password</span>
               <input bind:value={newPassword} type="password" autocomplete="new-password" disabled={authSubmitting} required />
             </label>
-            <label>
-              confirm password
+            <label class="field">
+              <span class="field-label">confirm password</span>
               <input bind:value={newPasswordConfirm} type="password" autocomplete="new-password" disabled={authSubmitting} required />
             </label>
             <button type="submit" disabled={authSubmitting}>
@@ -508,11 +508,6 @@
     gap: var(--space-3);
   }
 
-  label {
-    display: grid;
-    gap: 4px;
-  }
-
   input {
     max-width: 360px;
   }
@@ -524,7 +519,7 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .actions {
@@ -534,7 +529,7 @@
   .check-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .check-row input {
@@ -542,15 +537,15 @@
   }
 
   .section-gap {
-    margin-top: 16px;
+    margin-top: var(--space-4);
   }
 
   .change-password-form {
-    margin-top: 12px;
+    margin-top: var(--space-3);
   }
 
   .notice {
-    margin-bottom: 16px;
+    margin-bottom: var(--space-4);
     color: var(--muted);
   }
 </style>

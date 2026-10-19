@@ -22,6 +22,7 @@
   .metric-label {
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .metric-label::before {
@@ -39,8 +40,9 @@
 
   .metric-caption {
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--tracking-wide);
     font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
     opacity: 0.7;
   }
 

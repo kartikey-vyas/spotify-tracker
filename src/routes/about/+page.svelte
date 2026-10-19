@@ -48,8 +48,9 @@
 
 <style>
   .footnote {
-    margin-top: 1.5rem;
+    margin-top: var(--space-6);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .about-grid {

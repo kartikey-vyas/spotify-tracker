@@ -721,8 +721,8 @@ function containBody(body: PhysicsBody, room: RoomLayout): PhysicsBody {
 
 /**
  * Sends someone off through the doorway: they are set down beside it, walk to
- * it and fade on the threshold while it shuts. The reader asked for them to
- * leave, not to be erased mid-stride.
+ * it and fade on the threshold while it shuts, so they leave on foot instead
+ * of vanishing mid-stride.
  */
 export function beginDoorwayExit(person: PixelPersonRuntime, room: RoomLayout, now: number): void {
   person.drag = null;

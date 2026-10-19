@@ -17,6 +17,7 @@
     background: transparent;
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
     font-weight: 400;
     white-space: nowrap;
   }

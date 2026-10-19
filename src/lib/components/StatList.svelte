@@ -122,7 +122,7 @@
   .skeleton-line {
     display: block;
     width: 62%;
-    height: 0.82rem;
+    height: var(--space-3);
   }
 
   .skeleton-list li:nth-child(3n) .skeleton-line {
