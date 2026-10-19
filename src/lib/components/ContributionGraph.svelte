@@ -143,11 +143,15 @@
        a few weeks are drawn. */
     flex: 0 1 auto;
     min-width: 0;
+    /* Month, weekday and legend labels. */
+    color: var(--muted);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
   }
 
   .graph-scroll {
     overflow-x: auto;
-    padding-bottom: 4px;
+    padding-bottom: var(--space-1);
     scrollbar-width: thin;
     scrollbar-color: var(--line) transparent;
   }
@@ -168,8 +172,6 @@
     display: grid;
     grid-template-columns: repeat(var(--columns), var(--cell));
     gap: var(--gap);
-    font-size: var(--text-2xs);
-    color: var(--muted);
   }
 
   .month {
@@ -183,8 +185,6 @@
     display: grid;
     grid-template-rows: repeat(7, var(--cell));
     gap: var(--gap);
-    font-size: var(--text-2xs);
-    color: var(--muted);
   }
 
   .weekday {
@@ -228,7 +228,7 @@
 
   /* Same affordance as the release-year chart: the hovered day darkens while
      the tooltip names it. Scoped to .cells so the legend key, which reuses
-     .cell, stays inert — it is a caption, not data.
+     .cell, does not react to hover.
 
      The outline does most of the visible work here. A bar is tall enough that
      recolouring it reads from anywhere, but a 10px square sits almost entirely
@@ -249,7 +249,6 @@
     align-items: center;
     gap: var(--space-1);
     margin-top: var(--space-3);
-    font-size: var(--text-2xs);
   }
 
   .legend .cell {
@@ -299,7 +298,6 @@
   }
 
   .graph-scroll::-webkit-scrollbar-thumb {
-    border-radius: 4px;
     background: var(--line);
   }
 
@@ -316,6 +314,7 @@
     background: transparent;
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
     font-variant-numeric: tabular-nums;
     text-align: right;
   }
@@ -374,6 +373,7 @@
     padding: var(--space-1) var(--space-2);
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
     font-variant-numeric: tabular-nums;
   }
 

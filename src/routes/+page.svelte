@@ -427,6 +427,7 @@
 
   .section-heading .muted {
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   /* Quiet inline profile picker: a dotted-underline name instead of a bordered
@@ -442,6 +443,7 @@
   .profile-label {
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
 
@@ -453,14 +455,14 @@
 
   /* Wider gutter between the two un-boxed ranking columns. */
   .band-region.cols-2 {
-    column-gap: 48px;
-    row-gap: 32px;
+    column-gap: var(--space-12);
+    row-gap: var(--space-8);
   }
 
   .window-bar {
     display: flex;
     justify-content: flex-end;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
   }
 
   .room-follow {
@@ -480,6 +482,7 @@
     background: transparent;
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
     font-variant-numeric: tabular-nums;
   }
 
@@ -565,11 +568,12 @@
   .catalog {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 8px;
+    gap: var(--space-1) var(--space-2);
     margin: 0;
     color: var(--muted);
     font-size: var(--text-2xs);
-    letter-spacing: 0.1em;
+    line-height: var(--leading-2xs);
+    letter-spacing: var(--tracking-wider);
     text-transform: uppercase;
   }
 

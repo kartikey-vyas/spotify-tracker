@@ -872,16 +872,7 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
     min-height: 0;
     padding: var(--space-1) var(--space-2);
     font-size: var(--text-sm);
-  }
-
-  .field {
-    display: grid;
-    gap: var(--space-1);
-  }
-
-  .field label {
-    color: var(--muted);
-    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .snippet {
@@ -890,6 +881,7 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
     border: 1px solid var(--line);
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
     white-space: pre-wrap;
   }
 
@@ -951,6 +943,7 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
   .effect-pick label {
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .cover-toggle {
@@ -959,6 +952,7 @@ speed: ${rankWave.speed}   opacity: ${rankWave.opacity}`;
     gap: var(--space-2);
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .cover-fields {

@@ -52,7 +52,7 @@
 <style>
   .chart-scroll {
     overflow-x: auto;
-    padding-bottom: 4px;
+    padding-bottom: var(--space-1);
   }
 
   .histogram {
@@ -99,6 +99,7 @@
     gap: 2px;
     margin-top: var(--space-2);
     font-size: var(--text-2xs);
+    line-height: var(--leading-2xs);
     color: var(--muted);
   }
 

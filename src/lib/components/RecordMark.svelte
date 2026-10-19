@@ -28,7 +28,7 @@
   /* The pattern is authored against this reference diameter and fitted with
      `contain`, so a 72px mark is the 190px one scaled down rather than a
      smaller window onto the same noise field. Without it the small sizes crop
-     to a fraction of a single blob and read as a fan, not a disc. */
+     to a fraction of a single blob and look like a fan. */
   const WORLD = 190;
 
   let host: HTMLDivElement | undefined;
@@ -229,6 +229,6 @@
   .mark-caption {
     color: var(--muted);
     font-size: var(--text-sm);
-    letter-spacing: 0.02em;
+    line-height: var(--leading-sm);
   }
 </style>

@@ -140,6 +140,7 @@
   .placeholder {
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .sr-only {
@@ -225,6 +226,7 @@
     .album-col {
       order: 2;
       font-size: var(--text-sm);
+      line-height: var(--leading-sm);
     }
 
     /* Flex breaks lines on hypothetical sizes, before any growing or
@@ -253,6 +255,7 @@
       order: 3;
       color: var(--muted);
       font-size: var(--text-xs);
+      line-height: var(--leading-xs);
     }
 
     /* 34% is the largest basis that still leaves the source and the whole

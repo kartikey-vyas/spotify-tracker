@@ -3,22 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" type="image/svg+xml" href="%sveltekit.assets%/favicon.svg" />
-    <meta name="theme-color" content="#171310" />
+    <meta name="theme-color" content="#000000" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script>
-      try {
-        const theme = localStorage.getItem('spotify-history-theme');
-        if (theme === 'light') {
-          document.documentElement.removeAttribute('data-theme');
-        } else if (theme) {
-          document.documentElement.dataset.theme = theme;
-        } else {
-          document.documentElement.dataset.theme = 'warm-dark';
-        }
-      } catch {
-        document.documentElement.dataset.theme = 'warm-dark';
-      }
-    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

@@ -95,7 +95,7 @@
   }
 
   .section-gap {
-    margin-top: 16px;
+    margin-top: var(--space-4);
   }
 
 </style>

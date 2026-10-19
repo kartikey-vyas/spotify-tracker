@@ -86,7 +86,7 @@
     flex: 1;
     align-items: center;
     justify-content: center;
-    padding: 2px 0;
+    padding: var(--space-0-5) 0;
   }
 
   svg {
@@ -164,7 +164,7 @@
   .peak-label {
     fill: var(--muted);
     font-size: 7.5px;
-    letter-spacing: 0.12em;
+    letter-spacing: var(--tracking-wider);
     text-anchor: middle;
     dominant-baseline: middle;
     text-transform: uppercase;

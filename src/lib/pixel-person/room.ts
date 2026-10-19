@@ -359,9 +359,9 @@ export const SETTLE_DISTANCE = 110;
 
 /**
  * Somewhere to settle: spread out from everyone else, clear of the shelf, and
- * about `preferredDistance` from where they are now — a few steps, not a hike
- * and not on the spot. Sampled rather than solved — the room is one dimension
- * and a dozen candidates is plenty to look deliberate.
+ * about `preferredDistance` from where they are now, a few steps away. It
+ * samples candidates instead of solving for a spot: the room is one dimension
+ * and a dozen candidates is enough.
  */
 export function chooseOpenSpot(
   room: RoomLayout,

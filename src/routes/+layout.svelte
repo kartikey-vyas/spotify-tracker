@@ -6,7 +6,7 @@
   import { onMount } from 'svelte';
   import { isCurrentUserAdmin } from '$lib/queries/admin';
   import { supabase } from '$lib/supabase';
-  import { THEME_KEY, applyTheme, isTheme, themes, type Theme } from '$lib/theme';
+  import { DEFAULT_THEME, THEME_KEY, applyTheme, isTheme, themeBootScript, themes, type Theme } from '$lib/theme';
   import { pixelPersonController, pixelRoomCount } from '$lib/pixel-person/controller';
 
   const links = [
@@ -17,7 +17,7 @@
     { href: '/about/', label: 'about' }
   ];
 
-  let theme: Theme = 'warm-dark';
+  let theme: Theme = DEFAULT_THEME;
   let themeMenu: HTMLDetailsElement | null = null;
   let navRail: HTMLElement | null = null;
   let showAdmin = dev;
@@ -68,7 +68,7 @@
     }
 
     const currentTheme = isTheme(storedTheme) ? storedTheme : document.documentElement.dataset.theme;
-    theme = isTheme(currentTheme) ? currentTheme : 'warm-dark';
+    theme = isTheme(currentTheme) ? currentTheme : DEFAULT_THEME;
     applyTheme(theme);
 
     const closeThemeMenu = (event: MouseEvent) => {
@@ -124,6 +124,7 @@
 </script>
 
 <svelte:head>
+  {@html themeBootScript}
   <title>musik</title>
   <meta
     name="description"
@@ -152,7 +153,7 @@
         {/if}
       </nav>
 
-      <!-- Controls, not destinations. They sit outside the nav because below 800px
+      <!-- Theme and +1 are controls. They sit outside the nav because below 800px
            the nav becomes a scroll container, which would clip the theme dropdown. -->
       <div class="header-tools">
         <span class="nav-separator">/</span>

@@ -356,25 +356,25 @@
     display: flex;
     align-items: start;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .section-gap {
-    margin-top: 12px;
+    margin-top: var(--space-3);
   }
 
   .section-heading {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
     margin-bottom: var(--space-3);
   }
 
   .health-strip {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
   }
 
   .metric strong {
@@ -384,9 +384,10 @@
 
   .cell-note {
     display: block;
-    margin-top: 2px;
+    margin-top: var(--space-0-5);
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
     overflow-wrap: anywhere;
   }
 
@@ -421,7 +422,7 @@
   .enrichment-head {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px 12px;
+    gap: var(--space-1) var(--space-3);
     justify-content: space-between;
     align-items: baseline;
   }
@@ -429,6 +430,7 @@
   .enrichment-title {
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   .meter {
@@ -446,6 +448,7 @@
 
   .enrichment-note {
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
     margin: 0;
   }
 
@@ -459,6 +462,7 @@
   dt {
     color: var(--muted);
     font-size: var(--text-sm);
+    line-height: var(--leading-sm);
   }
 
   dd {
@@ -471,11 +475,11 @@
   }
 
   .dev-links {
-    margin: 0.5rem 0 0;
-    padding-left: 1.1rem;
+    margin: var(--space-2) 0 0;
+    padding-left: var(--space-4);
   }
 
-  @media (max-width: 1100px) {
+  @media (max-width: 1180px) {
     .health-strip {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }

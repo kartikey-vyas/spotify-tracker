@@ -186,7 +186,7 @@
        (bottom: -7px, 6px tall) plus a little air above the next row. */
     gap: 14px 8px;
     margin: 0;
-    padding: 0 0 8px;
+    padding: 0 0 var(--space-2);
     list-style: none;
   }
 
@@ -237,8 +237,8 @@
     object-fit: cover;
   }
 
-  /* The art-missing glyph is sized as a graphic, not as text, so it sits off
-     the type scale on purpose. */
+  /* The art-missing glyph is sized as a graphic, so it is off the type scale
+     on purpose. */
   .placeholder {
     color: var(--muted);
     font-size: 1.6rem;

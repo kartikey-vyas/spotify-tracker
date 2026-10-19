@@ -76,7 +76,7 @@ Three things about this library are not discoverable from its types, and each on
 
 ## Paper — the design tool
 
-The musik design system lives in a Paper file ("musik — design system", https://app.paper.design/file/01M0QBA624ZJWSP2ANA2V8GN87): ~49 tokens plus artboards for Foundations, Components, the desktop and mobile screens, and an "Ambient motion — pitches" board of unbuilt directions. Work against it through the paper-desktop MCP plugin. Three things cost time:
+The musik design system lives in a Paper file ("musik — design system", https://app.paper.design/file/01M0QBA624ZJWSP2ANA2V8GN87): ~50 tokens plus artboards for Foundations, Components and the desktop and mobile screens. Work against it through the paper-desktop MCP plugin. Its colour tokens hold the default theme (`DEFAULT_THEME` in `src/lib/theme.ts`, currently black) as flat hex, so `--color-accent-soft` and the data ramp are `color-mix()` results copied in by hand. If the default theme changes, read the resolved values from the browser (`getComputedStyle` on a probe element). Three things cost time:
 
 - **Token names diverge deliberately.** The Paper file's `--color-data-*` shipped in `src/styles.css` as `--data-1`…`--data-4` / `--data-bar` / `--data-empty`, because nothing else in `styles.css` carries a `--color-` prefix. The code is the authority on names; the Paper file is the authority on intent.
 - **A Paper flexbox rebuild of a CSS layout invents bugs that are not in the app.** Of four layout "kinks" the Paper screens appeared to expose, only one was real (the others were artifacts of rebuilding tables and overflow rules as flexbox). Verify any Paper-surfaced bug against the actual CSS before changing code.

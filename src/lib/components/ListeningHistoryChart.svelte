@@ -59,7 +59,7 @@
     min-height: 118px;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 4px 0 24px;
+    padding: var(--space-1) 0 var(--space-6);
     border-bottom: 1px solid var(--line);
     scrollbar-gutter: stable;
   }
