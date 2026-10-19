@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
+  import { scrollCue } from '$lib/actions/scrollCue';
   import CoverWall, { type CoverItem } from '$lib/components/CoverWall.svelte';
   import DitherFrame from '$lib/components/DitherFrame.svelte';
   import ListeningHistoryChart from '$lib/components/ListeningHistoryChart.svelte';
@@ -54,8 +55,15 @@
     { value: 'all_time', label: 'All time' }
   ];
 
+  /* Accepted from the URL but kept off the menu: the homepage links here with
+     the 7- or 30-day window its band was showing. */
+  const linkOnlyDateRangeOptions: Array<{ value: ExploreDateRangePreset; label: string }> = [
+    { value: 'last_7_days', label: 'Last 7 days' },
+    { value: 'last_30_days', label: 'Last 30 days' }
+  ];
+  const knownDateRangeOptions = [...exploreDateRangeOptions, ...linkOnlyDateRangeOptions];
+
   let mounted = false;
-  let syncingUrl = false;
   let preset: ExploreDateRangePreset = 'this_month';
   let selectedSlug = defaultProfileSlug;
   let entityType: EntityType = 'artist';
@@ -63,6 +71,8 @@
   let entityId = '';
   let profiles: PublicProfileOption[] = [];
   let profileDateSpan: ProfileDateSpan | null = null;
+  let dateSpanSlug = '';
+  let dateSpanLoading = false;
   let rankings: RankingRow[] = [];
   let detailSummary: RankingRow | null = null;
   let detailAlbums: RankingRow[] = [];
@@ -97,23 +107,26 @@
   }
   $: rankingKey = `${selectedSlug}:${preset}:${range?.start ?? ''}:${range?.end ?? ''}:${entityType}:${metric}`;
   $: loadKey = `${rankingKey}:${entityId}`;
-  $: if (mounted && !syncingUrl && loadKey !== lastLoadKey) {
+  // Waits for a range: "All time" has none until the profile's date span loads.
+  $: if (mounted && profiles.length > 0 && range && loadKey !== lastLoadKey) {
     void loadExplorer();
   }
   $: pageSearch = browser ? $page.url.search : '';
   $: if (mounted && pageSearch !== lastSyncedSearch) {
-    void syncFromUrl($page.url);
+    syncFromUrl($page.url);
   }
 
   onMount(async () => {
+    // Read the link first so the pickers show its entity and range while the
+    // profile list loads, instead of the artist defaults.
+    syncFromUrl($page.url);
     try {
       profiles = await listPublicProfiles();
-      await syncFromUrl($page.url);
-      mounted = true;
+      syncFromUrl($page.url);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
-      mounted = true;
     }
+    mounted = true;
   });
 
   onMount(() => {
@@ -131,28 +144,44 @@
     return () => document.removeEventListener('click', closeMenusOnOutsideClick);
   });
 
-  async function syncFromUrl(url: URL): Promise<void> {
-    syncingUrl = true;
+  /* Synchronous on purpose. It used to await the profile's date span before
+     reading entity and id, so a slow or failed span query left the page on the
+     artist defaults and the linked album never loaded. */
+  function syncFromUrl(url: URL): void {
     lastSyncedSearch = url.search;
 
+    const requestedSlug = url.searchParams.get('profile') ?? defaultProfileSlug;
+    const nextSlug = publicProfileSlug(requestedSlug);
+    selectedSlug = nextSlug;
+
+    const rangeParam = url.searchParams.get('range');
+    preset = isExploreDateRangePreset(rangeParam) ? rangeParam : 'this_month';
+
+    const entityParam = url.searchParams.get('entity');
+    entityType = isEntityType(entityParam) ? entityParam : 'artist';
+    entityId = url.searchParams.get('id') ?? '';
+    if (requestedSlug !== nextSlug) entityId = '';
+
+    // Only "All time" needs the span; every other preset is computed locally.
+    if (preset === 'all_time' && profiles.length > 0) void loadDateSpan(nextSlug);
+  }
+
+  async function loadDateSpan(slug: string): Promise<void> {
+    if (dateSpanSlug === slug) return;
+    dateSpanSlug = slug;
+    profileDateSpan = null;
+    dateSpanLoading = true;
     try {
-      const requestedSlug = url.searchParams.get('profile') ?? defaultProfileSlug;
-      const nextSlug = publicProfileSlug(requestedSlug);
-      const slugChanged = nextSlug !== selectedSlug;
-      selectedSlug = nextSlug;
-      if (slugChanged || !profileDateSpan) {
-        profileDateSpan = await getProfileDateSpan(selectedSlug);
-      }
-
-      const rangeParam = url.searchParams.get('range');
-      preset = isExploreDateRangePreset(rangeParam) ? rangeParam : 'this_month';
-
-      const entityParam = url.searchParams.get('entity');
-      entityType = isEntityType(entityParam) ? entityParam : 'artist';
-      entityId = url.searchParams.get('id') ?? '';
-      if (requestedSlug !== nextSlug) entityId = '';
-    } finally {
-      syncingUrl = false;
+      const span = await getProfileDateSpan(slug);
+      if (dateSpanSlug !== slug) return;
+      profileDateSpan = span;
+      dateSpanLoading = false;
+    } catch (caught) {
+      if (dateSpanSlug !== slug) return;
+      // Forget the slug so choosing "All time" again retries.
+      dateSpanSlug = '';
+      dateSpanLoading = false;
+      error = caught instanceof Error ? caught.message : String(caught);
     }
   }
 
@@ -163,7 +192,7 @@
   }
 
   function isExploreDateRangePreset(value: string | null): value is ExploreDateRangePreset {
-    return exploreDateRangeOptions.some((option) => option.value === value);
+    return knownDateRangeOptions.some((option) => option.value === value);
   }
 
   function isEntityType(value: string | null): value is EntityType {
@@ -414,7 +443,7 @@
   }
 
   function rangeLabel(value: ExploreDateRangePreset): string {
-    return exploreDateRangeOptions.find((option) => option.value === value)?.label ?? 'Date range';
+    return knownDateRangeOptions.find((option) => option.value === value)?.label ?? 'Date range';
   }
 
   function entityLabel(value: EntityType): string {
@@ -525,7 +554,7 @@
 
   <PixelRoom station="explorer-listening-desk" shelf="left" />
 
-  {#if loading && rankings.length === 0}
+  {#if !mounted || dateSpanLoading || (loading && rankings.length === 0)}
     <section class="panel panel-loading room-follow"><RecordMark size="lg" label="Loading explorer data..." /></section>
   {:else if error}
     <section class="panel room-follow"><p class="error">{error}</p></section>
@@ -536,7 +565,7 @@
           <h2>Ranking</h2>
           {#if selectedProfile}<span class="muted">{selectedProfile.display_name}</span>{/if}
         </div>
-        <div class="ranking-scroll">
+        <div class="ranking-scroll" use:scrollCue>
           <RankingTable
             rows={rankings}
             {entityType}
@@ -544,8 +573,10 @@
             profileSlug={selectedSlug}
             rangePreset={preset}
             compact
+            highlightTop={false}
             selectedEntityId={entityId || null}
           />
+          <div class="scroll-cue" aria-hidden="true"><span></span><span></span><span></span></div>
         </div>
       </div>
 
@@ -827,10 +858,59 @@
     grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   }
 
+  /* No scrollbar: the browsers draw it with rounded ends that cannot be
+     squared off with the standard properties. The dithered cue below marks
+     that the list continues. Wheel, trackpad and keyboard scrolling still
+     work. */
   .ranking-scroll {
     max-height: 876px;
     overflow: auto;
-    scrollbar-gutter: stable;
+    scrollbar-width: none;
+  }
+
+  .ranking-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* The rows dissolve into the page over the last 30px, in square 2px cells
+     like the dither fields. Three bands cover 25%, 50% and 75% of their cells
+     with the page ground. Sticky at the bottom of the visible area, with a
+     negative margin so it overlaps the rows and adds no height. Shown only
+     while scrollCue reports rows below. */
+  .scroll-cue {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    display: grid;
+    height: 30px;
+    margin-top: -30px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+
+  /* :global because the action sets the attribute at runtime; Svelte cannot
+     see it in the markup and would drop the rule as unused. */
+  .ranking-scroll:global([data-more]) .scroll-cue {
+    opacity: 1;
+  }
+
+  .scroll-cue span:nth-child(1) {
+    background: conic-gradient(var(--bg) 25%, transparent 0) 0 0 / 4px 4px;
+  }
+
+  .scroll-cue span:nth-child(2) {
+    background: conic-gradient(var(--bg) 25%, transparent 0 50%, var(--bg) 0 75%, transparent 0) 0 0 / 4px 4px;
+  }
+
+  .scroll-cue span:nth-child(3) {
+    background: conic-gradient(transparent 25%, var(--bg) 0) 0 0 / 4px 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scroll-cue {
+      transition: none;
+    }
   }
 
   .ranking-scroll :global(th) {

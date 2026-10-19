@@ -11,6 +11,9 @@
   export let rangePreset: string | null = null;
   export let compact = false;
   export let selectedEntityId: string | null = null;
+  /** Tint the #1 row. Turn it off where rows can be selected: two highlighted
+      rows make it unclear which one is selected. */
+  export let highlightTop = true;
 
   $: showPlaysColumn = !compact && metric !== 'plays';
   $: columnCount = showPlaysColumn ? 4 : 3;
@@ -40,7 +43,7 @@
     </thead>
     <tbody>
       {#each rows as row, index}
-        <tr class:top-row={index === 0} class:selected-row={row.entity_id === selectedEntityId}>
+        <tr class:top-row={highlightTop && index === 0} class:selected-row={row.entity_id === selectedEntityId}>
           <td>{index + 1}</td>
           <td>
             {#if showLinks}
@@ -74,6 +77,19 @@
   .entity-link {
     color: var(--text);
     font-weight: 400;
+  }
+
+  /* An underline on every row cluttered the table. Where a pointer can hover,
+     it appears on hover only (the global a:hover adds the accent colour).
+     Touch screens keep it, since they have no hover to reveal the link. */
+  @media (hover: hover) {
+    .entity-link {
+      text-decoration: none;
+    }
+
+    .entity-link:hover {
+      text-decoration: underline;
+    }
   }
 
   .compact table {

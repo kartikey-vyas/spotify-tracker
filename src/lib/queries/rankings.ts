@@ -145,11 +145,17 @@ export async function getProfileRankings(params: {
 export async function getProfileDateSpan(slug: string): Promise<ProfileDateSpan | null> {
   if (!supabase) return null;
 
+  /* Every day with a play has an artist row, so the artist rows give the same
+     span. The entity_type filter is what makes this fast: it lets Postgres walk
+     the (entity_type, local_date) index and stop at the first visible row.
+     Without it the query read all of a user's rollup rows (~270k, with an RLS
+     check per row) and hit the 3s anon statement timeout under load. */
   const [firstResult, lastResult] = await Promise.all([
     supabase
       .from('public_profile_rollup_daily_entity_stats')
       .select('local_date')
       .eq('slug', slug)
+      .eq('entity_type', 'artist')
       .order('local_date', { ascending: true })
       .limit(1)
       .returns<Array<{ local_date: string }>>(),
@@ -157,6 +163,7 @@ export async function getProfileDateSpan(slug: string): Promise<ProfileDateSpan 
       .from('public_profile_rollup_daily_entity_stats')
       .select('local_date')
       .eq('slug', slug)
+      .eq('entity_type', 'artist')
       .order('local_date', { ascending: false })
       .limit(1)
       .returns<Array<{ local_date: string }>>()

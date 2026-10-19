@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import DitherFrame from '$lib/components/DitherFrame.svelte';
   import MetricCard from '$lib/components/MetricCard.svelte';
@@ -35,6 +36,9 @@
   let topArtists: RankingRow[] = [];
   let topTracks: RankingRow[] = [];
   let listWindow: ListWindow = '30d';
+  // The window the band's rows were loaded for. Trails listWindow while a
+  // toggle is loading, so links keep matching the rows on screen.
+  let bandWindow: ListWindow = '30d';
   let loadToken = 0;
   let loading = true;
   let bandLoading = false;
@@ -44,6 +48,8 @@
   const last7DaysRange = getPresetDateRange('last_7_days');
   const last30DaysRange = getPresetDateRange('last_30_days');
   const rangeFor = (win: ListWindow) => (win === '7d' ? last7DaysRange : last30DaysRange);
+  // The explorer's preset for each window, so a link opens on the same dates.
+  const presetFor = (win: ListWindow) => (win === '7d' ? 'last_7_days' : 'last_30_days');
 
   $: windowLabel = listWindow === '7d' ? 'last 7 days' : 'last 30 days';
 
@@ -137,7 +143,7 @@
   async function loadBand(): Promise<void> {
     if (!overview || error) return;
     try {
-      await loadRecent(selectedSlug, rangeFor(listWindow));
+      await loadRecent(selectedSlug, listWindow);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }
@@ -146,7 +152,8 @@
   // Top albums/artists/tracks for the chosen window, queried live so any window
   // works (the cache only stores fixed 7d/30d slices). A token guards against a
   // slower in-flight load overwriting a newer one when the toggle is clicked.
-  async function loadRecent(slug: string, range: { start: string; end: string }): Promise<void> {
+  async function loadRecent(slug: string, win: ListWindow): Promise<void> {
+    const range = rangeFor(win);
     const token = ++loadToken;
     bandLoading = true;
     try {
@@ -155,18 +162,25 @@
         getProfileRankings({ slug, entityType: 'track', start: range.start, end: range.end, metric: 'plays', limit: 8 }),
         getProfileRankings({ slug, entityType: 'album', start: range.start, end: range.end, metric: 'plays', limit: 50 })
       ]);
-      const covers = await albumsToCovers(albumRows);
+      const covers = await albumsToCovers(albumRows, win);
       if (token !== loadToken) return;
       topArtists = artists;
       topTracks = tracks;
       topAlbums = covers;
+      bandWindow = win;
     } finally {
       // Only the newest load owns the flag; a superseded load must not clear it.
       if (token === loadToken) bandLoading = false;
     }
   }
 
-  async function albumsToCovers(albums: RankingRow[]): Promise<CoverItem[]> {
+  // Without a base prefix: CoverWall adds it to cover hrefs itself.
+  function exploreHref(entity: 'artist' | 'album', id: string, win: ListWindow): string {
+    const params = new URLSearchParams({ profile: selectedSlug, range: presetFor(win), entity, id });
+    return `/explore/?${params.toString()}`;
+  }
+
+  async function albumsToCovers(albums: RankingRow[], win: ListWindow): Promise<CoverItem[]> {
     if (albums.length === 0) return [];
 
     const metric = bestAvailableMetric(albums, 'plays');
@@ -186,7 +200,7 @@
         subtitle: artists.get(Number(row.entity_id)) ?? null,
         value: formatMetric(metricValue(row, metric), metric),
         imageUrl: art?.image_url ?? null,
-        href: `/explore/?profile=${encodeURIComponent(selectedSlug)}&entity=album&id=${encodeURIComponent(row.entity_id)}`
+        href: exploreHref('album', row.entity_id, win)
       } satisfies CoverItem;
     });
   }
@@ -195,7 +209,7 @@
     if (next === listWindow) return;
     listWindow = next;
     try {
-      await loadRecent(selectedSlug, rangeFor(next));
+      await loadRecent(selectedSlug, next);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }
@@ -348,7 +362,13 @@
           <h2>Top artists {windowLabel}</h2>
           <span class="muted">Plays</span>
         </div>
-        <StatList rows={topArtists} loading={bandSkeleton} entityKind="artist" waveTop />
+        <StatList
+          rows={topArtists}
+          loading={bandSkeleton}
+          entityKind="artist"
+          waveTop
+          hrefFor={(row) => `${base}${exploreHref('artist', row.entity_id, bandWindow)}`}
+        />
       </div>
 
       <div>

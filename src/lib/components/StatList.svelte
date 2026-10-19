@@ -24,6 +24,8 @@
       list, so opt in per placement rather than defaulting on. */
   export let waveTop = false;
   export let wave = RANK_WAVE_DEFAULTS;
+  /** Turns each name into a link. Rows render as plain text without it. */
+  export let hrefFor: ((row: RankingRow) => string) | null = null;
 
   $: placeholders = Array.from({ length: placeholderCount });
 </script>
@@ -46,7 +48,11 @@
             <DitherField shape="wave" {...wave} />
           </span>
         {/if}
-        <span class="name">{row.entity_name}</span>
+        {#if hrefFor}
+          <a class="name" href={hrefFor(row)}>{row.entity_name}</a>
+        {:else}
+          <span class="name">{row.entity_name}</span>
+        {/if}
         <span class="count">{row.plays.toLocaleString()}</span>
       </li>
     {/each}
@@ -108,6 +114,26 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .stat-list a.name {
+    color: inherit;
+  }
+
+  .stat-list a.name:hover {
+    color: var(--accent);
+  }
+
+  /* Same rule as RankingTable: underline on hover where a pointer can hover,
+     always on touch screens. */
+  @media (hover: hover) {
+    .stat-list a.name {
+      text-decoration: none;
+    }
+
+    .stat-list a.name:hover {
+      text-decoration: underline;
+    }
   }
 
   .stat-list .count {
