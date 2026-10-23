@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { coverVariant } from '$lib/covers';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
@@ -411,7 +412,7 @@
         title: row.entity_name,
         subtitle: params.artistName,
         value: formatMetric(metricValue(row, coverMetric), coverMetric),
-        imageUrl: images.get(Number(row.entity_id))?.image_url ?? null,
+        imageUrl: coverOrNull(images.get(Number(row.entity_id))?.image_url),
         href: `/explore/?profile=${encodeURIComponent(params.slug)}&range=${encodeURIComponent(params.preset)}&entity=album&id=${encodeURIComponent(row.entity_id)}`
       }));
     } catch {
@@ -425,6 +426,11 @@
         href: `/explore/?profile=${encodeURIComponent(params.slug)}&range=${encodeURIComponent(params.preset)}&entity=album&id=${encodeURIComponent(row.entity_id)}`
       }));
     }
+  }
+
+  // Cover-wall tiles are at most ~150px wide, so Spotify's 300px art is enough.
+  function coverOrNull(url: string | null | undefined): string | null {
+    return url ? coverVariant(url, 'medium') : null;
   }
 
   async function loadEntityArtwork(type: EntityType, id: string, token: number): Promise<void> {

@@ -16,7 +16,7 @@ type RollupRow = {
   unknown_duration_plays: number;
 };
 
-type RpcRankingRow = {
+export type RpcRankingRow = {
   entity_id: string;
   entity_name: string;
   minutes: number | string;
@@ -68,7 +68,7 @@ function aggregateRows(rows: RollupRow[]): RankingRow[] {
   return [...byEntity.values()];
 }
 
-function mapRpcRankingRow(row: RpcRankingRow): RankingRow {
+export function mapRpcRankingRow(row: RpcRankingRow): RankingRow {
   return {
     entity_id: row.entity_id,
     entity_name: row.entity_name,

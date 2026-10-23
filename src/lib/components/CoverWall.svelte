@@ -127,7 +127,7 @@
 </script>
 
 {#if loading || items.length > 0}
-  <ul class="cover-wall" bind:this={grid}>
+  <ul class="cover-wall" class:is-loading={loading} bind:this={grid}>
     {#if loading}
       {#each Array(skeletonCount) as _, index (index)}
         <li>
@@ -192,6 +192,80 @@
 
   .cover-wall li {
     position: relative;
+  }
+
+  /* The prerendered HTML has no JavaScript to count columns, so the skeleton
+     would show all 36 tiles, an incomplete last row included, until the app
+     starts and trims it. That trim moved everything below the wall. These
+     rules trim the same rows in CSS, from the wall's own width: columns are
+     floor((width + 8) / 104) for 96px minimum tiles and an 8px gap. They assume
+     the default placeholderCount of 36, the only count in use; widths where 36
+     already fills whole rows need no rule. */
+  .cover-wall.is-loading {
+    container: cover-wall / inline-size;
+  }
+
+  @container cover-wall (min-width: 512px) and (max-width: 615.98px) {
+    /* 5 columns: 35 tiles */
+    .cover-wall.is-loading li:nth-child(n + 36) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 720px) and (max-width: 823.98px) {
+    /* 7 columns: 35 tiles */
+    .cover-wall.is-loading li:nth-child(n + 36) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 824px) and (max-width: 927.98px) {
+    /* 8 columns: 32 tiles */
+    .cover-wall.is-loading li:nth-child(n + 33) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 1032px) and (max-width: 1135.98px) {
+    /* 10 columns: 30 tiles */
+    .cover-wall.is-loading li:nth-child(n + 31) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 1136px) and (max-width: 1239.98px) {
+    /* 11 columns: 33 tiles */
+    .cover-wall.is-loading li:nth-child(n + 34) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 1344px) and (max-width: 1447.98px) {
+    /* 13 columns: 26 tiles */
+    .cover-wall.is-loading li:nth-child(n + 27) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 1448px) and (max-width: 1551.98px) {
+    /* 14 columns: 28 tiles */
+    .cover-wall.is-loading li:nth-child(n + 29) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 1552px) and (max-width: 1655.98px) {
+    /* 15 columns: 30 tiles */
+    .cover-wall.is-loading li:nth-child(n + 31) {
+      display: none;
+    }
+  }
+
+  @container cover-wall (min-width: 1656px) and (max-width: 1759.98px) {
+    /* 16 columns: 32 tiles */
+    .cover-wall.is-loading li:nth-child(n + 33) {
+      display: none;
+    }
   }
 
   /* Pixel shelf board each row of records stands on. The element spans the

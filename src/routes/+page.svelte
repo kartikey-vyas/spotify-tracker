@@ -10,24 +10,29 @@
   import PixelRoom from '$lib/components/PixelRoom.svelte';
   import PopularityPanel from '$lib/components/PopularityPanel.svelte';
   import ReleaseYearChart from '$lib/components/ReleaseYearChart.svelte';
-  import RecordMark from '$lib/components/RecordMark.svelte';
   import StatList from '$lib/components/StatList.svelte';
+  import { coverVariant } from '$lib/covers';
   import { getPresetDateRange, melbourneToday } from '$lib/dateRanges';
-  import { bandFor, buildStrip, formatListeners, hasHourTags, reliableMedian } from '$lib/insights';
-  import { publicSupabaseConfigured } from '$lib/supabase';
   import {
-    bestAvailableMetric,
-    formatMetric,
-    metricValue,
-    qualityLabel,
-    summaryValue,
-    topArtistDetail
-  } from '$lib/metrics';
+    readCachedProfiles,
+    readHomeSnapshot,
+    saveCachedProfiles,
+    saveHomeSnapshot,
+    type BandWindow
+  } from '$lib/homeCache';
+  import { homePrefetchScript, takeHomePrefetch, type HomePrefetch } from '$lib/homePrefetch';
+  import { bandFor, buildStrip, formatListeners, hasHourTags, reliableMedian } from '$lib/insights';
+  import { publicSupabaseConfigured, supabasePublishableKey, supabaseUrl } from '$lib/supabase';
+  import { formatMetric, metricValue, qualityLabel, summaryValue, topArtistDetail } from '$lib/metrics';
   import { defaultProfileSlug } from '$lib/profileDefaults';
+  import {
+    getHomeBand,
+    HOME_BAND_ALBUM_LIMIT,
+    HOME_BAND_LIST_LIMIT,
+    type HomeBand
+  } from '$lib/queries/home';
   import { getPopularityStrip, getPublicProfileInsights } from '$lib/queries/insights';
   import { getPublicProfileOverview } from '$lib/queries/overview';
-  import { getProfileRankings } from '$lib/queries/rankings';
-  import { fetchAlbumArtists, fetchAlbumImages } from '$lib/queries/images';
   import { listPublicProfiles } from '$lib/queries/profile';
   import type {
     CalendarDay,
@@ -39,27 +44,50 @@
     RankingRow
   } from '$lib/types';
 
-  type ListWindow = '7d' | '30d';
+  type ListWindow = BandWindow;
+  // The band rows on screen and what they were loaded for. Trails listWindow
+  // while a toggle loads, so links keep matching the rows on screen.
+  type ShownBand = { slug: string; window: ListWindow; data: HomeBand };
+
+  type SummaryRow = { label: string; value: string; caption: string; detail: string };
+
+  const SUMMARY_LABELS = ['Today', 'Last 7 days', 'Last 30 days'];
+  const EMPTY_BAND: HomeBand = { artists: [], tracks: [], albums: [] };
+
+  /* Starts the first requests from <head>, before the app's JavaScript has
+     loaded. Only a full page load runs it; after a client-side navigation
+     there is nothing to take and onMount fetches as usual. */
+  const prefetchScript =
+    supabaseUrl && supabasePublishableKey
+      ? homePrefetchScript({
+          url: supabaseUrl,
+          key: supabasePublishableKey,
+          defaultSlug: defaultProfileSlug,
+          listLimit: HOME_BAND_LIST_LIMIT,
+          albumLimit: HOME_BAND_ALBUM_LIMIT
+        })
+      : '';
 
   let profiles: PublicProfileOption[] = [];
+  let profilesLoaded = false;
+  let profilesRequest: Promise<PublicProfileOption[]> | null = null;
   let selectedSlug = defaultProfileSlug;
   let overview: OverviewPayload | null = null;
+  // Set once the network has answered for selectedSlug. Before that, a missing
+  // overview means "still loading", not "this profile has no cache".
+  let overviewSettled = false;
   // The daily Last.fm insights cache. Optional: the page renders without it.
   let insights: InsightsPayload | null = null;
   let popularityRows: PopularityStripRow[] = [];
-  let topAlbums: CoverItem[] = [];
-  let topArtists: RankingRow[] = [];
-  let topTracks: RankingRow[] = [];
+  let shownBand: ShownBand | null = null;
   let listWindow: ListWindow = '30d';
-  // The window the band's rows were loaded for. Trails listWindow while a
-  // toggle is loading, so links keep matching the rows on screen.
-  let bandWindow: ListWindow = '30d';
-  let loadToken = 0;
-  // Guards chooseProfile the way loadToken guards loadRecent: a slow response
-  // for an earlier pick must not land after a newer one.
+  // Each guards its loads the same way: a slow response for an earlier pick
+  // must not land after a newer one.
+  let bandToken = 0;
   let profileToken = 0;
-  let loading = true;
-  let bandLoading = false;
+  // A 7d/30d toggle with nothing stored for the new window: the previous rows
+  // stay on screen, dimmed, instead of flashing to skeletons.
+  let bandPending = false;
   let error = '';
   let profileMenu: HTMLDetailsElement | null = null;
 
@@ -80,45 +108,32 @@
   $: todayPlays = playsForDate(calendarDays, todayDate);
   $: last7DaysPlays = playsForRange(calendarDays, last7DaysRange.start, last7DaysRange.end);
   $: last30DaysPlays = playsForRange(calendarDays, last30DaysRange.start, last30DaysRange.end);
+  $: summary = summaryRows(overview, todayPlays, last7DaysPlays, last30DaysPlays);
   $: selectedProfile = profiles.find((profile) => profile.slug === selectedSlug) ?? null;
-  // Skeletons only when the band is loading with nothing to show yet (first
-  // paint + profile switch). On a 7d/30d toggle the previous lists are kept, so
-  // they stay visible instead of flashing to skeletons.
-  $: bandSkeleton =
-    bandLoading && topAlbums.length === 0 && topArtists.length === 0 && topTracks.length === 0;
-  // Loading while data is already on screen (a 7d/30d toggle): dim the band so
-  // the swap eases instead of popping. Distinct from the cold-load skeleton.
-  $: bandPending = bandLoading && !bandSkeleton;
+  // Skeletons until the band has something to show for this profile.
+  $: bandSkeleton = shownBand === null;
+  $: topArtists = shownBand?.data.artists ?? [];
+  $: topTracks = shownBand?.data.tracks ?? [];
+  $: topAlbums = shownBand ? albumsToCovers(shownBand) : [];
   $: popularityStrip = buildStrip(popularityRows, selectedSlug);
   $: popularityCard = popularityCardFor(insights);
   $: metricColumns = popularityCard ? 'cols-4' : 'cols-3';
+  $: noProfiles = profilesLoaded && profiles.length === 0 && !overview;
+  $: noOverview = overviewSettled && !overview && !noProfiles;
+  $: showGenericHeader = !publicSupabaseConfigured || noProfiles;
 
-  onMount(async () => {
-    const params = new URLSearchParams(window.location.search);
-    selectedSlug = params.get('slug') ?? defaultProfileSlug;
+  onMount(() => {
+    const slug = new URLSearchParams(window.location.search).get('slug') || defaultProfileSlug;
+    const prefetched = takeHomePrefetch(
+      window as unknown as Record<string, unknown>,
+      slug,
+      rangeFor('30d')
+    );
 
-    try {
-      profiles = await listPublicProfiles();
-      if (!profiles.some((profile) => profile.slug === selectedSlug)) {
-        selectedSlug =
-          profiles.find((profile) => profile.slug === defaultProfileSlug)?.slug ?? profiles[0]?.slug ?? defaultProfileSlug;
-      }
-      if (profiles.length > 0) {
-        [overview, insights, popularityRows] = await Promise.all([
-          getPublicProfileOverview(selectedSlug),
-          loadInsights(selectedSlug),
-          getPopularityStrip().catch(() => [])
-        ]);
-      }
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : String(caught);
-    } finally {
-      // Render the page chrome (cards, calendar, clock) as soon as the overview
-      // resolves; the band loads after and shows skeletons via bandLoading.
-      loading = false;
-    }
-
-    await loadBand();
+    profiles = readCachedProfiles() ?? [];
+    profilesRequest = loadProfiles(prefetched);
+    void loadPopularityStrip();
+    openProfile(slug, prefetched);
   });
 
   onMount(() => {
@@ -132,56 +147,145 @@
     return () => document.removeEventListener('click', closeProfileMenu);
   });
 
-  async function chooseProfile(slug: string): Promise<void> {
-    if (slug === selectedSlug) {
-      if (profileMenu) profileMenu.open = false;
-      return;
-    }
+  // Uses the boot script's request when there is one, and asks again through
+  // the client if it failed.
+  function orFetch<T>(pending: Promise<T> | undefined, fetcher: () => Promise<T>): Promise<T> {
+    return pending ? pending.catch(fetcher) : fetcher();
+  }
 
-    selectedSlug = slug;
-    if (profileMenu) profileMenu.open = false;
-    error = '';
-    loading = true;
-    topAlbums = [];
-    topArtists = [];
-    topTracks = [];
-    insights = null;
-    const token = ++profileToken;
+  function messageOf(caught: unknown): string {
+    return caught instanceof Error ? caught.message : String(caught);
+  }
 
+  async function loadProfiles(prefetched: HomePrefetch | null): Promise<PublicProfileOption[]> {
     try {
-      const [nextOverview, nextInsights] = await Promise.all([
-        getPublicProfileOverview(slug),
-        loadInsights(slug)
-      ]);
-      if (token !== profileToken) return;
-      overview = nextOverview;
-      insights = nextInsights;
-      const url = new URL(window.location.href);
-      if (selectedSlug === defaultProfileSlug) {
-        url.searchParams.delete('slug');
-      } else {
-        url.searchParams.set('slug', selectedSlug);
-      }
-      window.history.replaceState({}, '', url.toString());
+      const list = await orFetch(prefetched?.profiles, listPublicProfiles);
+      profiles = list;
+      saveCachedProfiles(list);
+      return list;
     } catch (caught) {
-      if (token === profileToken) error = caught instanceof Error ? caught.message : String(caught);
+      error = messageOf(caught);
+      return profiles;
     } finally {
-      // Only the newest pick owns the flag, as in loadRecent.
-      if (token === profileToken) loading = false;
+      profilesLoaded = true;
     }
+  }
 
-    if (token !== profileToken) return;
-    await loadBand();
+  async function loadPopularityStrip(): Promise<void> {
+    popularityRows = await getPopularityStrip().catch(() => []);
+  }
+
+  /* Shows what this browser stored for the profile at once, then loads the
+     overview, insights and band side by side. Each part renders as soon as its
+     own response arrives. */
+  function openProfile(slug: string, prefetched: HomePrefetch | null = null): void {
+    const token = ++profileToken;
+    const snapshot = readHomeSnapshot(slug);
+    selectedSlug = slug;
+    error = '';
+    overview = snapshot.overview ?? null;
+    insights = snapshot.insights ?? null;
+    overviewSettled = false;
+
+    void loadOverview(slug, token, prefetched);
+    void loadInsights(slug, token, prefetched);
+    void loadBand(slug, listWindow, snapshot.bands?.[listWindow] ?? null, prefetched?.band);
+  }
+
+  async function loadOverview(slug: string, token: number, prefetched: HomePrefetch | null): Promise<void> {
+    try {
+      const next = await orFetch(prefetched?.overview, () => getPublicProfileOverview(slug));
+      if (token !== profileToken) return;
+      if (!next) {
+        // An unknown or private slug in the URL: show the default profile instead.
+        const fallback = await fallbackSlugFor(slug);
+        if (token !== profileToken) return;
+        if (fallback) {
+          openProfile(fallback);
+          return;
+        }
+      }
+      overview = next;
+      if (next) saveHomeSnapshot(slug, { overview: next });
+    } catch (caught) {
+      if (token === profileToken) error = messageOf(caught);
+    } finally {
+      if (token === profileToken) overviewSettled = true;
+    }
+  }
+
+  async function fallbackSlugFor(slug: string): Promise<string | null> {
+    const list = await (profilesRequest ?? Promise.resolve(profiles));
+    if (list.some((profile) => profile.slug === slug)) return null;
+    return list.find((profile) => profile.slug === defaultProfileSlug)?.slug ?? list[0]?.slug ?? null;
   }
 
   // The insights cache is extra: a missing row or a failed read hides its
-  // panels instead of failing the page.
-  async function loadInsights(slug: string): Promise<InsightsPayload | null> {
+  // panels instead of failing the page, and a failed refresh keeps what is shown.
+  async function loadInsights(slug: string, token: number, prefetched: HomePrefetch | null): Promise<void> {
+    let next: InsightsPayload | null;
     try {
-      return await getPublicProfileInsights(slug);
+      next = await orFetch(prefetched?.insights, () => getPublicProfileInsights(slug));
     } catch {
-      return null;
+      return;
     }
+    if (token !== profileToken) return;
+    insights = next;
+    if (next) saveHomeSnapshot(slug, { insights: next });
+  }
+
+  /* Top albums/artists/tracks for one window. Stored rows for the window paint
+     at once and refresh quietly. Without them, a toggle dims the previous
+     window's rows and a new profile shows skeletons. */
+  async function loadBand(
+    slug: string,
+    win: ListWindow,
+    stored: HomeBand | null,
+    pending?: Promise<HomeBand>
+  ): Promise<void> {
+    const token = ++bandToken;
+    if (stored) {
+      shownBand = { slug, window: win, data: stored };
+    } else if (shownBand && shownBand.slug !== slug) {
+      shownBand = null;
+    }
+    bandPending = shownBand !== null && shownBand.window !== win;
+
+    try {
+      const data = await orFetch(pending, () => getHomeBand({ slug, ...rangeFor(win) }));
+      if (token !== bandToken) return;
+      shownBand = { slug, window: win, data };
+      // An unknown slug answers with nothing; there is nothing worth keeping.
+      if (data.artists.length + data.tracks.length + data.albums.length > 0) {
+        saveHomeSnapshot(slug, { bands: { [win]: data } });
+      }
+    } catch (caught) {
+      if (token !== bandToken) return;
+      error = messageOf(caught);
+      if (!shownBand) shownBand = { slug, window: win, data: EMPTY_BAND };
+    } finally {
+      if (token === bandToken) bandPending = false;
+    }
+  }
+
+  function chooseProfile(slug: string): void {
+    if (profileMenu) profileMenu.open = false;
+    if (slug === selectedSlug) return;
+
+    openProfile(slug);
+    const url = new URL(window.location.href);
+    if (slug === defaultProfileSlug) {
+      url.searchParams.delete('slug');
+    } else {
+      url.searchParams.set('slug', slug);
+    }
+    window.history.replaceState({}, '', url.toString());
+  }
+
+  function setWindow(next: ListWindow): void {
+    if (next === listWindow) return;
+    listWindow = next;
+    void loadBand(selectedSlug, next, readHomeSnapshot(selectedSlug).bands?.[next] ?? null);
   }
 
   // Deep cuts span all of history, so their artist links open the explorer on
@@ -197,9 +301,7 @@
     return `${base}/explore/?${params.toString()}`;
   }
 
-  function popularityCardFor(
-    payload: InsightsPayload | null
-  ): { label: string; value: string; caption: string; detail: string } | null {
+  function popularityCardFor(payload: InsightsPayload | null): SummaryRow | null {
     const listeners = reliableMedian(payload?.popularity.last_30_days);
     if (listeners === null) return null;
     return {
@@ -210,82 +312,30 @@
     };
   }
 
-  // Loads the band rankings once the page chrome is up. Kept separate so the
-  // cards/calendar/clock can paint from the overview cache while the band's live
-  // queries resolve behind a skeleton.
-  async function loadBand(): Promise<void> {
-    if (!overview || error) return;
-    try {
-      await loadRecent(selectedSlug, listWindow);
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : String(caught);
-    }
-  }
-
-  // Top albums/artists/tracks for the chosen window, queried live so any window
-  // works (the cache only stores fixed 7d/30d slices). A token guards against a
-  // slower in-flight load overwriting a newer one when the toggle is clicked.
-  async function loadRecent(slug: string, win: ListWindow): Promise<void> {
-    const range = rangeFor(win);
-    const token = ++loadToken;
-    bandLoading = true;
-    try {
-      const [artists, tracks, albumRows] = await Promise.all([
-        getProfileRankings({ slug, entityType: 'artist', start: range.start, end: range.end, metric: 'plays', limit: 8 }),
-        getProfileRankings({ slug, entityType: 'track', start: range.start, end: range.end, metric: 'plays', limit: 8 }),
-        getProfileRankings({ slug, entityType: 'album', start: range.start, end: range.end, metric: 'plays', limit: 50 })
-      ]);
-      const covers = await albumsToCovers(albumRows, win);
-      if (token !== loadToken) return;
-      topArtists = artists;
-      topTracks = tracks;
-      topAlbums = covers;
-      bandWindow = win;
-    } finally {
-      // Only the newest load owns the flag; a superseded load must not clear it.
-      if (token === loadToken) bandLoading = false;
-    }
-  }
-
   // Without a base prefix: CoverWall adds it to cover hrefs itself.
-  function exploreHref(entity: 'artist' | 'album', id: string, win: ListWindow): string {
-    const params = new URLSearchParams({ profile: selectedSlug, range: presetFor(win), entity, id });
+  function exploreHref(band: ShownBand, entity: 'artist' | 'album', id: string): string {
+    const params = new URLSearchParams({ profile: band.slug, range: presetFor(band.window), entity, id });
     return `/explore/?${params.toString()}`;
   }
 
-  async function albumsToCovers(albums: RankingRow[], win: ListWindow): Promise<CoverItem[]> {
-    if (albums.length === 0) return [];
-
-    const metric = bestAvailableMetric(albums, 'plays');
-    // Pool enough albums to fill complete rows at any width; CoverWall trims to
-    // whole rows for the current column count.
-    const sorted = [...albums]
-      .sort((left, right) => metricValue(right, metric) - metricValue(left, metric))
-      .slice(0, 36);
-    const ids = sorted.map((row) => Number(row.entity_id));
-    const [images, artists] = await Promise.all([fetchAlbumImages(ids), fetchAlbumArtists(ids)]);
-
-    return sorted.map((row) => {
-      const art = images.get(Number(row.entity_id));
-      return {
-        id: row.entity_id,
-        title: row.entity_name,
-        subtitle: artists.get(Number(row.entity_id)) ?? null,
-        value: formatMetric(metricValue(row, metric), metric),
-        imageUrl: art?.image_url ?? null,
-        href: exploreHref('album', row.entity_id, win)
-      } satisfies CoverItem;
-    });
+  function artistHref(band: ShownBand | null, row: RankingRow): string {
+    return band ? `${base}${exploreHref(band, 'artist', row.entity_id)}` : '';
   }
 
-  async function setWindow(next: ListWindow): Promise<void> {
-    if (next === listWindow) return;
-    listWindow = next;
-    try {
-      await loadRecent(selectedSlug, next);
-    } catch (caught) {
-      error = caught instanceof Error ? caught.message : String(caught);
-    }
+  // The RPC returns albums ranked by plays, already capped to the wall's size.
+  // Covers use Spotify's 300px art: tiles are at most ~150px wide.
+  function albumsToCovers(band: ShownBand): CoverItem[] {
+    return band.data.albums.map(
+      (row) =>
+        ({
+          id: row.entity_id,
+          title: row.entity_name,
+          subtitle: row.artist_name,
+          value: formatMetric(metricValue(row, 'plays'), 'plays'),
+          imageUrl: row.image_url ? coverVariant(row.image_url, 'medium') : null,
+          href: exploreHref(band, 'album', row.entity_id)
+        }) satisfies CoverItem
+    );
   }
 
   function profileOptionLabel(profile: PublicProfileOption): string {
@@ -315,35 +365,49 @@
     });
   }
 
-  function summaryRows(): Array<{ label: string; value: string; caption: string; detail: string }> {
-    if (!overview) return [];
+  // The plays arguments are passed in, not read from state, so this re-runs
+  // whenever they change (see the Svelte notes in AGENTS.md).
+  function summaryRows(
+    payload: OverviewPayload | null,
+    today: number,
+    last7Days: number,
+    last30Days: number
+  ): SummaryRow[] {
+    if (!payload) return [];
     return [
       {
-        label: 'Today',
-        value: summaryValue(todayPlays),
-        ...topArtistDetail(overview.today.top_artist)
+        label: SUMMARY_LABELS[0],
+        value: summaryValue(today),
+        ...topArtistDetail(payload.today.top_artist)
       },
       {
-        label: 'Last 7 days',
-        value: summaryValue(last7DaysPlays),
-        ...topArtistDetail(overview.this_week.top_artists[0]?.entity_name)
+        label: SUMMARY_LABELS[1],
+        value: summaryValue(last7Days),
+        ...topArtistDetail(payload.this_week.top_artists[0]?.entity_name)
       },
       {
-        label: 'Last 30 days',
-        value: summaryValue(last30DaysPlays),
-        ...topArtistDetail(overview.last_30_days.top_artists[0]?.entity_name)
+        label: SUMMARY_LABELS[2],
+        value: summaryValue(last30Days),
+        ...topArtistDetail(payload.last_30_days.top_artists[0]?.entity_name)
       }
     ];
   }
-
 </script>
+
+<svelte:head>
+  {@html prefetchScript}
+  <!-- Album art host for the cover wall. -->
+  <link rel="preconnect" href="https://i.scdn.co" />
+</svelte:head>
 
 <section class="page">
   <div class="page-header">
     <span class="eyebrow">Australia/Melbourne</span>
-    <h1>{selectedProfile?.display_name ?? 'Listening history'}</h1>
+    <!-- The slug is known before the profile list arrives, so the header shows
+         it at once instead of a generic title that then changes size. -->
+    <h1>{showGenericHeader ? 'Listening history' : (selectedProfile?.display_name ?? selectedSlug)}</h1>
     <p class="lede">
-      {selectedProfile ? `@${selectedProfile.slug}` : 'Public read-only Spotify listening summaries.'}
+      {showGenericHeader ? 'Public read-only Spotify listening summaries.' : `@${selectedSlug}`}
     </p>
   </div>
 
@@ -352,26 +416,31 @@
       <h2>Supabase is not configured</h2>
       <p class="muted">Set PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY to load public dashboard data.</p>
     </section>
-  {:else if loading}
-    <section class="panel panel-loading"><RecordMark size="lg" label="Loading overview..." /></section>
-  {:else if error}
+  {:else if error && !overview}
     <section class="panel"><p class="error">{error}</p></section>
-  {:else if profiles.length === 0}
+  {:else if noProfiles}
     <section class="panel">
       <h2>No public profiles yet</h2>
       <p class="muted">Make at least one connected profile public to show it here.</p>
     </section>
-  {:else if !overview}
+  {:else if noOverview}
     <section class="panel">
       <h2>No overview cache yet</h2>
       <p class="muted">Run a sync so this profile has a public overview cache.</p>
     </section>
   {:else}
+    <!-- One layout from the first paint (it is in the prerendered HTML) to the
+         last response: each part shows a placeholder until its data arrives,
+         so nothing moves when it does. -->
+    {#if error}
+      <p class="error refresh-error">Could not refresh: {error}</p>
+    {/if}
+
     <div class="profile-picker">
       <span class="profile-label">profile</span>
       <details bind:this={profileMenu} class="menu">
         <summary class="menu-trigger"
-          >{selectedProfile ? profileOptionLabel(selectedProfile) : 'Choose profile'}</summary
+          >{selectedProfile ? profileOptionLabel(selectedProfile) : selectedSlug}</summary
         >
         <div class="menu-options is-profile" role="radiogroup" aria-label="Profile">
           {#each profiles as profile}
@@ -391,14 +460,20 @@
 
     <DitherFrame>
       <section class="grid {metricColumns}">
-        {#each summaryRows() as row}
-          <MetricCard
-            label={row.label}
-            value={row.value}
-            caption={row.caption}
-            detail={row.detail}
-          />
-        {/each}
+        {#if overview}
+          {#each summary as row}
+            <MetricCard
+              label={row.label}
+              value={row.value}
+              caption={row.caption}
+              detail={row.detail}
+            />
+          {/each}
+        {:else}
+          {#each SUMMARY_LABELS as label}
+            <MetricCard {label} value="" loading />
+          {/each}
+        {/if}
         {#if popularityCard}
           <MetricCard
             label={popularityCard.label}
@@ -448,7 +523,7 @@
           loading={bandSkeleton}
           entityKind="artist"
           waveTop
-          hrefFor={(row) => `${base}${exploreHref('artist', row.entity_id, bandWindow)}`}
+          hrefFor={(row) => artistHref(shownBand, row)}
         />
       </div>
 
@@ -468,22 +543,30 @@
           <span class="muted">Plays per day</span>
         </div>
         <div class="cal-body">
-          <ContributionGraph days={calendarDays} metric="plays" />
+          {#if overview}
+            <ContributionGraph days={calendarDays} metric="plays" />
+          {:else}
+            <span class="skeleton calendar-skeleton" aria-hidden="true"></span>
+          {/if}
         </div>
       </section>
 
-      {#if overview.clock && overview.clock.length > 0}
+      {#if !overview || (overview.clock && overview.clock.length > 0)}
         <section class="clock-panel">
           <div class="section-heading">
             <h2>Listening clock</h2>
             <span class="muted">Last 30 days</span>
           </div>
-          <ListeningClock buckets={overview.clock} />
+          {#if overview}
+            <ListeningClock buckets={overview.clock ?? []} />
+          {:else}
+            <span class="skeleton clock-skeleton" aria-hidden="true"></span>
+          {/if}
         </section>
       {/if}
     </div>
 
-    {#if overview.release_years && overview.release_years.length > 0}
+    {#if overview?.release_years && overview.release_years.length > 0}
       <section class="section-gap">
         <div class="section-heading">
           <h2>The age of your music</h2>
@@ -513,22 +596,24 @@
       </section>
     {/if}
 
-    <footer class="sleeve-footer section-gap">
-      <p class="catalog">
-        <span>Cat. musik-001</span>
-        <span class="sep">·</span>
-        <span>{qualityLabel(1)}</span>
-        <span class="sep">·</span>
-        <span>Generated {catalogStamp(overview.generated_at)}</span>
-        {#if overview.sync.last_success_at}
+    {#if overview}
+      <footer class="sleeve-footer section-gap">
+        <p class="catalog">
+          <span>Cat. musik-001</span>
           <span class="sep">·</span>
-          <span>Synced {catalogStamp(overview.sync.last_success_at)}</span>
-        {/if}
-        <span class="sep">·</span>
-        <span>All plays reserved</span>
-      </p>
-      <span class="barcode" aria-hidden="true"></span>
-    </footer>
+          <span>{qualityLabel(1)}</span>
+          <span class="sep">·</span>
+          <span>Generated {catalogStamp(overview.generated_at)}</span>
+          {#if overview.sync.last_success_at}
+            <span class="sep">·</span>
+            <span>Synced {catalogStamp(overview.sync.last_success_at)}</span>
+          {/if}
+          <span class="sep">·</span>
+          <span>All plays reserved</span>
+        </p>
+        <span class="barcode" aria-hidden="true"></span>
+      </footer>
+    {/if}
   {/if}
 </section>
 
@@ -660,7 +745,39 @@
     max-width: 300px;
   }
 
+  /* Placeholders sized to what replaces them (measured: the calendar is 222px
+     tall on desktop and 170px on a phone; the clock matches ListeningClock's
+     dial), so the page does not move when the overview arrives. */
+  .calendar-skeleton {
+    display: block;
+    flex: 1;
+    height: 222px;
+  }
+
+  .clock-skeleton {
+    display: block;
+    width: 100%;
+    max-width: 230px;
+    aspect-ratio: 1;
+    margin: var(--space-0-5) auto;
+    border-radius: 50%;
+  }
+
+  .refresh-error {
+    margin: 0 0 var(--space-4);
+    font-size: var(--text-sm);
+    line-height: var(--leading-sm);
+  }
+
   @media (max-width: 800px) {
+    .calendar-skeleton {
+      height: 170px;
+    }
+
+    .clock-skeleton {
+      max-width: 280px;
+    }
+
     /* Once .time-row wraps to one column the cap has nothing to protect, and it
        strands the panel against the left edge with dead space beside it. */
     .time-row .clock-panel {

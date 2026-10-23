@@ -111,6 +111,8 @@ Also: `safe_not_equal` treats an unchanged primitive as clean, so `x = x` does n
 
 The browser's read surface is restricted to safe views/tables: `public_profile_overview`, `overview_cache`, `rollup_daily_entity_stats`, the metadata tables, and `public_activity_recent`. It never gets direct access to `listening_events` or `sync_state`. A profile only appears publicly when `profiles.is_public = true` and a user-scoped overview cache exists. The public homepage default slug is `defaultProfileSlug` in `src/lib/profileDefaults.ts`.
 
+The database is in Mumbai and readers are in Melbourne, so each browser round trip costs ~300ms whatever the query time; count round trips before tuning SQL. The homepage needs one: an inline `<head>` script (`src/lib/homePrefetch.ts`) starts its requests before the app's JavaScript loads, as plain GETs with the key in the query string so there is no CORS preflight. The band comes from one RPC, `public_profile_home_band`, which must stay `stable` so PostgREST serves it over GET. The page then paints the last data this browser saw from `localStorage` (`src/lib/homeCache.ts`) and refreshes it.
+
 ### Data quality / metrics semantics
 
 - `source/data_quality = 1` (`exact`): Spotify export rows with `ms_played`.

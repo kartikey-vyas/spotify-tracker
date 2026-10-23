@@ -5,7 +5,7 @@
   import { base } from '$app/paths';
   import { onMount } from 'svelte';
   import { isCurrentUserAdmin } from '$lib/queries/admin';
-  import { supabase } from '$lib/supabase';
+  import { supabase, supabaseUrl } from '$lib/supabase';
   import { DEFAULT_THEME, THEME_KEY, applyTheme, isTheme, themeBootScript, themes, type Theme } from '$lib/theme';
   import { pixelPersonController, pixelRoomCount } from '$lib/pixel-person/controller';
 
@@ -125,6 +125,10 @@
 
 <svelte:head>
   {@html themeBootScript}
+  {#if supabaseUrl}
+    <!-- Every page reads Supabase; open the connection before the app asks. -->
+    <link rel="preconnect" href={supabaseUrl} crossorigin="anonymous" />
+  {/if}
   <title>musik</title>
   <meta
     name="description"

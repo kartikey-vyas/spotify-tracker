@@ -7,6 +7,8 @@
  * sprites from this cache can never taint the shared overlay canvas.
  */
 
+import { coverVariant } from '../covers';
+
 export const RECORD_PIXELS = 12;
 export const RECORD_SCALE = 2;
 
@@ -25,14 +27,11 @@ const MAX_CACHED_RECORDS = 48;
 const RETRY_FAILED_AFTER_MS = 60_000;
 const cache = new Map<string, RecordArt>();
 
-// Spotify encodes the image size in the URL hash prefix; the stored URLs are
-// the 640px variant, and this undocumented-but-stable rewrite fetches the
-// 64px one (~2KB instead of ~40KB). The original URL stays as a fallback.
-const FULL_SIZE_PREFIX = 'ab67616d0000b273';
-const SMALL_SIZE_PREFIX = 'ab67616d00004851';
-
+// Spotify encodes the image size in the URL hash prefix. Records come off the
+// cover wall at 300px (or 640px elsewhere); this undocumented-but-stable
+// rewrite fetches the 64px one (~2KB). The original URL stays as a fallback.
 export function smallCoverVariant(url: string): string {
-  return url.replace(FULL_SIZE_PREFIX, SMALL_SIZE_PREFIX);
+  return coverVariant(url, 'small');
 }
 
 /** Starts rasterizing the cover if unseen; idempotent, returns the live entry. */

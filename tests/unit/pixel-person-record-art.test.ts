@@ -12,6 +12,12 @@ describe('record artwork URLs', () => {
     );
   });
 
+  it('rewrites the 300px cover-wall variant to the 64px one too', () => {
+    expect(smallCoverVariant('https://i.scdn.co/image/ab67616d00001e02ff9ca10b')).toBe(
+      'https://i.scdn.co/image/ab67616d00004851ff9ca10b'
+    );
+  });
+
   it('leaves unknown urls untouched', () => {
     expect(smallCoverVariant('https://example.com/cover.jpg')).toBe(
       'https://example.com/cover.jpg'
