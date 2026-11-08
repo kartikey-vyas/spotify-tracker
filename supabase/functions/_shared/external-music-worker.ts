@@ -17,6 +17,7 @@ import {
   classifyMusicBrainzError,
   endpointDone,
   previousResult,
+  requiredEndpoints,
   shouldFallbackLastFmMbid,
   shouldOpenLastFmCircuit,
   shouldConsumeExternalRetryAttempt,
@@ -73,12 +74,6 @@ export function clampInteger(value: unknown, fallback: number, minimum: number, 
 
 function primaryArtist(item: ExternalMusicWorkItem): { id: number; name: string } | null {
   return item.context_artists.find((artist) => artist.artist_order === 0) ?? item.context_artists[0] ?? null;
-}
-
-function requiredEndpoints(item: ExternalMusicWorkItem): string[] {
-  return item.entity_type === 'track'
-    ? ['musicbrainz', 'track.info', 'track.tags', 'track.similar']
-    : [`${item.entity_type}.info`, `${item.entity_type}.tags`];
 }
 
 function lastFmMethod(item: ExternalMusicWorkItem, suffix: 'info' | 'tags' | 'similar'): string {
@@ -240,7 +235,7 @@ export async function processExternalMusicItem(
     };
   }
 
-  const succeeded = requiredEndpoints(item).every((endpoint) => endpointDone(result, endpoint));
+  const succeeded = requiredEndpoints(item.entity_type).every((endpoint) => endpointDone(result, endpoint));
   return {
     result,
     succeeded,

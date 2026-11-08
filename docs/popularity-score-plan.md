@@ -8,7 +8,7 @@ Show how mainstream or underground each person's listening is, using Last.fm lis
 
 - Use **artist** listeners, not track listeners. Artist stats cover 78–99.8% of plays per profile; track stats cover 53–87%.
 - Weighted median, not mean. A mean is dominated by a few 10M-listener artists.
-- Use the latest `external_music_stats` row per artist (`distinct on (artist_id) ... order by observed_on desc`). Today there is exactly one row per entity, so no change over time is visible yet.
+- Use the latest `external_music_stats` row per artist (`distinct on (artist_id) ... order by observed_on desc`). Until the monthly snapshots (see Follow-ups) build up, there is one row per entity, so no change over time is visible yet.
 - Plays include API-only plays (`data_quality = 2`), the same as the clock. Popularity is about *what* you play, not for how long.
 - Report `coverage` (share of plays with a listener count) beside every value. Hide a value when coverage is under 50% or fewer than 50 plays are covered.
 
@@ -99,8 +99,9 @@ The real payload has these under a `popularity` key, beside `hour_tags`.
 - `src/lib/insights.ts` (pure, no DOM): `POPULARITY_BANDS`, `bandFor`, `reliableMedian`, `formatListeners` (1289568 → "1.3M"), `scalePosition` (log axis 10k–10M), `buildStrip`, `buildYearSeries`.
 - `src/lib/queries/insights.ts`: `getPublicProfileInsights(slug)` and `getPopularityStrip()` (all public rows, only `payload->popularity->all_time`). Both guard `if (!supabase) return null`.
 - Homepage `src/routes/+page.svelte`:
-  - A 4th `MetricCard` inside the existing `DitherFrame`: "Popularity, 30 days" / band / "Typical artist · 1.3M listeners". The grid becomes `cols-4` only when the card has a reliable value. No new WebGL context.
-  - A "How mainstream" section (`PopularityPanel.svelte`) after "The age of your music": the band headline, the friends strip (one row per profile on a shared log axis, so close scores never collide), the by-year bars with the most underground year in accent, and the deep-cuts list. Deep-cut artists link to the explorer on "All time".
+  - A 4th `MetricCard` inside the existing `DitherFrame`: "Popular today, 30 days" / band / "Typical artist · 1.3M listeners today". The grid becomes `cols-4` only when the card has a reliable value. No new WebGL context.
+  - A "How popular today" section (`PopularityPanel.svelte`) after "The age of your music": the band headline, the friends strip (one row per profile on a shared log axis, so close scores never collide), the by-year bars ("By year of play, with today's counts") with the most underground year in accent, and the deep-cuts list. Deep-cut artists link to the explorer on "All time".
+  - Every label says "today", because the score uses current listener counts (renamed on 2026-11-09). A year's bar shows how popular that year's music is now. The time-of-play score is the composite in Follow-ups.
   - A failed or missing insights read hides these panels; it never fails the page.
 - Not on `/profile` or `/app` in v1.
 
@@ -128,5 +129,9 @@ The real payload has these under a `popularity` key, beside `hour_tags`.
 ## Follow-ups (not in v1)
 
 - **Fix MBID track matching** in the Last.fm enrichment (`supabase/functions/_shared/external-music-enrichment.ts`). Possible fix: when an MBID lookup returns far fewer listeners than a name lookup, prefer the name match. Then re-fetch those tracks.
-- **Repeat stats readings** (for example monthly per artist), so that "you found them before they got big" becomes possible.
+- **Repeat stats readings: built** (migration `20261109100000_monthly_lastfm_stats_snapshot.sql`). On the 1st of each month at 00:11 UTC, pg_cron job `snapshot-lastfm-artist-stats` calls `enqueue_external_music_stats_snapshot('artist')`. It requeues every artist whose first pass is finished, with only `artist.info` cleared from `last_result`, and sets `stats_snapshot_on` to the month. The existing `enrich-external-metadata` job then makes one `artist.getInfo` call per artist and upserts a new `external_music_stats` row for that day. No MusicBrainz, tags, similarities or rollup refresh run. Snapshot rows claim after all first-pass rows, so new entities are never delayed.
+  - Cost, measured 2026-11-09: 16,303 eligible artists, so about 16.3k Last.fm calls a month. At 20 items per 5-minute run that is about 68 hours, around 3 days. Full 20-item runs averaged 14.5 s (p95 80 s) while doing up to 4 calls per item, so stats-only batches fit easily in the 600 s lease. Storage is about 4 MB a month at 242 bytes per stats row.
+  - Tracks and albums are not scheduled. Adding them would add about 41k calls and 10 MB a month (another 7 days of the job), and the database is already at 469 MB. Track stats also keep the MBID mismatch above, so a track history would repeat known-bad readings. Nothing reads album stats. The function accepts `'track'` and `'album'`, so a later migration can schedule them with `cron.schedule`.
+  - The migration also starts the November 2026 snapshot when it is applied. Artists that already have a stats row this month are skipped.
+  - Check progress with `pnpm external:status` (`stats_snapshots` groups queue rows by month and status).
 - **Popularity by hour**: show it in the hour-tags panel ("more underground at night": 1.56M at 7am, 1.07M at 11pm for kartikey).

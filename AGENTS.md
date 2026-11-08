@@ -152,6 +152,18 @@ prioritizes entities whose remaining endpoints are actionable, so tracks
 waiting only on MusicBrainz cannot starve Last.fm work. Provider-wide failures
 do not consume per-entity retry budget.
 
+Last.fm popularity history comes from the same queue. The pg_cron job
+`snapshot-lastfm-artist-stats` (00:11 UTC on the 1st of each month, migration
+`20261109100000_monthly_lastfm_stats_snapshot.sql`) calls
+`enqueue_external_music_stats_snapshot('artist')`. That requeues finished
+artists with only `artist.info` removed from `last_result` and
+`stats_snapshot_on` set to the month. The worker skips terminal endpoints, so
+each artist gets one `artist.getInfo` call and a new `external_music_stats` row
+dated that day. Rows with `stats_snapshot_on` set claim after first-pass work.
+The sweep takes about 3 days of the hosted job (16.3k artists). `pnpm
+external:status` shows it under `stats_snapshots`. Tracks and albums are not
+scheduled because of database size; the function accepts them.
+
 The optional laptop runner and the Edge Function share the runtime-neutral processor in
 `supabase/functions/_shared/external-music-worker.ts`, while database claiming,
 singleton leases, retries, completed endpoint state, and run telemetry remain
