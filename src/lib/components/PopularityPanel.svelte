@@ -52,7 +52,7 @@
     <div class="headline">
       <strong>{bandFor(allTime)}</strong>
       <span class="muted">
-        The typical artist you play has {listenersText(allTime)} on Last.fm.
+        The typical artist you play has {listenersText(allTime)} on Last.fm today.
       </span>
     </div>
 
@@ -87,7 +87,7 @@
 
         {#if years.length > 1}
           <div class="block">
-            <h3>By year</h3>
+            <h3>By year of play, with today's counts</h3>
             <div class="years">
               <div class="bars" role="img" aria-label="Typical artist listeners by year">
                 {#each years as bar (bar.year)}
@@ -108,8 +108,8 @@
             </div>
             {#if lowest}
               <p class="muted note">
-                Most underground year: <span class="accent">{lowest.year}</span>
-                ({listenersText(lowest.listeners)}).
+                Most underground year by today's counts:
+                <span class="accent">{lowest.year}</span> ({listenersText(lowest.listeners)}).
               </p>
             {/if}
           </div>
@@ -148,7 +148,8 @@
       Listener counts from
       <a href="https://www.last.fm" rel="noopener noreferrer" target="_blank">Last.fm</a>{observedOn
         ? ` as of ${observedOn}`
-        : ''}: how popular the music is now, not when you played it.
+        : ''}. They measure popularity today. Last.fm keeps no history, so a year here shows
+      how popular that year's music is now.
     </p>
   </section>
 {/if}

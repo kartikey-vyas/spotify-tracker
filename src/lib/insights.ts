@@ -110,7 +110,7 @@ export type YearBar = {
   band: PopularityBand;
   /** listeners / the highest year, in (0, 1]. */
   fraction: number;
-  /** The most underground year shown. */
+  /** The most underground year shown, by today's listener counts. */
   lowest: boolean;
 };
 
