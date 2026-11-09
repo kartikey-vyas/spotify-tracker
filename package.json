@@ -24,7 +24,8 @@
     "explore:lastfm": "tsx scripts/explore-lastfm.ts",
     "import:lastfm-report": "tsx scripts/import-lastfm-report.ts",
     "invite": "tsx scripts/invite-user.ts",
-    "db:size": "tsx scripts/db-size.ts"
+    "db:size": "tsx scripts/db-size.ts",
+    "wikipedia:attention": "tsx scripts/wikipedia-attention.ts"
   },
   "dependencies": {
     "@paper-design/shaders": "^0.0.80",

@@ -101,9 +101,49 @@ The real payload has these under a `popularity` key, beside `hour_tags`.
 - Homepage `src/routes/+page.svelte`:
   - A 4th `MetricCard` inside the existing `DitherFrame`: "Popular today, 30 days" / band / "Typical artist · 1.3M listeners today". The grid becomes `cols-4` only when the card has a reliable value. No new WebGL context.
   - A "How popular today" section (`PopularityPanel.svelte`) after "The age of your music": the band headline, the friends strip (one row per profile on a shared log axis, so close scores never collide), the by-year bars ("By year of play, with today's counts") with the most underground year in accent, and the deep-cuts list. Deep-cut artists link to the explorer on "All time".
-  - Every label says "today", because the score uses current listener counts (renamed on 2026-11-09). A year's bar shows how popular that year's music is now. The time-of-play score is the composite in Follow-ups.
+  - Labels on the today score say "today" (renamed on 2026-11-09). The year chart can switch to the attention-adjusted score (see below).
   - A failed or missing insights read hides these panels; it never fails the page.
 - Not on `/profile` or `/app` in v1.
+
+## Attention-adjusted score (built 2026-11-09)
+
+The today score uses current Last.fm listeners for every play. The adjusted score multiplies them by how much attention the artist's English Wikipedia article had in the month of play. Migration `20261109120000_wikipedia_attention.sql`; evidence from a spike on 2026-11-09.
+
+### Formula
+
+For an article and a play month m (clamped to July 2015, the start of the Pageviews API, and to the last fetched month):
+
+```
+ratio      = (mean views over m-5 .. m+6 / mean views over the latest 12 months)
+           / (the same ratio for all of English Wikipedia)
+multiplier = sqrt(clamp(ratio, 0.1, 10))          -- about 0.32x to 3.2x
+listeners  = today's Last.fm listeners x multiplier
+```
+
+- **12-month window:** you play artists in their release months, which is when page views peak. Single-month spikes reach 30-41x (Super Bowl, deaths). With single months the 2015 score was 6.7M; with the window it is about 4.2M.
+- **Divided by site-wide views:** English Wikipedia traffic fell from about 8.2B views a month (2015) to 6.1B (2026).
+- **Square root:** across 2,736 artists, log listeners against log recent views has slope 0.48 (r = 0.69).
+- **Fallbacks:** plays whose artist has no article, or played before the article existed, keep today's count. `adjusted_plays` counts the plays that got a multiplier.
+- Label it "adjusted for when you played". Last.fm listeners is a cumulative count, so this is an estimate.
+
+### Matching
+
+- Artist to article through Wikidata P1902 (Spotify artist ID). Matching through MusicBrainz IDs gave namesake errors (Neil Young matched a scientist's article). Expect about 2.8k of the 8.4k played artists to have an English article.
+- **Same-name redirects:** views of redirects whose title names the same artist are added to the article ("Drake (rapper)", "SZA (singer)", "Tyler the Creator"). A renamed article keeps its old history under the old title, so without this Drake has zero views in 2015. The rule is a name comparison (`isSameSubjectTitle`): redirects from merged album, tour, discography or "controversies" pages are left out, because their old views were for another page.
+- Known errors that remain: "Steve Lacy" was the jazz saxophonist's article in 2015; Joji's early history is under "Filthy Frank" (a different name, so not added). The clamp limits the damage to 3.2x.
+
+### Storage and jobs
+
+- `wikipedia_articles` holds each article's monthly views as one integer array plus its multipliers (a few MB). `artist_wikipedia_links` maps played artists to articles. `wikipedia_site_monthly` holds all-of-enwiki totals. All service-only.
+- `refresh-wikipedia-attention` Edge Function, pg_cron every 15 minutes (`9,24,39,54`), about 100 s per run: links new played artists (rechecks every 90 days), checks redirects, fetches new months of views, then calls `refresh_wikipedia_attention()` when nothing is left to fetch. Article views are fetched only up to the newest month in the site totals, so an unpublished month is never stored as zeros.
+- After each month ends: about 3k Pageviews calls, at one call every 0.75 s (eight in parallel got throttled). That is about 10 hours of runs.
+- First backfill: `pnpm wikipedia:attention` from a laptop. `pnpm wikipedia:attention --status` prints progress. Do not run it while the hosted job has a large backlog; both would fetch the same articles.
+- `build_insights_payload` adds `popularity.adjusted.{all_time, by_year}` and `wikipedia_views_through`. The friends strip and the 30-day card stay on today's counts.
+
+### Browser
+
+- `adjustedMedian` (`src/lib/insights.ts`): the reliability rule plus at least 50% of covered plays with a multiplier (`MIN_ADJUSTED_SHARE`). Otherwise the adjusted score would mostly repeat today's. This hides it for profiles of mostly small artists (27% coverage for mikeox).
+- The year chart has a "When played / Today" toggle, defaulting to "When played". The headline adds "Adjusted for when you played: X".
 
 ## Tests
 
@@ -134,4 +174,5 @@ The real payload has these under a `popularity` key, beside `hour_tags`.
   - Tracks and albums are not scheduled. Adding them would add about 41k calls and 10 MB a month (another 7 days of the job), and the database is already at 469 MB. Track stats also keep the MBID mismatch above, so a track history would repeat known-bad readings. Nothing reads album stats. The function accepts `'track'` and `'album'`, so a later migration can schedule them with `cron.schedule`.
   - The migration also starts the November 2026 snapshot when it is applied. Artists that already have a stats row this month are skipped.
   - Check progress with `pnpm external:status` (`stats_snapshots` groups queue rows by month and status).
+- **Other sources** (researched 2026-11-09): ListenBrainz (CC0 listen dumps give per-artist monthly listens back to 2005 and cover small artists; the live popularity API is cheap), Deezer fan counts by ISRC (current only, good small-artist coverage), Wikipedia in other languages and the 2014 page-view dumps, Wikidata/MusicBrainz attributes (country, formation year, first release date).
 - **Popularity by hour**: show it in the hour-tags panel ("more underground at night": 1.56M at 7am, 1.07M at 11pm for kartikey).

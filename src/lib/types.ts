@@ -102,6 +102,14 @@ export type PopularitySummary = {
 
 export type PopularityYear = PopularitySummary & { year: number };
 
+/** Today's listeners scaled by Wikipedia attention in the month of play. */
+export type AdjustedPopularitySummary = PopularitySummary & {
+  /** Covered plays whose artist had a Wikipedia multiplier; the rest use today's count. */
+  adjusted_plays: number;
+};
+
+export type AdjustedPopularityYear = AdjustedPopularitySummary & { year: number };
+
 export type DeepCut = {
   spotify_track_id: string | null;
   track_name: string;
@@ -142,7 +150,14 @@ export type InsightsPayload = {
     last_30_days: PopularitySummary | null;
     by_year: PopularityYear[];
     deep_cuts: DeepCut[];
+    /** Absent on caches built before the Wikipedia migration. */
+    adjusted?: {
+      all_time: AdjustedPopularitySummary | null;
+      by_year: AdjustedPopularityYear[];
+    };
   };
+  /** The last month of Wikipedia page views behind `adjusted`. */
+  wikipedia_views_through?: string | null;
   hour_tags: HourTagBucket[];
 };
 

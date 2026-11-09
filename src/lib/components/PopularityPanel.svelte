@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DeepCut, InsightsPayload } from '$lib/types';
   import {
+    adjustedMedian,
     bandFor,
     bandTicks,
     buildYearSeries,
@@ -20,14 +21,29 @@
 
   const ticks = bandTicks();
 
+  /** Which counts the year chart uses: adjusted for the month of play, or today's. */
+  let yearMode: 'played' | 'today' = 'played';
+
   $: allTime = reliableMedian(insights.popularity.all_time);
-  $: years = buildYearSeries(insights.popularity.by_year);
+  $: todayYears = buildYearSeries(insights.popularity.by_year);
+  $: adjusted = insights.popularity.adjusted ?? null;
+  $: adjustedAllTime = adjustedMedian(adjusted?.all_time);
+  $: adjustedYears = adjusted ? buildYearSeries(adjusted.by_year, adjustedMedian) : [];
+  $: hasAdjusted = adjustedAllTime !== null && adjustedYears.length > 1;
+  $: showPlayed = hasAdjusted && yearMode === 'played';
+  $: years = showPlayed ? adjustedYears : todayYears;
   $: lowest = years.find((year) => year.lowest) ?? null;
   $: deepCuts = insights.popularity.deep_cuts;
   // Label every year when there are few, decades plus the last one otherwise.
   $: lastYear = years.length > 0 ? years[years.length - 1].year : null;
   $: showYearLabel = (year: number): boolean =>
     years.length <= 8 || year % 5 === 0 || year === lastYear;
+  $: viewsThrough = insights.wikipedia_views_through
+    ? new Date(`${insights.wikipedia_views_through}T00:00:00`).toLocaleDateString('en-GB', {
+        month: 'short',
+        year: 'numeric'
+      })
+    : null;
   $: observedOn = insights.stats_observed_through
     ? new Date(`${insights.stats_observed_through}T00:00:00`).toLocaleDateString('en-GB', {
         day: 'numeric',
@@ -53,6 +69,9 @@
       <strong>{bandFor(allTime)}</strong>
       <span class="muted">
         The typical artist you play has {listenersText(allTime)} on Last.fm today.
+        {#if adjustedAllTime !== null}
+          Adjusted for when you played: {listenersText(adjustedAllTime)}.
+        {/if}
       </span>
     </div>
 
@@ -87,7 +106,25 @@
 
         {#if years.length > 1}
           <div class="block">
-            <h3>By year of play, with today's counts</h3>
+            <div class="block-head">
+              <h3>
+                By year of play, {showPlayed ? 'adjusted for when you played' : "with today's counts"}
+              </h3>
+              {#if hasAdjusted}
+                <div class="mode-toggle" role="group" aria-label="Listener counts in the year chart">
+                  <button
+                    type="button"
+                    class:active={yearMode === 'played'}
+                    aria-pressed={yearMode === 'played'}
+                    on:click={() => (yearMode = 'played')}>When played</button>
+                  <button
+                    type="button"
+                    class:active={yearMode === 'today'}
+                    aria-pressed={yearMode === 'today'}
+                    on:click={() => (yearMode = 'today')}>Today</button>
+                </div>
+              {/if}
+            </div>
             <div class="years">
               <div class="bars" role="img" aria-label="Typical artist listeners by year">
                 {#each years as bar (bar.year)}
@@ -108,7 +145,7 @@
             </div>
             {#if lowest}
               <p class="muted note">
-                Most underground year by today's counts:
+                Most underground year {showPlayed ? 'when played' : "by today's counts"}:
                 <span class="accent">{lowest.year}</span> ({listenersText(lowest.listeners)}).
               </p>
             {/if}
@@ -148,8 +185,17 @@
       Listener counts from
       <a href="https://www.last.fm" rel="noopener noreferrer" target="_blank">Last.fm</a>{observedOn
         ? ` as of ${observedOn}`
-        : ''}. They measure popularity today. Last.fm keeps no history, so a year here shows
-      how popular that year's music is now.
+        : ''}. They measure popularity today.
+      {#if hasAdjusted}
+        "When played" scales each artist's count by the attention their English Wikipedia
+        article had in the month you played, compared with the last 12 months (page views from
+        <a href="https://wikimedia.org/api/rest_v1/" rel="noopener noreferrer" target="_blank"
+          >Wikimedia</a
+        >{viewsThrough ? ` through ${viewsThrough}` : ''}). It is an estimate. Artists without an
+        article keep today's count.
+      {:else}
+        Last.fm keeps no history, so a year here shows how popular that year's music is now.
+      {/if}
     </p>
   </section>
 {/if}
@@ -194,6 +240,52 @@
 
   .block h3::before {
     content: '> ';
+  }
+
+  .block-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    margin-bottom: var(--space-3);
+  }
+
+  .block-head h3 {
+    margin: 0;
+  }
+
+  /* Same look as the homepage's 7/30-day toggle, one size down. */
+  .mode-toggle {
+    display: inline-flex;
+    border: 1px solid var(--line);
+  }
+
+  .mode-toggle button {
+    min-height: 0;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-left: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-sm);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .mode-toggle button:first-child {
+    border-left: 0;
+  }
+
+  .mode-toggle button:hover:not(.active) {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .mode-toggle button.active {
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 
   .note {

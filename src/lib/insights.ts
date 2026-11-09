@@ -1,4 +1,5 @@
 import type {
+  AdjustedPopularitySummary,
   HourTagBucket,
   HourTagPart,
   PopularityStripRow,
@@ -44,6 +45,20 @@ export function reliableMedian(summary: PopularitySummary | null | undefined): n
   if (summary.covered_plays < MIN_COVERED_PLAYS) return null;
   if (summary.plays === 0 || summary.covered_plays / summary.plays < MIN_COVERAGE) return null;
   return summary.median_artist_listeners;
+}
+
+/** The adjusted score is shown only when Wikipedia backs this share of plays. */
+export const MIN_ADJUSTED_SHARE = 0.5;
+
+/**
+ * The attention-adjusted median, or null when it is unreliable or when too few
+ * plays have a Wikipedia multiplier (it would then mostly repeat today's count).
+ */
+export function adjustedMedian(summary: AdjustedPopularitySummary | null | undefined): number | null {
+  const median = reliableMedian(summary);
+  if (median === null || !summary) return null;
+  if (summary.adjusted_plays / summary.covered_plays < MIN_ADJUSTED_SHARE) return null;
+  return median;
 }
 
 /** "950", "1.3k", "136k", "1.3M", "13M". One decimal only below ten units. */
@@ -110,14 +125,17 @@ export type YearBar = {
   band: PopularityBand;
   /** listeners / the highest year, in (0, 1]. */
   fraction: number;
-  /** The most underground year shown, by today's listener counts. */
+  /** The most underground year shown. */
   lowest: boolean;
 };
 
 /** Years with a reliable median, ascending, with bar heights. */
-export function buildYearSeries(years: PopularityYear[]): YearBar[] {
+export function buildYearSeries<Year extends PopularityYear>(
+  years: Year[],
+  median: (year: Year) => number | null = reliableMedian
+): YearBar[] {
   const reliable = years
-    .map((year) => ({ year: year.year, listeners: reliableMedian(year) }))
+    .map((year) => ({ year: year.year, listeners: median(year) }))
     .filter((year): year is { year: number; listeners: number } => year.listeners !== null)
     .sort((left, right) => left.year - right.year);
   if (reliable.length === 0) return [];
