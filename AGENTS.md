@@ -152,6 +152,30 @@ prioritizes entities whose remaining endpoints are actionable, so tracks
 waiting only on MusicBrainz cannot starve Last.fm work. Provider-wide failures
 do not consume per-entity retry budget.
 
+Last.fm popularity history comes from the same queue. The pg_cron job
+`snapshot-lastfm-artist-stats` (00:11 UTC on the 1st of each month, migration
+`20261109100000_monthly_lastfm_stats_snapshot.sql`) calls
+`enqueue_external_music_stats_snapshot('artist')`. That requeues finished
+artists with only `artist.info` removed from `last_result` and
+`stats_snapshot_on` set to the month. The worker skips terminal endpoints, so
+each artist gets one `artist.getInfo` call and a new `external_music_stats` row
+dated that day. Rows with `stats_snapshot_on` set claim after first-pass work.
+The sweep takes about 3 days of the hosted job (16.3k artists). `pnpm
+external:status` shows it under `stats_snapshots`. Tracks and albums are not
+scheduled because of database size; the function accepts them.
+
+Wikipedia page views give the popularity score its "when you played" variant
+(migration `20261109120000_wikipedia_attention.sql`, details in
+`docs/popularity-score-plan.md`). The `refresh-wikipedia-attention` Edge
+Function runs every 15 minutes from pg_cron, about 100 s per run: it links
+played artists to English articles through Wikidata P1902, adds same-name
+redirects, fetches monthly views, and calls `refresh_wikipedia_attention()`
+when nothing is left to fetch. Views are stored as one integer array per
+article to keep the database small. Use `pnpm wikipedia:attention` for a large
+backfill from a laptop and `--status` for progress; do not run it alongside a
+large hosted backlog. Wikimedia throttles parallel requests, so calls are
+serial at 0.75 s.
+
 The optional laptop runner and the Edge Function share the runtime-neutral processor in
 `supabase/functions/_shared/external-music-worker.ts`, while database claiming,
 singleton leases, retries, completed endpoint state, and run telemetry remain
@@ -195,6 +219,7 @@ supabase functions deploy spotify-callback --no-verify-jwt
 supabase functions deploy sync-due-users --no-verify-jwt
 supabase functions deploy enrich-backfill --no-verify-jwt
 supabase functions deploy enrich-external-metadata --no-verify-jwt
+supabase functions deploy refresh-wikipedia-attention --no-verify-jwt
 supabase functions deploy spotify-connect          # requires JWT
 supabase functions deploy complete-onboarding
 ```

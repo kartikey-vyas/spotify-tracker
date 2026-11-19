@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  adjustedMedian,
   bandFor,
   bandTicks,
   buildStrip,
@@ -8,6 +9,7 @@ import {
   formatListeners,
   hasHourTags,
   hourRange,
+  MIN_ADJUSTED_SHARE,
   MIN_COVERAGE,
   MIN_COVERED_PLAYS,
   POPULARITY_BANDS,
@@ -16,7 +18,11 @@ import {
   SCALE_MAX,
   SCALE_MIN
 } from '../../src/lib/insights.js';
-import type { HourTagBucket, PopularitySummary } from '../../src/lib/types.js';
+import type {
+  AdjustedPopularitySummary,
+  HourTagBucket,
+  PopularitySummary
+} from '../../src/lib/types.js';
 
 const summary = (median: number | null, covered = 1000, plays = covered): PopularitySummary => ({
   median_artist_listeners: median,
@@ -60,6 +66,25 @@ describe('reliableMedian', () => {
     expect(reliableMedian(undefined)).toBeNull();
     expect(reliableMedian(summary(null))).toBeNull();
     expect(reliableMedian(summary(1234, 0, 0))).toBeNull();
+  });
+});
+
+const adjustedSummary = (median: number, adjusted: number, covered = 1000): AdjustedPopularitySummary => ({
+  ...summary(median, covered),
+  adjusted_plays: adjusted
+});
+
+describe('adjustedMedian', () => {
+  it('needs the share of plays with a Wikipedia multiplier to reach the minimum', () => {
+    const covered = 1000;
+    const justEnough = Math.ceil(covered * MIN_ADJUSTED_SHARE);
+    expect(adjustedMedian(adjustedSummary(1234, justEnough, covered))).toBe(1234);
+    expect(adjustedMedian(adjustedSummary(1234, justEnough - 1, covered))).toBeNull();
+  });
+
+  it('applies the same reliability rule as the today score', () => {
+    expect(adjustedMedian(adjustedSummary(1234, MIN_COVERED_PLAYS - 1, MIN_COVERED_PLAYS - 1))).toBeNull();
+    expect(adjustedMedian(null)).toBeNull();
   });
 });
 
@@ -116,6 +141,22 @@ describe('buildStrip', () => {
 });
 
 describe('buildYearSeries', () => {
+  it('uses the given median rule, so adjusted years with little Wikipedia data drop out', () => {
+    const covered = 1000;
+    const enough = Math.ceil(covered * MIN_ADJUSTED_SHARE);
+    const bars = buildYearSeries(
+      [
+        { year: 2016, ...adjustedSummary(3_000_000, enough, covered) },
+        { year: 2017, ...adjustedSummary(9_000_000, enough - 1, covered) },
+        { year: 2018, ...adjustedSummary(1_500_000, covered, covered) }
+      ],
+      adjustedMedian
+    );
+    expect(bars.map((bar) => bar.year)).toEqual([2016, 2018]);
+    expect(bars.find((bar) => bar.lowest)?.year).toBe(2018);
+    expect(bars[0].fraction).toBe(1);
+  });
+
   it('keeps reliable years in order with heights relative to the highest year', () => {
     const series = buildYearSeries([
       { year: 2020, ...summary(1_000_000) },

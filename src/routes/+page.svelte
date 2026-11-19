@@ -305,10 +305,10 @@
     const listeners = reliableMedian(payload?.popularity.last_30_days);
     if (listeners === null) return null;
     return {
-      label: 'Popularity, 30 days',
+      label: 'Popular today, 30 days',
       value: bandFor(listeners),
       caption: 'Typical artist',
-      detail: `${formatListeners(listeners)} listeners`
+      detail: `${formatListeners(listeners)} listeners today`
     };
   }
 
@@ -589,8 +589,8 @@
     {#if insights && reliableMedian(insights.popularity.all_time) !== null}
       <section class="section-gap">
         <div class="section-heading">
-          <h2>How mainstream</h2>
-          <span class="muted">Last.fm listeners, all time</span>
+          <h2>How popular today</h2>
+          <span class="muted">Current Last.fm listeners, all your plays</span>
         </div>
         <PopularityPanel {insights} strip={popularityStrip} artistHref={deepCutArtistHref} />
       </section>

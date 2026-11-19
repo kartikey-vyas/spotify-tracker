@@ -15,6 +15,25 @@ export type ProviderDecision = {
   message?: string;
 };
 export type ProviderFailureOrigin = 'request' | 'provider' | 'circuit';
+export type ExternalEntityType = 'track' | 'artist' | 'album';
+
+export const EXTERNAL_ENTITY_TYPES: readonly ExternalEntityType[] = ['track', 'artist', 'album'];
+
+/** Every endpoint that must be terminal before a queue item counts as enriched. */
+export function requiredEndpoints(entityType: ExternalEntityType): string[] {
+  return entityType === 'track'
+    ? ['musicbrainz', 'track.info', 'track.tags', 'track.similar']
+    : [`${entityType}.info`, `${entityType}.tags`];
+}
+
+/**
+ * The endpoint whose response carries Last.fm listeners and playcount. The
+ * monthly stats snapshot (`enqueue_external_music_stats_snapshot`) clears only
+ * this endpoint, so the worker repeats the getInfo call and nothing else.
+ */
+export function statsEndpoint(entityType: ExternalEntityType): string {
+  return `${entityType}.info`;
+}
 
 /**
  * Retry limits protect us from repeatedly making an item-specific failing
